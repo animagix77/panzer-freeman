@@ -4,7 +4,7 @@ A low-poly, Sega-Saturn-flavoured 3D rail shooter that runs in a single HTML fil
 An eighty-nine-year-old man rides a dragon toward a machine that runs time backwards.
 Every drone he tears out of the sky peels a year off him. Every hit puts one back on.
 
-**[▶ Play it](https://ANIMAGIX.github.io/panzer-freeman/)** · no install, no download, works offline once loaded.
+**[▶ Play it](https://animagix77.github.io/panzer-freeman/)** · no install, no download, works offline once loaded.
 
 ![Title](docs/00-title.png)
 
