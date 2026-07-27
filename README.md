@@ -48,11 +48,15 @@ not a filter. Flat-shaded faces only, ordered-dither gradient skies quantised to
 **A dragon with a flight model.** Wingbeats are driven by an *effort* value derived
 from actual vertical velocity, so climbing costs work and diving is free:
 
-| | vertical speed | flap rate |
+| | vertical speed | wingbeats |
 |---|---|---|
-| level | 0 | 1.8 Hz |
-| climbing | +45 | **3.8 Hz** |
-| diving | −46 | **0.7 Hz** |
+| idle / level glide | 0 | 0.58/s — one every 1.7s |
+| climbing | +45 | **3.70/s** — one every 0.3s |
+| diving | −46 | **0.32/s** — one every 3.1s |
+
+A flap takes a fixed ~0.4s however often it comes, so at low effort the dragon
+holds an extended glide and flaps only occasionally, with jittered timing so idle
+beats aren't metronomic. Climbing is 6.4× the idle rate and 12× the dive rate.
 
 The beat is asymmetric — a fast powered downstroke, a slow recovery — and each
 downstroke fires an impulse into a damped spring, so the body genuinely lifts and
@@ -103,6 +107,8 @@ node tools/e2e-play.js        # full playthrough, screenshots, console errors
 node tools/e2e-endings.js     # pause, death and victory paths
 node tools/check-controls.js  # strafe/pitch directions in all four view rotations
 node tools/check-flight.js    # effort response to climb and dive, spring stability
+node tools/check-orientation.js   # roll/pitch/yaw measured against the camera basis
+node tools/check-flaprate.js  # real wingbeats per second of game time in each state
 node tools/check-lasers.js    # lock painting and volley behaviour
 node tools/check-music.js     # live sequencer tempo and per-stage track switching
 node tools/render-ost.js      # bounce the songs to WAV via OfflineAudioContext

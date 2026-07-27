@@ -502,15 +502,20 @@ function buildDragon() {
   // The wingbeat is driven by how hard the dragon is working: climbing costs
   // effort (fast, deep, powered beats), diving costs none (wings lock out and
   // it glides). A damped spring turns each downstroke into a real lift bob.
-  var wingPhase = 0, effort = 0.45, bob = 0, bobV = 0, surge = 0, surgeV = 0;
-  var pitchAim = 0;
+  var cycT = 0, periodJit = 0, beatFired = false;
+  var effort = 0.25, bob = 0, bobV = 0, surge = 0, surgeV = 0;
+  var pitchAim = 0, lastW = 0;
 
-  // asymmetric beat: a fast powered downstroke, a slower recovery
-  // returns +1 = wings raised, -1 = wings driven down
-  var DOWN = 0.34;
+  function sm(t) { return t * t * (3 - 2 * t); }
+  // One flap, normalised 0..1. Begins and ends at 0 = wings held out level,
+  // so between flaps the dragon simply glides instead of freezing mid-stroke.
+  //   0.00-0.18  raise      0 -> +1
+  //   0.18-0.50  power down +1 -> -1   (the fast bit that makes lift)
+  //   0.50-1.00  recover    -1 -> 0
   function beat(ph) {
-    if (ph < DOWN) { var u = ph / DOWN; return 1 - 2 * (u * u * (3 - 2 * u)); }
-    var v = (ph - DOWN) / (1 - DOWN); return -1 + 2 * (v * v * (3 - 2 * v));
+    if (ph < 0.18) return sm(ph / 0.18);
+    if (ph < 0.50) return 1 - 2 * sm((ph - 0.18) / 0.32);
+    return -1 + sm((ph - 0.50) / 0.50);
   }
 
   var api = {
@@ -518,7 +523,7 @@ function buildDragon() {
     headR: headR, face: F, setAge: setAge, wings: [wL, wR],
     muzzleT: 0, onBeat: null,
     getEffort: function () { return effort; },
-    getPhase: function () { return wingPhase; },
+    getPhase: function () { return cycT; },
     getBob: function () { return bob; },
     getSurge: function () { return surge; }
   };
@@ -528,23 +533,31 @@ function buildDragon() {
     var vyN = clamp(vy / 44, -1, 1);              // -1 diving .. +1 climbing
     var boost = st.boost || 0;
 
-    // ---- effort: climbing is work, descending is free -------------------
-    var effortT = clamp(0.45 + vyN * 0.95 + boost * 0.3, 0, 1.5);
+    // ---- effort: climbing is work, gliding down is free ------------------
+    var effortT = clamp(0.24 + vyN * 1.05 + boost * 0.3, 0, 1.5);
     effort = damp(effort, effortT, 3.2, dt);      // muscles lag the intent
     var eN = clamp(effort / 1.5, 0, 1);
 
-    // ---- wingbeat --------------------------------------------------------
-    var rate = 0.3 + effort * 3.1;                // beats/sec
-    var prevPh = wingPhase;
-    wingPhase += rate * dt;
-    var newBeat = false;
-    if (wingPhase >= 1) { wingPhase -= Math.floor(wingPhase); newBeat = true; }
-    var w = beat(wingPhase);
-    var stroking = wingPhase < DOWN;              // in the powered downstroke
+    // ---- wingbeat: a flap takes a fixed ~0.4s no matter how often it comes,
+    // so at low effort the dragon holds a glide and flaps only occasionally.
+    var rate = 0.12 + 2.6 * Math.pow(effort, 1.35);   // beats/sec
+    var period = 1 / rate + periodJit;
+    var flapDur = Math.min(period * 0.95, 0.34 + effort * 0.10);
+    cycT += dt;
+    if (cycT >= period) {
+      cycT -= period; if (cycT < 0 || cycT > period) cycT = 0;
+      beatFired = false;
+      // idle flaps shouldn't be metronomic
+      periodJit = effort < 0.4 ? rand(0, 1.4) : 0;
+    }
+    var ph = cycT / flapDur;
+    var w = ph >= 1 ? 0 : beat(ph);
+    var stroking = ph >= 0.18 && ph < 0.5;        // the powered part of the beat
 
-    // each downstroke shoves the body up and forward a little
-    if (newBeat) {
-      var power = 0.5 + effort * 1.25;
+    // the power stroke shoves the body up and forward
+    if (stroking && !beatFired) {
+      beatFired = true;
+      var power = 0.55 + effort * 1.2;
       bobV += 1.95 * power;
       surgeV += 1.05 * power;
       if (api.onBeat) api.onBeat(power, effort);
@@ -555,7 +568,7 @@ function buildDragon() {
     surge += surgeV * dt; surge = clamp(surge, -0.3, 0.3);
 
     // ---- wing pose -------------------------------------------------------
-    var amp = 0.28 + effort * 0.40;               // stroke depth
+    var amp = 0.30 + effort * 0.45;               // stroke depth
     var rest = 0.20 - eN * 0.16;                  // gliding wings sit flatter
     var sweep = (1 - eN) * 0.17;                  // and sweep back
     var flutter = (1 - eN) * 0.014;               // airflow judder in a glide
@@ -574,10 +587,13 @@ function buildDragon() {
     // ---- body ------------------------------------------------------------
     body.position.y = bob;
     body.position.z = surge;
-    body.rotation.z = damp(body.rotation.z, -(st.strafeX || 0) * 0.5, 6, dt);
-    pitchAim = damp(pitchAim, vyN * 0.34, 4.5, dt);
-    body.rotation.x = pitchAim + (stroking ? -0.02 : 0.012);
-    body.rotation.y = damp(body.rotation.y, (st.strafeX || 0) * 0.1, 5, dt);
+    // bank INTO the turn: moving screen-right drops the right wing
+    body.rotation.z = damp(body.rotation.z, (st.strafeX || 0) * 0.62, 7, dt);
+    // nose up on the climb, nose down in the dive
+    pitchAim = damp(pitchAim, -vyN * 0.40, 4.5, dt);
+    body.rotation.x = pitchAim + (stroking ? -0.03 : 0.014);
+    // and the nose leads the turn a little
+    body.rotation.y = damp(body.rotation.y, -(st.strafeX || 0) * 0.13, 5, dt);
 
     // ---- neck: reaches forward in a dive, rears up on a climb ------------
     for (var i = 0; i < necks.length; i++) {
