@@ -29,6 +29,71 @@ function membrane(pts) {
   return g;
 }
 
+// A tapered tube through a list of cross-sections. Superelliptic sections give
+// a creature-like profile (flattish back and belly) rather than a plain pipe,
+// and the belly is tinted through vertex colour so there's no seam.
+function tube(sections, radial, belly, back) {
+  var pos = [], col = [], i, j;
+  var K = 1.45;
+  function pt(si, ai) {
+    var sec = sections[si];
+    var a = ai / radial * TAU;
+    var c = Math.cos(a), sn = Math.sin(a);
+    var sx = c < 0 ? -1 : 1, sy = sn < 0 ? -1 : 1;
+    return [
+      sx * Math.pow(Math.abs(c), 2 / K) * sec.rx,
+      sy * Math.pow(Math.abs(sn), 2 / K) * sec.ry + (sec.y || 0),
+      sec.z
+    ];
+  }
+  function shade(ai) {                       // 0 at the spine, 1 under the belly
+    var sn = Math.sin(ai / radial * TAU);
+    return clamp(-sn * 0.5 + 0.5, 0, 1);
+  }
+  function push(v, ai) {
+    pos.push(v[0], v[1], v[2]);
+    var f = shade(ai), r = back, g = belly;
+    col.push(r.r + (g.r - r.r) * f, r.g + (g.g - r.g) * f, r.b + (g.b - r.b) * f);
+  }
+  function tri(a, ai, b, bi, c, ci) { push(a, ai); push(b, bi); push(c, ci); }
+  for (i = 0; i < sections.length - 1; i++) {
+    for (j = 0; j < radial; j++) {
+      var a0 = pt(i, j), a1 = pt(i, j + 1), b0 = pt(i + 1, j), b1 = pt(i + 1, j + 1);
+      tri(a0, j, b0, j, b1, j + 1);
+      tri(a0, j, b1, j + 1, a1, j + 1);
+    }
+  }
+  // caps
+  var first = sections[0], last = sections[sections.length - 1];
+  var cf = [0, first.y || 0, first.z], cl = [0, last.y || 0, last.z];
+  for (j = 0; j < radial; j++) {
+    tri(cf, radial / 2, pt(0, j + 1), j + 1, pt(0, j), j);
+    tri(cl, radial / 2, pt(sections.length - 1, j), j, pt(sections.length - 1, j + 1), j + 1);
+  }
+  var g2 = new THREE.BufferGeometry();
+  g2.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g2.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g2.computeVertexNormals();
+  return g2;
+}
+function hullMat(shine) {
+  var m = new THREE.MeshPhongMaterial({
+    vertexColors: true, flatShading: true, shininess: shine || 14, specular: 0x243c40
+  });
+  P.retroPatch(m);
+  return m;
+}
+// a tapered bone between two points
+function bone(a, b, r1, r2, mat) {
+  var A = new V3(a[0], a[1], a[2]), B = new V3(b[0], b[1], b[2]);
+  var len = A.distanceTo(B);
+  var m = mesh(cyl(r2, r1, len, 5), mat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.lookAt(B);
+  m.rotateX(-Math.PI * 0.5);
+  return m;
+}
+
 // ============================================================== THE DRAGON
 var DRAGON_COL = {
   hide:  0x1f6f74,
@@ -49,71 +114,166 @@ function buildDragon() {
   var mPlate = M(DRAGON_COL.plate, { shine: 26, spec: 0x554070 });
   var mBelly = M(DRAGON_COL.belly);
   var mWing = M(DRAGON_COL.wing, { side: THREE.DoubleSide, shine: 6 });
+  var mWing2 = M(0xa63a70, { side: THREE.DoubleSide, shine: 5 });
+  var mWing3 = M(0x8c2f5e, { side: THREE.DoubleSide, shine: 4 });
+  var mSpar = M(0xb9a37e, { side: THREE.DoubleSide, shine: 18 });
   var mClaw = M(DRAGON_COL.claw);
 
-  // ---- torso: three tapering hull segments
-  var t1 = mesh(box(2.5, 1.9, 3.4), mHide); t1.position.set(0, 0, 0.2); body.add(t1);
-  var t2 = mesh(box(2.0, 1.5, 2.2), mHide); t2.position.set(0, -0.05, -1.9); body.add(t2);
-  var t0 = mesh(box(2.1, 1.6, 1.6), mHide); t0.position.set(0, 0.1, 2.2); body.add(t0);
-  var belly = mesh(box(1.7, 0.5, 4.4), mBelly); belly.position.set(0, -0.9, 0.1); body.add(belly);
+  // ---- torso: one tapered hull, deep at the chest, narrowing to the hips
+  var cBack = new THREE.Color(DRAGON_COL.hide);
+  var cBelly = new THREE.Color(DRAGON_COL.belly);
+  var mHull = hullMat(16);
+  var torsoGeo = tube([
+    { z: -3.30, rx: 0.40, ry: 0.38, y:  0.06 },
+    { z: -2.40, rx: 0.74, ry: 0.66, y:  0.02 },
+    { z: -1.20, rx: 1.08, ry: 0.90, y: -0.06 },
+    { z:  0.00, rx: 1.30, ry: 1.02, y: -0.06 },
+    { z:  1.10, rx: 1.36, ry: 1.12, y:  0.00 },
+    { z:  2.10, rx: 1.12, ry: 0.96, y:  0.10 },
+    { z:  2.95, rx: 0.74, ry: 0.68, y:  0.24 },
+    { z:  3.45, rx: 0.50, ry: 0.47, y:  0.32 }
+  ], 10, cBelly, cBack);
+  body.add(mesh(torsoGeo, mHull));
 
-  // dorsal spine plates
-  for (var i = 0; i < 6; i++) {
-    var f = mesh(tet(0.42), mPlate);
-    f.position.set(0, 1.0 - i * 0.04, 2.2 - i * 0.95);
-    f.rotation.set(Math.PI * 0.5, 0, Math.PI * 0.25);
-    f.scale.set(0.5, 1, 1.2 - i * 0.08);
-    body.add(f);
-  }
-
-  // ---- neck (4 segs) + head
-  var neck = new THREE.Group(); neck.position.set(0, 0.55, 2.9); body.add(neck);
-  var necks = [];
-  var parent = neck;
-  for (var n = 0; n < 4; n++) {
-    var seg = new THREE.Group(); seg.position.z = n === 0 ? 0 : 1.05;
-    var m0 = mesh(box(1.05 - n * 0.11, 1.0 - n * 0.1, 1.15), n % 2 ? mHide2 : mHide);
-    m0.position.z = 0.5; seg.add(m0);
-    parent.add(seg); necks.push(seg); parent = seg;
-  }
-  var head = new THREE.Group(); head.position.z = 1.0; parent.add(head);
-  var skull = mesh(box(0.95, 0.85, 1.5), mHide); skull.position.z = 0.6; head.add(skull);
-  var snout = mesh(cone(0.5, 1.3, 4), mHide2);
-  snout.rotation.x = Math.PI * 0.5; snout.position.set(0, -0.08, 1.75); head.add(snout);
-  var jaw = mesh(box(0.62, 0.24, 1.0), mBelly); jaw.position.set(0, -0.38, 1.5); head.add(jaw);
-  [-1, 1].forEach(function (s) {
-    var horn = mesh(cone(0.16, 1.1, 4), mClaw);
-    horn.position.set(s * 0.36, 0.62, 0.35);
-    horn.rotation.set(-0.55, 0, s * 0.28); head.add(horn);
-    var eye = mesh(oct(0.16), G(DRAGON_COL.eye));
-    eye.position.set(s * 0.47, 0.16, 1.15); eye.scale.set(0.6, 1, 1); head.add(eye);
+  // shoulder and hip masses so the limbs have something to grow out of
+  [-1, 1].forEach(function (sd) {
+    var sh = mesh(ico(0.62, 0), mHide2);
+    sh.position.set(sd * 0.95, 0.42, 1.35); sh.scale.set(0.9, 0.85, 1.15); body.add(sh);
+    var hp = mesh(ico(0.52, 0), mHide2);
+    hp.position.set(sd * 0.82, -0.18, -1.30); hp.scale.set(0.85, 0.9, 1.05); body.add(hp);
   });
 
-  // ---- wings
+  // dorsal ridge — plates that shrink and lean back along the spine
+  for (var i = 0; i < 9; i++) {
+    var f2 = i / 8;
+    var pl = mesh(tet(0.40), mPlate);
+    pl.position.set(0, 1.02 - f2 * 0.28 + Math.sin(f2 * 3.1) * 0.06, 2.5 - i * 0.72);
+    pl.rotation.set(Math.PI * 0.5, 0, Math.PI * 0.25);
+    pl.scale.set(0.42, 0.55 + Math.sin(f2 * 3.1) * 0.7, 1.0);
+    body.add(pl);
+  }
+
+  // ---- neck: five tapering segments, then a proper skull -----------------
+  var neck = new THREE.Group(); neck.position.set(0, 0.68, 3.15); body.add(neck);
+  var necks = [];
+  var parent = neck;
+  var NSEG = 5;
+  for (var n = 0; n < NSEG; n++) {
+    var seg = new THREE.Group(); seg.position.z = n === 0 ? 0 : 0.86;
+    var r0 = 0.50 - n * 0.052, r1 = 0.50 - (n + 1) * 0.052;
+    seg.add(mesh(tube([
+      { z: 0.00, rx: r0 * 1.05, ry: r0 },
+      { z: 0.46, rx: (r0 + r1) * 0.53, ry: (r0 + r1) * 0.5 },
+      { z: 0.90, rx: r1 * 1.05, ry: r1 }
+    ], 8, cBelly, cBack), mHull));
+    // a small plate riding each vertebra
+    var np = mesh(tet(0.2), mPlate);
+    np.position.set(0, r0 * 0.95, 0.42);
+    np.rotation.set(Math.PI * 0.5, 0, Math.PI * 0.25);
+    np.scale.set(0.34, 0.75, 0.9); seg.add(np);
+    parent.add(seg); necks.push(seg); parent = seg;
+  }
+
+  var head = new THREE.Group(); head.position.z = 0.86; parent.add(head);
+  // cranium tapering into a long snout
+  head.add(mesh(tube([
+    { z: -0.10, rx: 0.30, ry: 0.30, y: 0.00 },
+    { z:  0.35, rx: 0.46, ry: 0.44, y: 0.02 },
+    { z:  0.80, rx: 0.44, ry: 0.40, y: 0.00 },
+    { z:  1.30, rx: 0.32, ry: 0.28, y: -0.04 },
+    { z:  1.90, rx: 0.24, ry: 0.21, y: -0.08 },
+    { z:  2.25, rx: 0.15, ry: 0.14, y: -0.11 }
+  ], 8, cBelly, cBack), mHull));
+  // brow ridge and cheeks
+  [-1, 1].forEach(function (sd) {
+    var brow = mesh(tet(0.26), mHide2);
+    brow.position.set(sd * 0.30, 0.30, 0.62);
+    brow.rotation.set(0.5, sd * 0.4, 0); brow.scale.set(1, 0.7, 1.5); head.add(brow);
+    var cheek = mesh(tet(0.24), mHide2);
+    cheek.position.set(sd * 0.36, -0.10, 0.45);
+    cheek.rotation.set(-0.3, sd * 0.6, 0); cheek.scale.set(1, 0.9, 1.2); head.add(cheek);
+    // swept-back horns
+    var hn = bone([sd * 0.26, 0.42, 0.30], [sd * 0.62, 0.86, -0.92], 0.13, 0.02, mClaw);
+    head.add(hn);
+    var hn2 = bone([sd * 0.34, 0.10, 0.20], [sd * 0.70, 0.20, -0.62], 0.08, 0.015, mClaw);
+    head.add(hn2);
+    // eye set into the socket
+    var eye = mesh(oct(0.15), G(DRAGON_COL.eye));
+    eye.position.set(sd * 0.38, 0.16, 0.82); eye.scale.set(0.55, 1, 0.9); head.add(eye);
+  });
+  // lower jaw, hinged at the back so it can be opened later
+  var jaw = new THREE.Group(); jaw.position.set(0, -0.22, 0.45); head.add(jaw);
+  jaw.add(mesh(tube([
+    { z: 0.00, rx: 0.30, ry: 0.15 },
+    { z: 0.70, rx: 0.24, ry: 0.13 },
+    { z: 1.45, rx: 0.15, ry: 0.10 },
+    { z: 1.80, rx: 0.09, ry: 0.07 }
+  ], 6, cBelly, cBelly), mHull));
+  // teeth along the upper jaw line
+  for (var tt = 0; tt < 5; tt++) {
+    [-1, 1].forEach(function (sd) {
+      var tooth = mesh(cone(0.045, 0.17, 4), mClaw);
+      tooth.position.set(sd * (0.20 - tt * 0.022), -0.20 - tt * 0.012, 0.95 + tt * 0.26);
+      tooth.rotation.x = Math.PI;
+      head.add(tooth);
+    });
+  }
+  // nostrils
+  [-1, 1].forEach(function (sd) {
+    var nos = mesh(oct(0.05), mHide2);
+    nos.position.set(sd * 0.09, -0.02, 2.10); head.add(nos);
+  });
+
+  // ---- wings: humerus, forearm and four finger spars carrying a scalloped
+  // membrane, the way a bat or a dragon actually folds together.
   function wing(side) {
     var w = new THREE.Group();
-    w.position.set(side * 1.15, 0.55, 0.5);
-    var arm = mesh(box(3.4, 0.2, 0.3), mHide);
-    arm.position.set(side * 1.7, 0, 0); w.add(arm);
-    var arm2 = mesh(box(2.6, 0.16, 0.24), mHide);
-    arm2.position.set(side * 4.4, 0.35, -0.7); arm2.rotation.z = side * 0.28; w.add(arm2);
-    var mem = mesh(membrane([
-      [side * 0.2, -0.14, 0.5],
-      [side * 1.9, -0.19, 0.6],
-      [side * 3.6, -0.09, 0.2],
-      [side * 6.1, 0.31, -0.6],
-      [side * 4.6, -0.29, -2.8],
-      [side * 2.5, -0.34, -3.3],
-      [side * 0.4, -0.24, -2.2]
-    ]), mWing);
+    w.position.set(side * 1.00, 0.34, 0.80);
+
+    var S  = [0, 0, 0];                       // shoulder
+    var E  = [side * 2.40, 0.22, -0.35];      // elbow
+    var W2 = [side * 4.70, 0.58, -1.05];      // wrist
+    var F1 = [side * 7.05, 0.98, -0.55];      // leading finger
+    var F2 = [side * 6.80, 0.40, -2.60];
+    var F3 = [side * 5.55, -0.12, -4.20];
+    var F4 = [side * 3.60, -0.48, -5.05];     // trailing finger
+    var A  = [side * -0.45, -0.28, -2.70];    // membrane root, tucked into the flank
+
+    // arm bones, then four finger spars — thick and pale so they read as
+    // structure against the membrane rather than disappearing into it
+    w.add(bone(S, E, 0.23, 0.17, mHide));
+    w.add(bone(E, W2, 0.17, 0.13, mHide));
+    var knuckle = mesh(ico(0.20, 0), mHide2);
+    knuckle.position.set(W2[0], W2[1], W2[2]); w.add(knuckle);
+    [F1, F2, F3, F4].forEach(function (F, fi) {
+      w.add(bone(W2, F, 0.145 - fi * 0.012, 0.040, mSpar));
+    });
+    w.add(bone(W2, [side * 5.30, 1.12, -0.45], 0.075, 0.014, mClaw));   // thumb claw
+
+    // trailing edges bow inward between the fingertips, two points per span
+    // so the scallops actually curve
+    function mix(a, b, u) {
+      return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+    }
+    function pull(p, toward, k) {
+      return [p[0] + (toward[0] - p[0]) * k, p[1] + (toward[1] - p[1]) * k,
+              p[2] + (toward[2] - p[2]) * k];
+    }
+    function panel(a, b, hub, k, mat) {
+      return mesh(membrane([hub, a,
+        pull(mix(a, b, 0.34), hub, k), pull(mix(a, b, 0.68), hub, k), b]), mat);
+    }
+
+    var mem = new THREE.Group();
+    mem.add(mesh(membrane([S, E, W2, F1]), mWing));            // leading edge
+    mem.add(panel(F1, F2, W2, 0.26, mWing));
+    mem.add(panel(F2, F3, W2, 0.28, mWing2));
+    mem.add(panel(F3, F4, W2, 0.30, mWing2));
+    // inner membrane sweeping back to the flank
+    mem.add(mesh(membrane([A, E, W2, F4,
+      pull(mix(F4, A, 0.4), E, 0.22), pull(mix(F4, A, 0.75), E, 0.14)]), mWing3));
     w.add(mem);
     w.userData.mem = mem;
-    for (var k = 0; k < 3; k++) {
-      var rib = mesh(box(2.2, 0.09, 0.1), mHide);
-      rib.position.set(side * (1.4 + k * 0.5), 0.05, -0.7 - k * 0.7);
-      rib.rotation.y = side * (0.35 + k * 0.22);
-      w.add(rib);
-    }
     return w;
   }
   var wL = wing(-1), wR = wing(1);
@@ -131,23 +291,41 @@ function buildDragon() {
     }
   });
 
-  // ---- tail (7 segs)
+  // ---- tail: eight tapering segments with a ridge running down them
   var tailSegs = [];
-  var tp = body, tail0 = new THREE.Group(); tail0.position.set(0, 0.05, -2.9); body.add(tail0); tp = tail0;
-  for (var ti = 0; ti < 7; ti++) {
-    var ts = new THREE.Group(); ts.position.z = ti === 0 ? 0 : -0.92;
-    var tm = mesh(box(0.95 - ti * 0.11, 0.85 - ti * 0.1, 1.0), ti % 2 ? mHide2 : mHide);
-    tm.position.z = -0.45; ts.add(tm);
-    if (ti > 2) {
-      var fin = mesh(tet(0.3), mPlate);
-      fin.position.set(0, 0.4, -0.4); fin.rotation.set(Math.PI * 0.5, 0, Math.PI * 0.25);
-      fin.scale.set(0.4, 1, 1); ts.add(fin);
-    }
+  var tp = body, tail0 = new THREE.Group(); tail0.position.set(0, 0.08, -3.15); body.add(tail0); tp = tail0;
+  var TSEG = 8;
+  for (var ti = 0; ti < TSEG; ti++) {
+    var ts = new THREE.Group(); ts.position.z = ti === 0 ? 0 : -0.80;
+    var q0 = ti / TSEG, q1 = (ti + 1) / TSEG;
+    var ra = 0.44 * Math.pow(1 - q0, 0.85) + 0.05;
+    var rb = 0.44 * Math.pow(1 - q1, 0.85) + 0.05;
+    ts.add(mesh(tube([
+      { z:  0.00, rx: ra * 1.05, ry: ra },
+      { z: -0.42, rx: (ra + rb) * 0.53, ry: (ra + rb) * 0.5 },
+      { z: -0.84, rx: rb * 1.05, ry: rb }
+    ], 7, cBelly, cBack), mHull));
+    var fin = mesh(tet(0.30), mPlate);
+    fin.position.set(0, ra * 0.92, -0.40);
+    fin.rotation.set(Math.PI * 0.5, 0, Math.PI * 0.25);
+    fin.scale.set(0.34, 0.5 + (1 - q0) * 0.8, 0.95);
+    ts.add(fin);
     tp.add(ts); tailSegs.push(ts); tp = ts;
   }
-  var tailFin = mesh(membrane([
-    [0, 0, -0.2], [0.9, 0.9, -1.6], [0.35, 0.1, -2.2], [-0.35, 0.1, -2.2], [-0.9, 0.9, -1.6]
-  ]), mWing);
+  // tail vane
+  var tailFin = new THREE.Group();
+  tailFin.add(mesh(membrane([
+    [0, 0.02, 0.05], [0.62, 0.95, -0.85], [0.30, 0.30, -1.75], [0, 0.06, -2.05]
+  ]), mWing));
+  tailFin.add(mesh(membrane([
+    [0, 0.02, 0.05], [0, 0.06, -2.05], [-0.30, 0.30, -1.75], [-0.62, 0.95, -0.85]
+  ]), mWing));
+  tailFin.add(mesh(membrane([
+    [0, -0.02, 0.05], [-0.48, -0.62, -0.90], [0, -0.06, -1.60]
+  ]), mWing));
+  tailFin.add(mesh(membrane([
+    [0, -0.02, 0.05], [0, -0.06, -1.60], [0.48, -0.62, -0.90]
+  ]), mWing));
   tp.add(tailFin);
 
   // ============================================================ THE RIDER
@@ -506,6 +684,15 @@ function buildDragon() {
   var effort = 0.25, bob = 0, bobV = 0, surge = 0, surgeV = 0;
   var pitchAim = 0, lastW = 0;
 
+  // ---- tail: a lagging spring chain ------------------------------------
+  // Each joint keeps its own heading when the joint ahead of it turns, then
+  // springs back into line. The result is a travelling wave down the tail:
+  // it trails behind the body and whips, instead of steering with it.
+  var TN = tailSegs.length;
+  var tY = new Float32Array(TN), tVY = new Float32Array(TN);
+  var tX = new Float32Array(TN), tVX = new Float32Array(TN);
+  var prevRootYaw = 0, prevBodyYaw = 0, prevBodyPitch = 0, prevBodyRoll = 0;
+
   function sm(t) { return t * t * (3 - 2 * t); }
   // One flap, normalised 0..1. Begins and ends at 0 = wings held out level,
   // so between flaps the dragon simply glides instead of freezing mid-stroke.
@@ -520,7 +707,7 @@ function buildDragon() {
 
   var api = {
     root: root, body: body, rider: rider, head: head, gun: gun, muzzle: muzzle,
-    headR: headR, face: F, setAge: setAge, wings: [wL, wR],
+    headR: headR, face: F, setAge: setAge, wings: [wL, wR], tail: tailSegs,
     muzzleT: 0, onBeat: null,
     getEffort: function () { return effort; },
     getPhase: function () { return cycT; },
@@ -604,12 +791,40 @@ function buildDragon() {
     }
     head.rotation.x = Math.sin(t * 1.2) * 0.05 - vyN * 0.10;
 
-    // ---- tail: trails the motion, whips harder under power ---------------
-    var tAmp = 0.10 + eN * 0.14;
-    for (var j = 0; j < tailSegs.length; j++) {
-      tailSegs[j].rotation.y = Math.sin(t * (1.9 + eN * 1.4) - j * 0.62) * tAmp
-                             + (st.strafeX || 0) * 0.07;
-      tailSegs[j].rotation.x = Math.sin(t * 1.7 - j * 0.4) * 0.05 - vyN * 0.05 - w * 0.02;
+    // ---- tail: lagging chain + organic waver ------------------------------
+    // How much the dragon rotated this frame. The tail doesn't get told about
+    // the turn — it only feels it as its parent moving out from under it.
+    var dRoot  = P.angDelta(prevRootYaw, root.rotation.y);   prevRootYaw  = root.rotation.y;
+    var dYaw   = body.rotation.y - prevBodyYaw;              prevBodyYaw  = body.rotation.y;
+    var dPitch = body.rotation.x - prevBodyPitch;            prevBodyPitch = body.rotation.x;
+    var dRoll  = body.rotation.z - prevBodyRoll;             prevBodyRoll = body.rotation.z;
+
+    // rotation handed down the chain, plus drag from sideways/vertical travel
+    var wY = clamp(dRoot * 0.5 + dYaw, -0.2, 0.2) + (st.strafeX || 0) * dt * 2.4;
+    var wX = clamp(dPitch, -0.2, 0.2) + vyN * dt * 1.4 - bobV * dt * 0.05;
+    var K = 44, D = 6.5, INER = 0.88;
+
+    for (var j = 0; j < TN; j++) {
+      // inertia: hold world heading while the parent swings away
+      tY[j] -= wY * INER;
+      tX[j] -= wX * INER;
+      var oy = tY[j], ox = tX[j];
+      // spring back into line with the parent
+      tVY[j] += (-tY[j]) * K * dt;  tVY[j] *= Math.exp(-D * dt);
+      tVX[j] += (-tX[j]) * K * dt;  tVX[j] *= Math.exp(-D * dt);
+      tY[j] += tVY[j] * dt;  tX[j] += tVX[j] * dt;
+      tY[j] = clamp(tY[j], -0.34, 0.34);
+      tX[j] = clamp(tX[j], -0.30, 0.30);
+      // a slow waver from two incommensurate frequencies, so it never repeats
+      var wav1 = Math.sin(t * 1.31 + j * 0.74) * 0.55 + Math.sin(t * 0.57 + j * 1.27) * 0.45;
+      var wav2 = Math.sin(t * 0.97 + j * 1.11) * 0.60 + Math.sin(t * 1.73 + j * 0.41) * 0.40;
+      var amp = (0.030 + eN * 0.045) * (0.55 + j / TN);   // freer toward the tip
+      tailSegs[j].rotation.y = tY[j] + wav1 * amp;
+      tailSegs[j].rotation.x = tX[j] + wav2 * amp * 0.7 + 0.014;  // hangs a little
+      tailSegs[j].rotation.z = -dRoll * 0.5 * (1 - j / TN);       // lags the roll too
+      // this joint's own swing is what the next one feels
+      wY += tY[j] - oy;
+      wX += tX[j] - ox;
     }
 
     // ---- rider aims the cannon toward the reticle ------------------------

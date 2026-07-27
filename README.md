@@ -23,6 +23,8 @@ inlined, and it runs with the network unplugged.
 | ![Rider](docs/01-rider.png) | ![Canyon](docs/02-canyon.png) |
 | ![Lasers](docs/03-lasers.png) | ![Boss](docs/05-boss.png) |
 
+![The dragon](docs/06-model.png)
+
 ## Controls
 
 | Key | Action |
@@ -61,7 +63,16 @@ beats aren't metronomic. Climbing is 6.4× the idle rate and 12× the dive rate.
 The beat is asymmetric — a fast powered downstroke, a slow recovery — and each
 downstroke fires an impulse into a damped spring, so the body genuinely lifts and
 settles. Gliding flattens and sweeps the wings back; climbing cups them forward.
-Altitude trades for airspeed in both directions.
+Altitude trades for airspeed in both directions. The body banks into its turns,
+pitches with its climb, and yaws so the nose leads — all three verified by
+measuring the model's world orientation against the camera basis, because every
+one of them was silently inverted at first.
+
+**A tail that trails.** The tail isn't told about the turn. It's a chain of
+spring joints, each of which keeps its own heading when the joint ahead of it
+swings away, then springs back into line — so a turn sends a travelling wave down
+it and the tip whips out behind. Two incommensurate sine pairs add a slow waver
+that never quite repeats, freer toward the tip.
 
 **Panzer Dragoon lock-on.** Sweeping the reticle stacks locks (a big target soaks
 several), and the volley launches in a wide fan before the homing tightens and curls
@@ -109,6 +120,8 @@ node tools/check-controls.js  # strafe/pitch directions in all four view rotatio
 node tools/check-flight.js    # effort response to climb and dive, spring stability
 node tools/check-orientation.js   # roll/pitch/yaw measured against the camera basis
 node tools/check-flaprate.js  # real wingbeats per second of game time in each state
+node tools/check-tail.js      # confirms the tail trails the turn instead of steering it
+node tools/model-viewer.js    # isolated turntable renders of the dragon
 node tools/check-lasers.js    # lock painting and volley behaviour
 node tools/check-music.js     # live sequencer tempo and per-stage track switching
 node tools/render-ost.js      # bounce the songs to WAV via OfflineAudioContext
