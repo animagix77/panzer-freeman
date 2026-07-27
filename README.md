@@ -13,10 +13,11 @@ Every drone he tears out of the sky peels a year off him. Every hit puts one bac
 ## What it is
 
 A tribute to **Panzer Dragoon** (Sega Saturn, 1995) — the rail flight, the four-way
-view rotation, the sweep-to-paint lock-on volleys — with a soundtrack aimed squarely
-at **Lords of Thunder** (PC Engine CD). Everything is generated at runtime: no models,
-no textures, no audio files. The whole game is one 750 KB HTML file with Three.js
-inlined, and it runs with the network unplugged.
+view rotation, the sweep-to-paint lock-on volleys — drawn as clean low-poly rather
+than as a Saturn emulation, with a soundtrack aimed squarely at **Lords of Thunder**
+(PC Engine CD). Everything is generated at runtime: no models, no textures, no audio
+files. The whole game is one 750 KB HTML file with Three.js inlined, and it runs with
+the network unplugged.
 
 | | |
 |---|---|
@@ -41,11 +42,17 @@ inlined, and it runs with the network unplugged.
 
 ## The interesting bits
 
-**Saturn-accurate rendering.** The 3D is drawn into a ~400×232 buffer and
-nearest-neighbour upscaled. Every material gets a shader patch that snaps vertices to
-a coarse clip-space grid — the wobble is the real 90s-console integer-math artifact,
-not a filter. Flat-shaded faces only, ordered-dither gradient skies quantised to
-15-bit colour, heavy fog, CRT scanlines on top.
+**Clean low-poly rendering.** Everything is drawn at display resolution with MSAA:
+hard flat-shaded facets, no textures, no smoothing. Skies are ordered-dithered
+gradients — the dither is there to kill 8-bit banding, not to fake it. Terrain splits
+each cell on an alternating diagonal so slopes face in a scattered mosaic instead of
+developing long directional slivers. A whisper of scanline and a soft vignette are all
+that's left of the CRT pass.
+
+An earlier build emulated the Saturn outright — a 400×232 buffer, nearest upscaled,
+with a shader patch snapping vertices to a coarse clip-space grid to reproduce the
+90s integer-math wobble. That code is still there behind `VERTEX_SNAP` in
+`p1_core.js` if you want the jitter back.
 
 **A dragon with a flight model.** Wingbeats are driven by an *effort* value derived
 from actual vertical velocity, so climbing costs work and diving is free:
@@ -79,6 +86,11 @@ several), and the volley launches in a wide fan before the homing tightens and c
 each bolt onto its target. Each bolt drags an additively-blended ribbon trail whose
 anchors are laid down *by distance travelled*, so the streak is the same length at
 30fps or 144.
+
+**A title theme that walks the band in.** "The Sky Still Owes Him" opens on a bare
+swelling pad, answers it with one clean guitar line, then rides a tom ramp into the
+full hook — it carries straight through the opening cinematic and hands off to the
+stage music the moment gameplay starts.
 
 **A synthesized rock band.** Five original tracks, no samples. Notes sum into shared
 distortion channels *before* the waveshaper so power chords intermodulate the way a

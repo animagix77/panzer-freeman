@@ -16,6 +16,39 @@ function tet(r) { return new THREE.TetrahedronGeometry(r, 0); }
 function tor(r, t, a, b) { return new THREE.TorusGeometry(r, t, a || 4, b || 12); }
 function mesh(g, m) { return new THREE.Mesh(g, m); }
 
+// A wing sail: one continuous fan from a hub inside a closed outline. Because
+// the outline is star-shaped about the hub, the fan can't leave gaps between
+// panels — the whole membrane is a single airtight surface. Dropping the hub
+// below the outline plane gives it camber, so it reads as a taut sail rather
+// than a flat kite. Vertex colour darkens toward the trailing edge.
+function sail(outline, hub, cLead, cTrail) {
+  var pos = [], col = [], i;
+  var far = 0;
+  for (i = 0; i < outline.length; i++) {
+    var d = Math.abs(outline[i][3] === undefined ? 0 : outline[i][3]);
+    if (d > far) far = d;
+  }
+  function push(p, shade) {
+    pos.push(p[0], p[1], p[2]);
+    col.push(cLead.r + (cTrail.r - cLead.r) * shade,
+             cLead.g + (cTrail.g - cLead.g) * shade,
+             cLead.b + (cTrail.b - cLead.b) * shade);
+  }
+  // shade channel rides in slot 3 of each outline point (0 = leading, 1 = trailing)
+  for (i = 0; i < outline.length - 1; i++) {
+    var a = outline[i], b = outline[i + 1];
+    var sa = a[3] === undefined ? 0.5 : a[3], sb = b[3] === undefined ? 0.5 : b[3];
+    push(hub, (sa + sb) * 0.5 * 0.55);
+    push(a, sa);
+    push(b, sb);
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
 // triangle strip wing membrane
 function membrane(pts) {
   var g = new THREE.BufferGeometry(), v = [];
@@ -84,10 +117,10 @@ function hullMat(shine) {
   return m;
 }
 // a tapered bone between two points
-function bone(a, b, r1, r2, mat) {
+function bone(a, b, r1, r2, mat, sides) {
   var A = new V3(a[0], a[1], a[2]), B = new V3(b[0], b[1], b[2]);
   var len = A.distanceTo(B);
-  var m = mesh(cyl(r2, r1, len, 5), mat);
+  var m = mesh(cyl(r2, r1, len, sides || 5), mat);
   m.position.copy(A).add(B).multiplyScalar(0.5);
   m.lookAt(B);
   m.rotateX(-Math.PI * 0.5);
@@ -96,10 +129,10 @@ function bone(a, b, r1, r2, mat) {
 
 // ============================================================== THE DRAGON
 var DRAGON_COL = {
-  hide:  0x1f6f74,
-  hide2: 0x14484f,
+  hide:  0x2c8b90,
+  hide2: 0x1d6069,
   plate: 0x7d4bb5,
-  belly: 0xd9b871,
+  belly: 0xa8874f,
   wing:  0xc24a86,
   claw:  0xf0e2bb,
   eye:   0xffe066
@@ -114,10 +147,17 @@ function buildDragon() {
   var mPlate = M(DRAGON_COL.plate, { shine: 26, spec: 0x554070 });
   var mBelly = M(DRAGON_COL.belly);
   var mWing = M(DRAGON_COL.wing, { side: THREE.DoubleSide, shine: 6 });
-  var mWing2 = M(0xa63a70, { side: THREE.DoubleSide, shine: 5 });
-  var mWing3 = M(0x8c2f5e, { side: THREE.DoubleSide, shine: 4 });
-  var mSpar = M(0xb9a37e, { side: THREE.DoubleSide, shine: 18 });
+  var mSpar = M(0x9c8763, { shine: 18 });
+  // one vertex-coloured sail material, lighter at the leading edge
+  var mSail = new THREE.MeshPhongMaterial({
+    vertexColors: true, flatShading: true, side: THREE.DoubleSide,
+    shininess: 6, specular: 0x3a2030
+  });
+  P.retroPatch(mSail);
+  var cWingLead = new THREE.Color(0xd8578f);
+  var cWingTrail = new THREE.Color(0x7a2953);
   var mClaw = M(DRAGON_COL.claw);
+  var mHorn = M(0x6c5a4a, { shine: 22, spec: 0x3a3028 });
 
   // ---- torso: one tapered hull, deep at the chest, narrowing to the hips
   var cBack = new THREE.Color(DRAGON_COL.hide);
@@ -154,18 +194,18 @@ function buildDragon() {
   }
 
   // ---- neck: five tapering segments, then a proper skull -----------------
-  var neck = new THREE.Group(); neck.position.set(0, 0.68, 3.15); body.add(neck);
+  var neck = new THREE.Group(); neck.position.set(0, 0.62, 3.20); body.add(neck);
   var necks = [];
   var parent = neck;
-  var NSEG = 5;
+  var NSEG = 4;
   for (var n = 0; n < NSEG; n++) {
-    var seg = new THREE.Group(); seg.position.z = n === 0 ? 0 : 0.86;
-    var r0 = 0.50 - n * 0.052, r1 = 0.50 - (n + 1) * 0.052;
+    var seg = new THREE.Group(); seg.position.z = n === 0 ? 0 : 0.76;
+    var r0 = 0.64 - n * 0.062, r1 = 0.64 - (n + 1) * 0.062;
     seg.add(mesh(tube([
-      { z: 0.00, rx: r0 * 1.05, ry: r0 },
-      { z: 0.46, rx: (r0 + r1) * 0.53, ry: (r0 + r1) * 0.5 },
-      { z: 0.90, rx: r1 * 1.05, ry: r1 }
-    ], 8, cBelly, cBack), mHull));
+      { z: 0.00, rx: r0 * 1.02, ry: r0 },
+      { z: 0.40, rx: (r0 + r1) * 0.51, ry: (r0 + r1) * 0.5 },
+      { z: 0.80, rx: r1 * 1.02, ry: r1 }
+    ], 9, cBelly, cBack), mHull));
     // a small plate riding each vertebra
     var np = mesh(tet(0.2), mPlate);
     np.position.set(0, r0 * 0.95, 0.42);
@@ -174,46 +214,51 @@ function buildDragon() {
     parent.add(seg); necks.push(seg); parent = seg;
   }
 
-  var head = new THREE.Group(); head.position.z = 0.86; parent.add(head);
-  // cranium tapering into a long snout
+  var head = new THREE.Group(); head.position.z = 0.76; head.scale.setScalar(1.14); parent.add(head);
+  // A broad cranium dropping into a short, deep muzzle — roughly 2:1 long to
+  // wide. The old skull was 3:1 and read as a crocodile.
   head.add(mesh(tube([
-    { z: -0.10, rx: 0.30, ry: 0.30, y: 0.00 },
-    { z:  0.35, rx: 0.46, ry: 0.44, y: 0.02 },
-    { z:  0.80, rx: 0.44, ry: 0.40, y: 0.00 },
-    { z:  1.30, rx: 0.32, ry: 0.28, y: -0.04 },
-    { z:  1.90, rx: 0.24, ry: 0.21, y: -0.08 },
-    { z:  2.25, rx: 0.15, ry: 0.14, y: -0.11 }
-  ], 8, cBelly, cBack), mHull));
-  // brow ridge and cheeks
+    { z: -0.34, rx: 0.40, ry: 0.42, y:  0.00 },
+    { z:  0.02, rx: 0.56, ry: 0.50, y:  0.04 },
+    { z:  0.40, rx: 0.50, ry: 0.44, y:  0.01 },
+    { z:  0.78, rx: 0.36, ry: 0.35, y: -0.05 },
+    { z:  1.18, rx: 0.29, ry: 0.29, y: -0.10 },
+    { z:  1.48, rx: 0.23, ry: 0.23, y: -0.14 },
+    { z:  1.64, rx: 0.13, ry: 0.14, y: -0.17 }
+  ], 9, cBelly, cBack), mHull));
   [-1, 1].forEach(function (sd) {
-    var brow = mesh(tet(0.26), mHide2);
-    brow.position.set(sd * 0.30, 0.30, 0.62);
-    brow.rotation.set(0.5, sd * 0.4, 0); brow.scale.set(1, 0.7, 1.5); head.add(brow);
-    var cheek = mesh(tet(0.24), mHide2);
-    cheek.position.set(sd * 0.36, -0.10, 0.45);
-    cheek.rotation.set(-0.3, sd * 0.6, 0); cheek.scale.set(1, 0.9, 1.2); head.add(cheek);
-    // swept-back horns
-    var hn = bone([sd * 0.26, 0.42, 0.30], [sd * 0.62, 0.86, -0.92], 0.13, 0.02, mClaw);
-    head.add(hn);
-    var hn2 = bone([sd * 0.34, 0.10, 0.20], [sd * 0.70, 0.20, -0.62], 0.08, 0.015, mClaw);
-    head.add(hn2);
-    // eye set into the socket
-    var eye = mesh(oct(0.15), G(DRAGON_COL.eye));
-    eye.position.set(sd * 0.38, 0.16, 0.82); eye.scale.set(0.55, 1, 0.9); head.add(eye);
+    // heavy brow shelf over the eye
+    var brow = mesh(tet(0.30), mHide2);
+    brow.position.set(sd * 0.34, 0.34, 0.30);
+    brow.rotation.set(0.45, sd * 0.35, 0); brow.scale.set(1.05, 0.62, 1.5); head.add(brow);
+    var cheek = mesh(tet(0.28), mHide2);
+    cheek.position.set(sd * 0.40, -0.12, 0.20);
+    cheek.rotation.set(-0.28, sd * 0.55, 0); cheek.scale.set(1, 0.95, 1.2); head.add(cheek);
+    // One clean straight spike per side, rooted inside the skull. Segmented
+    // horns kinked at every joint and read as a stack of planks.
+    head.add(bone([sd * 0.22, 0.16, 0.06], [sd * 0.68, 0.74, -1.50], 0.19, 0.015, mHorn, 7));
+    // small frill tucked behind the jaw hinge, in the crest colour
+    head.add(mesh(membrane([
+      [sd * 0.32, 0.06, -0.24], [sd * 0.50, 0.26, -0.60],
+      [sd * 0.46, -0.06, -0.66], [sd * 0.34, -0.18, -0.38]
+    ]), mPlate));
+    // eye set under the brow shelf
+    var eye = mesh(oct(0.105), G(DRAGON_COL.eye));
+    eye.position.set(sd * 0.45, 0.11, 0.36); eye.scale.set(0.45, 1, 1.1); head.add(eye);
   });
   // lower jaw, hinged at the back so it can be opened later
-  var jaw = new THREE.Group(); jaw.position.set(0, -0.22, 0.45); head.add(jaw);
+  var jaw = new THREE.Group(); jaw.position.set(0, -0.24, 0.10); head.add(jaw);
   jaw.add(mesh(tube([
-    { z: 0.00, rx: 0.30, ry: 0.15 },
-    { z: 0.70, rx: 0.24, ry: 0.13 },
-    { z: 1.45, rx: 0.15, ry: 0.10 },
-    { z: 1.80, rx: 0.09, ry: 0.07 }
-  ], 6, cBelly, cBelly), mHull));
+    { z: 0.00, rx: 0.34, ry: 0.17 },
+    { z: 0.55, rx: 0.28, ry: 0.15 },
+    { z: 1.10, rx: 0.19, ry: 0.12 },
+    { z: 1.42, rx: 0.10, ry: 0.08 }
+  ], 7, cBelly, cBelly), mHull));
   // teeth along the upper jaw line
   for (var tt = 0; tt < 5; tt++) {
     [-1, 1].forEach(function (sd) {
-      var tooth = mesh(cone(0.045, 0.17, 4), mClaw);
-      tooth.position.set(sd * (0.20 - tt * 0.022), -0.20 - tt * 0.012, 0.95 + tt * 0.26);
+      var tooth = mesh(cone(0.042, 0.15, 4), mClaw);
+      tooth.position.set(sd * (0.26 - tt * 0.030), -0.20 - tt * 0.020, 0.42 + tt * 0.25);
       tooth.rotation.x = Math.PI;
       head.add(tooth);
     });
@@ -221,37 +266,37 @@ function buildDragon() {
   // nostrils
   [-1, 1].forEach(function (sd) {
     var nos = mesh(oct(0.05), mHide2);
-    nos.position.set(sd * 0.09, -0.02, 2.10); head.add(nos);
+    nos.position.set(sd * 0.10, -0.06, 1.44); head.add(nos);
   });
+  // crest plates running the skull, continuing the neck ridge into the head
+  for (var cr = 0; cr < 3; cr++) {
+    var cp = mesh(tet(0.17), mPlate);
+    cp.position.set(0, 0.44 - cr * 0.05, -0.18 - cr * 0.26);
+    cp.rotation.set(Math.PI * 0.5, 0, Math.PI * 0.25);
+    cp.scale.set(0.30, 0.75 - cr * 0.10, 0.9);
+    head.add(cp);
+  }
 
   // ---- wings: humerus, forearm and four finger spars carrying a scalloped
   // membrane, the way a bat or a dragon actually folds together.
   function wing(side) {
     var w = new THREE.Group();
-    w.position.set(side * 1.00, 0.34, 0.80);
+    w.position.set(side * 0.92, 0.30, 0.88);
 
-    var S  = [0, 0, 0];                       // shoulder
-    var E  = [side * 2.40, 0.22, -0.35];      // elbow
-    var W2 = [side * 4.70, 0.58, -1.05];      // wrist
-    var F1 = [side * 7.05, 0.98, -0.55];      // leading finger
-    var F2 = [side * 6.80, 0.40, -2.60];
-    var F3 = [side * 5.55, -0.12, -4.20];
-    var F4 = [side * 3.60, -0.48, -5.05];     // trailing finger
-    var A  = [side * -0.45, -0.28, -2.70];    // membrane root, tucked into the flank
+    // Arm chain: shoulder, elbow, wrist — swept back so the leading edge rakes.
+    var S  = [0, 0, 0];
+    var E  = [side * 2.45, 0.26, -0.62];
+    var W2 = [side * 4.85, 0.50, -1.55];
+    // Five finger spars fanning off the wrist, the trailing one raked right back.
+    var FG = [
+      [side * 7.55, 0.62, -1.05],
+      [side * 7.25, 0.38, -2.75],
+      [side * 6.35, 0.08, -4.30],
+      [side * 4.90, -0.18, -5.40],
+      [side * 3.05, -0.36, -5.85]
+    ];
+    var A  = [side * 0.22, -0.40, -3.15];     // membrane root, buried in the flank
 
-    // arm bones, then four finger spars — thick and pale so they read as
-    // structure against the membrane rather than disappearing into it
-    w.add(bone(S, E, 0.23, 0.17, mHide));
-    w.add(bone(E, W2, 0.17, 0.13, mHide));
-    var knuckle = mesh(ico(0.20, 0), mHide2);
-    knuckle.position.set(W2[0], W2[1], W2[2]); w.add(knuckle);
-    [F1, F2, F3, F4].forEach(function (F, fi) {
-      w.add(bone(W2, F, 0.145 - fi * 0.012, 0.040, mSpar));
-    });
-    w.add(bone(W2, [side * 5.30, 1.12, -0.45], 0.075, 0.014, mClaw));   // thumb claw
-
-    // trailing edges bow inward between the fingertips, two points per span
-    // so the scallops actually curve
     function mix(a, b, u) {
       return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
     }
@@ -259,20 +304,37 @@ function buildDragon() {
       return [p[0] + (toward[0] - p[0]) * k, p[1] + (toward[1] - p[1]) * k,
               p[2] + (toward[2] - p[2]) * k];
     }
-    function panel(a, b, hub, k, mat) {
-      return mesh(membrane([hub, a,
-        pull(mix(a, b, 0.34), hub, k), pull(mix(a, b, 0.68), hub, k), b]), mat);
+    function tag(p, s) { return [p[0], p[1], p[2], s]; }
+
+    // ---- one closed outline, walked leading edge -> fingertips -> root ----
+    var out = [tag(S, 0), tag(E, 0.05), tag(W2, 0.12)];
+    for (var fi = 0; fi < FG.length; fi++) {
+      out.push(tag(FG[fi], 0.30 + fi * 0.10));
+      var nxt = fi < FG.length - 1 ? FG[fi + 1] : A;
+      // shallow scallops between fingertips — a bite, not a bay
+      out.push(tag(pull(mix(FG[fi], nxt, 0.5), W2, 0.11), 0.92));
     }
+    out.push(tag(A, 0.62));
+    out.push(tag(S, 0));                       // close the loop
+
+    // Hub sits under the middle of the sail: the fan centre and the camber.
+    var hub = [ (W2[0] + A[0] * 0.5) * 0.62, W2[1] - 0.62, (W2[2] + A[2]) * 0.45 ];
 
     var mem = new THREE.Group();
-    mem.add(mesh(membrane([S, E, W2, F1]), mWing));            // leading edge
-    mem.add(panel(F1, F2, W2, 0.26, mWing));
-    mem.add(panel(F2, F3, W2, 0.28, mWing2));
-    mem.add(panel(F3, F4, W2, 0.30, mWing2));
-    // inner membrane sweeping back to the flank
-    mem.add(mesh(membrane([A, E, W2, F4,
-      pull(mix(F4, A, 0.4), E, 0.22), pull(mix(F4, A, 0.75), E, 0.14)]), mWing3));
+    mem.add(mesh(sail(out, hub, cWingLead, cWingTrail), mSail));
     w.add(mem);
+
+    // ---- structure, drawn over the sail so the bones read as ribs ---------
+    w.add(bone(S, E, 0.26, 0.18, mHide));
+    w.add(bone(E, W2, 0.18, 0.13, mHide));
+    var knuckle = mesh(ico(0.19, 0), mHide2);
+    knuckle.position.set(W2[0], W2[1], W2[2]); w.add(knuckle);
+    for (var k = 0; k < FG.length; k++) {
+      w.add(bone(W2, FG[k], 0.125 - k * 0.011, 0.035, mSpar));
+    }
+    w.add(bone(S, A, 0.13, 0.07, mSpar));                             // root chord
+    w.add(bone(W2, [side * 5.45, 1.18, -0.70], 0.07, 0.014, mClaw));  // thumb claw
+
     w.userData.mem = mem;
     return w;
   }
@@ -280,14 +342,22 @@ function buildDragon() {
   body.add(wL); body.add(wR);
 
   // ---- legs / claws
+  // Folded up against the belly the way a bird carries them in flight, built
+  // from tapered bones instead of boxes so they don't read as cargo.
   [-1, 1].forEach(function (s) {
-    var leg = new THREE.Group(); leg.position.set(s * 0.85, -0.75, 0.4); body.add(leg);
-    var thigh = mesh(box(0.55, 1.0, 0.7), mHide2); thigh.position.y = -0.4; leg.add(thigh);
-    var foot = mesh(box(0.75, 0.28, 1.1), mHide2); foot.position.set(0, -0.95, 0.25); leg.add(foot);
+    var leg = new THREE.Group(); leg.position.set(s * 0.72, -0.62, 0.30); body.add(leg);
+    var hipJ  = [0, 0, 0];
+    var kneeJ = [s * 0.30, -0.62, -0.62];    // knee swings down and back
+    var ankJ  = [s * 0.22, -0.34, -1.42];    // shin folds forward again
+    var toeJ  = [s * 0.20, -0.46, -0.92];
+    leg.add(bone(hipJ, kneeJ, 0.34, 0.20, mHide2, 6));
+    leg.add(bone(kneeJ, ankJ, 0.20, 0.13, mHide2, 6));
+    leg.add(bone(ankJ, toeJ, 0.14, 0.10, mHide2, 6));
+    var knuck = mesh(ico(0.17, 0), mHide2);
+    knuck.position.set(kneeJ[0], kneeJ[1], kneeJ[2]); leg.add(knuck);
     for (var c = -1; c <= 1; c++) {
-      var claw = mesh(cone(0.09, 0.42, 4), mClaw);
-      claw.rotation.x = Math.PI * 0.5;
-      claw.position.set(c * 0.22, -1.0, 0.85); leg.add(claw);
+      leg.add(bone(toeJ, [toeJ[0] + c * 0.16, toeJ[1] - 0.16, toeJ[2] + 0.34],
+                   0.065, 0.012, mClaw, 5));
     }
   });
 
@@ -313,19 +383,32 @@ function buildDragon() {
     tp.add(ts); tailSegs.push(ts); tp = ts;
   }
   // tail vane
+  // Tail vane: two cambered sails swept back off a central spine, so it has
+  // volume from every angle instead of being a flat diamond.
   var tailFin = new THREE.Group();
-  tailFin.add(mesh(membrane([
-    [0, 0.02, 0.05], [0.62, 0.95, -0.85], [0.30, 0.30, -1.75], [0, 0.06, -2.05]
-  ]), mWing));
-  tailFin.add(mesh(membrane([
-    [0, 0.02, 0.05], [0, 0.06, -2.05], [-0.30, 0.30, -1.75], [-0.62, 0.95, -0.85]
-  ]), mWing));
-  tailFin.add(mesh(membrane([
-    [0, -0.02, 0.05], [-0.48, -0.62, -0.90], [0, -0.06, -1.60]
-  ]), mWing));
-  tailFin.add(mesh(membrane([
-    [0, -0.02, 0.05], [0, -0.06, -1.60], [0.48, -0.62, -0.90]
-  ]), mWing));
+  [1, -1].forEach(function (sv) {
+    var spine = [0, 0.02, 0.05];
+    var tip   = [sv * 0.72, 0.92, -0.95];
+    var out   = [
+      [spine[0], spine[1], spine[2], 0.15],
+      [tip[0], tip[1], tip[2], 0.35],
+      [sv * 0.46, 0.44, -1.72, 0.85],
+      [sv * 0.14, 0.10, -2.05, 1.0],
+      [0, 0.02, -1.55, 0.7],
+      [spine[0], spine[1], spine[2], 0.15]
+    ];
+    tailFin.add(mesh(sail(out, [sv * 0.24, 0.24, -1.05], cWingLead, cWingTrail), mSail));
+    // lower lobe, smaller and swept the other way
+    var out2 = [
+      [0, -0.02, 0.02, 0.3],
+      [sv * 0.52, -0.62, -0.86, 0.55],
+      [sv * 0.20, -0.24, -1.55, 1.0],
+      [0, -0.04, -1.20, 0.6],
+      [0, -0.02, 0.02, 0.3]
+    ];
+    tailFin.add(mesh(sail(out2, [sv * 0.18, -0.22, -0.80], cWingLead, cWingTrail), mSail));
+  });
+  tailFin.add(bone([0, 0.02, 0.05], [0, 0.06, -1.95], 0.09, 0.02, mSpar, 5));
   tp.add(tailFin);
 
   // ============================================================ THE RIDER

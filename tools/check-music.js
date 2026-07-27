@@ -9,6 +9,7 @@ const path = require('path');
   page.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
   await page.goto('file://' + path.join(__dirname, '..', 'index.html'));
   await page.waitForTimeout(1200);
+  await page.evaluate(() => window.__PF && window.__PF.setMaxH && window.__PF.setMaxH(300));
 
   const st = () => page.evaluate(() => {
     const A = window.__PF.Audio_;

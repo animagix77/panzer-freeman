@@ -1,10 +1,7 @@
 node_modules/
-*.wav
-ost-*.wav
+model-*.png
 shot-*.png
-intro-*.png
-laser-*.png
-fly-*.png
-impact.png
-quip.png
-.DS_Store
+ost-*.wav
+src/*_block.js
+model-*.png
+src/*_block.js

@@ -37,14 +37,15 @@ var elLoading  = document.getElementById('loading');
 
 // ------------------------------------------------------------------ renderer
 var renderer = new THREE.WebGLRenderer({
-  canvas: glCanvas, antialias: false, alpha: false, powerPreference: 'high-performance'
+  canvas: glCanvas, antialias: true, alpha: false, powerPreference: 'high-performance',
+  stencil: false, logarithmicDepthBuffer: false
 });
-renderer.setPixelRatio(1);
 renderer.setClearColor(0x120a1e, 1);
 renderer.sortObjects = true;
 
-var BASE_H = 232;                 // internal vertical resolution (Saturn-ish)
-var VW = 400, VH = BASE_H;        // current internal buffer size
+// Clean low-poly: render at display resolution (capped for fill-rate sanity).
+var MAX_H = 1100;                 // vertical cap on the drawing buffer
+var VW = 1280, VH = 720;          // current buffer size (set by resize())
 
 var scene  = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.6, 1600);
@@ -53,9 +54,13 @@ scene.add(camera);
 function resize() {
   var w = window.innerWidth, h = window.innerHeight;
   var aspect = w / h;
-  VH = BASE_H;
-  VW = Math.max(160, Math.round(BASE_H * aspect));
-  renderer.setSize(VW, VH, false);
+  var dpr3d = Math.min(window.devicePixelRatio || 1, 2);
+  // Full-res buffer, capped so 4K displays don't melt the fill rate.
+  var scale = Math.min(1, MAX_H / (h * dpr3d));
+  renderer.setPixelRatio(dpr3d * scale);
+  renderer.setSize(w, h, false);
+  VW = Math.round(w * dpr3d * scale);
+  VH = Math.round(h * dpr3d * scale);
   camera.aspect = aspect;
   camera.updateProjectionMatrix();
 
@@ -66,11 +71,17 @@ function resize() {
   HUD.w = w; HUD.h = h;
 }
 window.addEventListener('resize', resize);
+// Quality knob: lower the cap to trade crispness for fill rate (also lets the
+// headless tools render small so they aren't gated on software rasterisation).
+function setMaxH(h) { MAX_H = Math.max(180, h | 0); resize(); }
 
 // ------------------------------------------------------------- retro shader
 // Snap clip-space verts to a coarse grid -> authentic 90s console wobble.
+// Disabled: the game now renders clean low-poly. Flip VERTEX_SNAP to re-enable.
+var VERTEX_SNAP = false;
 var JITTER_GRID = 96.0;
 function retroPatch(mat, grid) {
+  if (!VERTEX_SNAP) return mat;
   mat.onBeforeCompile = function (shader) {
     shader.uniforms.uGrid = { value: grid || JITTER_GRID };
     shader.vertexShader = 'uniform float uGrid;\n' + shader.vertexShader;
@@ -154,7 +165,7 @@ var SKY_FS = [
   '  float disc = smoothstep(1.0 - sunSize, 1.0 - sunSize*0.35, sd);',
   '  float halo = pow(max(sd,0.0), 52.0);',
   '  c += sunCol * (disc*0.9 + halo*0.42);',
-  // Saturn 15-bit colour + ordered dither
+  // Ordered dither at 8-bit — kills gradient banding rather than creating it.
   '  float dth = (bayer4(gl_FragCoord.xy) - 0.5);',
   '  c = floor(c * bands + dth) / bands;',
   '  gl_FragColor = vec4(clamp(c,0.0,1.0), 1.0);',
@@ -168,10 +179,10 @@ var skyUni = {
   sunDir:  { value: new V3(0.25, 0.06, 1).normalize() },
   sunCol:  { value: new THREE.Color(0xffd08a) },
   sunSize: { value: 0.016 },
-  bands:   { value: 26.0 }
+  bands:   { value: 216.0 }
 };
 var skyMesh = new THREE.Mesh(
-  new THREE.SphereGeometry(900, 22, 14),
+  new THREE.SphereGeometry(900, 48, 28),
   new THREE.ShaderMaterial({
     vertexShader: SKY_VS, fragmentShader: SKY_FS, uniforms: skyUni,
     side: THREE.BackSide, depthWrite: false, fog: false
@@ -182,10 +193,10 @@ skyMesh.renderOrder = -1000;
 scene.add(skyMesh);
 
 // ------------------------------------------------------------------ lights
-var ambLight = new THREE.AmbientLight(0x4a3a6a, 1.0);
-var keyLight = new THREE.DirectionalLight(0xffd0a0, 1.05);
+var ambLight = new THREE.AmbientLight(0x5a4b7e, 1.0);
+var keyLight = new THREE.DirectionalLight(0xffd6ac, 1.12);
 keyLight.position.set(0.4, 0.7, 1).normalize();
-var rimLight = new THREE.DirectionalLight(0x5f7fff, 0.42);
+var rimLight = new THREE.DirectionalLight(0x6f8bff, 0.58);
 rimLight.position.set(-0.6, 0.25, -1).normalize();
 scene.add(ambLight, keyLight, rimLight);
 
@@ -324,6 +335,25 @@ var Audio_ = {
     this.drumGain = c.createGain(); this.drumGain.gain.value = 0.62;
     this.drumGain.connect(this.mBus);
 
+    // ---- pad: clean, wide and slow, with a long tail. This is what carries
+    // the title screen before the band walks in.
+    var padLp = c.createBiquadFilter(); padLp.type = 'lowpass';
+    padLp.frequency.value = 2300; padLp.Q.value = 0.6;
+    var padHp = c.createBiquadFilter(); padHp.type = 'highpass';
+    padHp.frequency.value = 120; padHp.Q.value = 0.6;
+    var padOut = c.createGain(); padOut.gain.value = 0.52;
+    padLp.connect(padHp); padHp.connect(padOut); padOut.connect(this.mBus);
+    this.chPad = { inp: padLp, out: padOut };
+    // long ping-pong-ish tail so the intro has air around it
+    var pd = c.createDelay(1.2); pd.delayTime.value = 0.44;
+    var pfb = c.createGain(); pfb.gain.value = 0.42;
+    var pwet = c.createGain(); pwet.gain.value = 0.30;
+    padOut.connect(pd); pd.connect(pfb); pfb.connect(pd);
+    pd.connect(pwet); pwet.connect(this.mBus);
+
+    // ---- clean guitar: barely driven, for the lone line over the pad
+    this.chCln = this._chan(3, 3600, 240, 0.30, 'none', 2400, 4);
+
     // a short slap-back on the lead — cheap, and it fills the top end
     var dl = c.createDelay(0.6); dl.delayTime.value = 0.26;
     var fb = c.createGain(); fb.gain.value = 0.3;
@@ -356,6 +386,34 @@ var Audio_ = {
     this._osc(f * 1.4983, when, d, 'sawtooth', v * 0.92, this.chGtr.inp, 7);  // fifth
     this._osc(f * 2, when, d, 'sawtooth', v * 0.70, this.chGtr.inp, 3);       // octave
     this._osc(f * 2.9966, when, d, 'square', v * 0.28, this.chGtr.inp, -4);   // octave+fifth bite
+  },
+  // Slow-swelling stacked fifths. Three detuned voices per partial so it
+  // shimmers instead of sitting still.
+  padChord: function (midi, when, dur, vel) {
+    var c = this.ctx, v = 0.235 * (vel || 1);
+    var parts = [[0, 1.0], [7, 0.78], [12, 0.62], [19, 0.34]];
+    var atk = Math.min(0.85, dur * 0.42), rel = Math.min(1.3, dur * 0.75);
+    for (var i = 0; i < parts.length; i++) {
+      for (var d = -1; d <= 1; d++) {
+        var o = c.createOscillator(), g = c.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(note(midi + parts[i][0]), when);
+        o.detune.value = d * 8 + (i % 2 ? 3 : -3);
+        var pk = v * parts[i][1];
+        g.gain.setValueAtTime(0.0001, when);
+        g.gain.linearRampToValueAtTime(pk, when + atk);
+        g.gain.setValueAtTime(pk, when + dur - rel);
+        g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+        o.connect(g); g.connect(this.chPad.inp);
+        o.start(when); o.stop(when + dur + 0.04);
+      }
+    }
+  },
+  clnNote: function (midi, when, dur, vel) {
+    var f = note(midi), v = 0.30 * (vel || 1);
+    this._osc(f, when, dur, 'triangle', v, this.chCln.inp, -4);
+    this._osc(f, when, dur, 'sawtooth', v * 0.45, this.chCln.inp, 6);
+    this._osc(f * 2, when, dur, 'triangle', v * 0.22, this.chCln.inp, 0);
   },
   bassNote: function (midi, when, dur, vel) {
     this._osc(note(midi), when, dur, 'sawtooth', 0.42 * (vel || 1), this.chBass.inp, 0);
@@ -470,6 +528,18 @@ var Audio_ = {
       var muted = p.pm ? !!p.pm[i] : true;
       this.gtrChord(gn, when, st * hold * (muted ? 1 : 1.15), muted, p.gv || 1);
     }
+    var pd = val(p.pad, i);
+    if (pd > 0) {
+      var ph = 1;
+      while (i + ph < p.len && p.pad[i + ph] === -1) ph++;
+      this.padChord(pd, when, st * ph, p.pv || 1);
+    }
+    var cl = val(p.cln, i);
+    if (cl > 0) {
+      var ch = 1;
+      while (i + ch < p.len && p.cln[i + ch] === -1) ch++;
+      this.clnNote(cl, when, st * ch * 0.98, p.cv || 1);
+    }
     var bn = val(p.bass, i);
     if (bn > 0) {
       var bh = 1;
@@ -506,6 +576,7 @@ function e8(a, b) { return [a, -1, b, -1]; }        // two eighths
 function s16(a, b, c, d) { return [a, b, c, d]; }
 function rep(arr, n) { var o = []; for (var i = 0; i < n; i++) o = o.concat(arr); return o; }
 function rest(n) { var o = []; for (var i = 0; i < n; i++) o.push(0); return o; }
+function w(n, k) { var o = [n]; for (var i = 1; i < k; i++) o.push(-1); return o; }  // held n steps
 // drum shorthand: '-' rest, 'x' hit, 'X' accent
 function D(str) {
   var a = [], t = str.replace(/[^-xX]/g, '');
@@ -527,31 +598,104 @@ function song(bpm, order, patterns) {
 
 var SONGS = {};
 
-// ---------------------------------------------------- TITLE — "Ashfall"
-SONGS.title = song(126, ['A', 'A', 'B', 'B'], {
-  A: {
-    gtr:  cat(q4(40), q4(40), q4(43), q4(41), q4(40), q4(40), q4(36), q4(38)),
-    pm:   rep([0, 0, 0, 0], 8),
-    bass: cat(e8(28, 28), e8(28, 28), e8(31, 31), e8(29, 29),
-              e8(28, 28), e8(28, 28), e8(24, 24), e8(26, 26)),
-    kick: D('x---x---x---x--- x---x---x---x---'),
-    snr:  D('----x-------x--- ----x-------x---'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    crash:D('x--------------- ----------------'),
-    gv: 0.85
+// ------------------------------------------- TITLE — "The Sky Still Owes Him"
+// A slow burn: pad alone, then one guitar line answering it, then the kit walks
+// in on a tom ramp and the whole band lands on the hook. Loops from the top.
+SONGS.title = song(132, ['P1', 'G1', 'R', 'A', 'A2', 'B', 'A', 'A2', 'B', 'C', 'X'], {
+  // ---- I. pad alone -------------------------------------------------------
+  P1: { pad: cat(w(40, 16), w(36, 16)), pv: 0.85 },
+  P2: { pad: cat(w(45, 16), w(35, 16)), pv: 0.95,
+        cln: cat(rest(24), w(64, 4), w(67, 4)), cv: 0.55 },
+
+  // ---- II. one guitar answers --------------------------------------------
+  G1: {
+    pad:  cat(w(40, 16), w(36, 16)), pv: 1,
+    cln:  cat(w(71, 6), w(69, 2), w(67, 8), w(64, 6), w(67, 2), w(71, 8)), cv: 0.85,
+    bass: cat(w(28, 16), w(24, 16))
   },
-  B: {
-    gtr:  cat(q4(40), q4(40), q4(43), q4(41), q4(40), q4(45), q4(43), q4(41)),
-    pm:   rep([0, 0, 0, 0], 8),
-    bass: cat(e8(28, 28), e8(28, 28), e8(31, 31), e8(29, 29),
-              e8(28, 28), e8(33, 33), e8(31, 31), e8(29, 29)),
-    lead: cat(q4(76), s16(74, -1, 71, -1), q4(72), s16(71, -1, 69, -1),
-              q4(71), s16(72, -1, 74, -1), q4(76), rest(4)),
-    kick: D('x---x---x---x--- x---x---x---x---'),
-    snr:  D('----x-------x--- ----x-------x---'),
+  G2: {
+    pad:  cat(w(45, 16), w(35, 16)), pv: 1,
+    cln:  cat(w(72, 6), w(71, 2), w(69, 8), w(67, 4), w(69, 4), w(71, 6), rest(2)), cv: 0.9,
+    bass: cat(w(33, 16), w(35, 16)),
+    hat:  D('----------------x-x-x-x-x-x-x-x-'),
+    crash:D('----------------x---------------')
+  },
+
+  // ---- III. the ramp: toms build, guitar starts chugging ------------------
+  R: {
+    pad:  cat(w(47, 32)), pv: 0.8,
+    gtr:  cat(rep([47, 47, 47, 47], 4), rep([47, 47, 47, 47], 4)),
+    pm:   rep([1, 1, 1, 1], 8), gv: 0.7,
+    bass: cat(rep([35, 0, 35, 35], 4), rep([35, 0, 35, 35], 4)),
+    kick: D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
+    tom:  D('--------x-x-x-x- x-xxx-xxXxXxXxXx'),
+    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-')
+  },
+
+  // ---- IV. the hook -------------------------------------------------------
+  A: {
+    pad:  cat(w(40, 16), w(43, 8), w(36, 8)), pv: 0.6,
+    gtr:  cat(gal(40), gal(40), s16(43, 0, 43, 0), q4(41),
+              gal(40), gal(40), s16(36, 0, 36, 0), q4(38)),
+    pm:   rep([1, 1, 1, 1], 8), gv: 1,
+    bass: cat(rep([28, 0, 28, 28], 2), e8(31, 31), e8(29, 29),
+              rep([28, 0, 28, 28], 2), e8(24, 24), e8(26, 26)),
+    lead: cat(w(76, 6), w(74, 2), w(71, 8), w(72, 6), w(74, 2), w(76, 8)), lv: 0.95,
+    kick: D('x--xx---x--xx--- x--xx---x--xx---'),
+    snr:  D('----X-------X--- ----X-------X---'),
     hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    crash:D('x--------------- x---------------'),
-    gv: 0.85, lv: 0.85
+    crash:D('x--------------- ----------------')
+  },
+  A2: {
+    pad:  cat(w(45, 16), w(35, 16)), pv: 0.6,
+    gtr:  cat(gal(45), gal(45), s16(43, 0, 43, 0), q4(41),
+              gal(40), gal(40), e8(35, 35), s16(38, 0, 40, 0)),
+    pm:   rep([1, 1, 1, 1], 8), gv: 1,
+    bass: cat(rep([33, 0, 33, 33], 2), e8(31, 31), e8(29, 29),
+              rep([28, 0, 28, 28], 2), e8(23, 23), s16(26, 0, 28, 0)),
+    lead: cat(w(79, 6), w(78, 2), w(76, 6), w(74, 2),
+              w(72, 4), w(71, 4), w(69, 4), w(71, 4)), lv: 0.95,
+    kick: D('x--xx---x--xx--- x--xx---x--xx-x-'),
+    snr:  D('----X-------X--- ----X-------X-X-'),
+    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-')
+  },
+
+  // ---- V. the lift --------------------------------------------------------
+  B: {
+    pad:  cat(w(48, 8), w(47, 8), w(45, 8), w(43, 8)), pv: 0.75,
+    gtr:  cat(q4(48), q4(48), q4(47), q4(47), q4(45), q4(45), gal(43), s16(43, 0, 41, 0)),
+    pm:   rep([0, 0, 0, 0], 8), gv: 1,
+    bass: cat(e8(36, 36), e8(36, 36), e8(35, 35), e8(35, 35),
+              e8(33, 33), e8(33, 33), rep([31, 0, 31, 31], 1), s16(31, 0, 29, 0)),
+    lead: cat(w(84, 8), w(83, 4), w(81, 4), w(79, 6), w(81, 2), w(83, 8)), lv: 1,
+    kick: D('x---x---x---x--- x---x---x--xx---'),
+    snr:  D('----X-------X--- ----X-------X---'),
+    opn:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
+    crash:D('x-------x------- x---------------')
+  },
+
+  // ---- VI. breakdown, half time ------------------------------------------
+  C: {
+    pad:  cat(w(40, 32)), pv: 1,
+    gtr:  cat(rep([40, 0, 40, 0], 4), rep([38, 0, 38, 0], 2), rep([36, 0, 36, 0], 2)),
+    pm:   rep([1, 1, 1, 1], 8), gv: 0.8,
+    bass: cat(w(28, 16), w(26, 8), w(24, 8)),
+    kick: D('x-------x------- x-------x-------'),
+    snr:  D('--------X------- --------X-------'),
+    lead: cat(rest(16), w(71, 4), w(72, 4), w(74, 8)), lv: 0.6
+  },
+
+  // ---- VII. turnaround back to the top -----------------------------------
+  X: {
+    pad:  cat(w(47, 32)), pv: 0.9,
+    gtr:  cat(rep([47, 47, 47, 47], 4), q4(45), q4(45), gal(43), s16(43, 43, 41, 41)),
+    pm:   rep([1, 1, 1, 1], 8), gv: 1,
+    bass: cat(rep([35, 0, 35, 35], 4), e8(33, 33), e8(33, 33), e8(31, 31), s16(31, 0, 29, 0)),
+    kick: D('x-x-x-x-x-x-x-x- x---x---x--xx---'),
+    snr:  D('----X-------X--- ----X---X-X-XxXx'),
+    tom:  D('---------------- --------x-x-x-x-'),
+    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x---------'),
+    crash:D('x--------------- ----------------')
   }
 });
 
@@ -750,7 +894,7 @@ window.__PF = {
   TAU: TAU, clamp: clamp, lerp: lerp, damp: damp, rand: rand, randi: randi,
   pick: pick, angDelta: angDelta, V3: V3, tmpA: tmpA, tmpB: tmpB, tmpC: tmpC,
   renderer: renderer, scene: scene, camera: camera, resize: resize,
-  M: M, G: G, retroPatch: retroPatch,
+  M: M, G: G, retroPatch: retroPatch, setMaxH: setMaxH,
   skyUni: skyUni, skyMesh: skyMesh,
   ambLight: ambLight, keyLight: keyLight, rimLight: rimLight,
   Audio_: Audio_, playMusic: playMusic, note: note, SONGS: SONGS,

@@ -9,6 +9,7 @@ const path = require('path');
   page.on('console', m => { if (m.type()==='error') errors.push(m.text()); });
   await page.goto('file://' + path.join(__dirname, '..', 'index.html'));
   await page.waitForTimeout(1500);
+  await page.evaluate(() => window.__PF && window.__PF.setMaxH && window.__PF.setMaxH(300));
 
   // --- pause test
   await page.click('#startBtn');

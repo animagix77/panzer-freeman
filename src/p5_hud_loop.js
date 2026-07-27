@@ -83,7 +83,7 @@ function showCard(ep) {
   c.style.opacity = '1';
   cardT = 4.0;
 }
-function enterEpisode(i, instant, silent) {
+function enterEpisode(i, instant, silent, keepMusic) {
   Game.epIndex = i;
   Game.epStartZ = Game.railZ;
   var ep = EPISODES[i];
@@ -93,7 +93,7 @@ function enterEpisode(i, instant, silent) {
   props.configure(ep.props, Game.railZ - 200);
   props2.configure(ep.props2, Game.railZ - 200);
   if (!silent) showCard(ep);
-  P.playMusic(ep.music);
+  if (!keepMusic) P.playMusic(ep.music);
   if (ep.id === 'boss') {
     Player.railY = Player.railY;
     setTimeout(function () { if (Game.state === 'playing') E.bossStart(); }, 2600);
@@ -516,6 +516,7 @@ function updateIntro(dt) {
 function endIntro() {
   P.ambLight.intensity = cur.ambI;
   P.keyLight.intensity = cur.keyI;
+  P.playMusic(EPISODES[Game.epIndex].music);   // hand off from the title theme
   Game.state = 'playing';
   Game.cinematic = false;
   camera.fov = 56; camera.updateProjectionMatrix();
@@ -524,6 +525,7 @@ function endIntro() {
   showCard(EPISODES[0]);
 }
 P.setIntroT = function (frac) { introT = INTRO_LEN * frac; };
+P.getIntroT = function () { return introT; };
 function skipIntro() {
   if (Game.state !== 'intro') return;
   introT = Math.max(introT, INTRO_LEN * 0.88);
@@ -548,6 +550,7 @@ function resetGame() {
 
 function startGame() {
   A.init();
+  if (!A.song) P.playMusic('title');   // in case the gesture that armed audio was this click
   resetGame();
   Game.state = 'intro';
   Game.cinematic = true;
@@ -557,7 +560,7 @@ function startGame() {
   P.el.over.classList.remove('on');
   P.el.win.classList.remove('on');
   P.el.skip.classList.add('on');
-  enterEpisode(0, true, true);
+  enterEpisode(0, true, true, true);   // the title theme carries the cinematic
 }
 
 function rankFor(age) {

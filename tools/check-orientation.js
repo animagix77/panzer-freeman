@@ -7,6 +7,7 @@ const path = require('path');
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.goto('file://' + path.join(__dirname, '..', 'index.html'));
   await page.waitForTimeout(1300);
+  await page.evaluate(() => window.__PF && window.__PF.setMaxH && window.__PF.setMaxH(300));
   await page.click('#startBtn'); await page.waitForTimeout(400);
   await page.evaluate(() => window.__PF.setIntroT(1.0));
   await page.waitForTimeout(1600);

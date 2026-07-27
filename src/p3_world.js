@@ -29,7 +29,7 @@ function Terrain() {
   this.group = new THREE.Group();
   scene.add(this.group);
   this.chunks = [];
-  this.W = 640; this.D = 100; this.SX = 52; this.SZ = 15; this.N = 15;
+  this.W = 640; this.D = 100; this.SX = 62; this.SZ = 18; this.N = 15;
   this.enabled = false;
   this.cfg = null;
   for (var i = 0; i < this.N; i++) this.chunks.push(this._mkChunk());
@@ -43,10 +43,13 @@ Terrain.prototype._mkChunk = function () {
       col.push(1, 1, 1);
     }
   }
+  // Alternate the split diagonal in a checker so slopes don't develop the
+  // long directional slivers a uniform triangulation produces.
   for (var j2 = 0; j2 < sz; j2++) {
     for (var i2 = 0; i2 < sx; i2++) {
       var a = j2 * (sx + 1) + i2, b = a + 1, c = a + sx + 1, d = c + 1;
-      idx.push(a, c, b, b, c, d);
+      if (((i2 + j2) & 1) === 0) idx.push(a, c, b, b, c, d);
+      else                       idx.push(a, c, d, a, d, b);
     }
   }
   var g = new THREE.BufferGeometry();

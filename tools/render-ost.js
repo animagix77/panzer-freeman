@@ -11,15 +11,16 @@ const path = require('path');
   await page.waitForTimeout(1500);
 
   const tracks = process.argv[2] ? [process.argv[2]] : ['title','ep1','ep2','ep3','boss'];
+  const SECS_ARG = process.argv[3] ? +process.argv[3] : 0;
   for (const name of tracks) {
     const res = await page.evaluate(async (n) => {
       const P = window.__PF, A = P.Audio_;
-      const SR = 44100, SECS = 24;
+      const SR = 44100, SECS = n.secs || 24;
       const off = new OfflineAudioContext(1, SR * SECS, SR);
       A.started = false;
       A.init(off);
       A.muted = false;
-      const s = P.SONGS[n];
+      const s = P.SONGS[n.n];
       A.setSong(s);
       const stepTime = 60 / s.bpm / 4;
       const total = Math.floor((SECS - 0.3) / stepTime);
@@ -57,10 +58,10 @@ const path = require('path');
         bin += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
       return { peak: +peak.toFixed(3), rms: +Math.sqrt(sum / N).toFixed(4),
                clipped, perSec, b64: btoa(bin), bpm: s.bpm, bars: s.flat.length / 16 };
-    }, name);
+    }, { n: name, secs: SECS_ARG || (name === 'title' ? 52 : 24) });
     fs.writeFileSync(`ost-${name}.wav`, Buffer.from(res.b64, 'base64'));
     console.log(`${name.padEnd(6)} bpm=${res.bpm} loop=${res.bars}bars peak=${res.peak} rms=${res.rms} clipped=${res.clipped}`);
-    console.log(`       energy/s: ${res.perSec.slice(0, 16).join(' ')}`);
+    console.log(`       energy/s: ${res.perSec.join(' ')}`);
   }
   console.log('ERRORS', errs.length ? errs.slice(0,4).join('\n') : 'none');
   await b.close();
