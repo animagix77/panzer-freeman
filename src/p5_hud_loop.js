@@ -395,6 +395,7 @@ window.addEventListener('keydown', function (e) {
     Player.invertY = !Player.invertY;
     P.toast(Player.invertY ? 'PITCH: INVERTED' : 'PITCH: NORMAL');
   }
+  if (k === 'r') P.toast(P.toggleRetro() ? 'SATURN MODE' : 'CLEAN MODE');
 });
 window.addEventListener('keyup', function (e) { Input.keys[keyName(e)] = false; });
 window.addEventListener('blur', function () { Input.keys = {}; Input.lmb = false; Input.rmb = false; });

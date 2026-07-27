@@ -38,6 +38,7 @@ the network unplugged.
 | RMB | rapid gun |
 | `Q` `E` | rotate the view 90° |
 | `I` | toggle inverted pitch |
+| `R` | toggle Saturn mode |
 | `P` | pause · `M` mute |
 
 ## The interesting bits
@@ -49,10 +50,12 @@ each cell on an alternating diagonal so slopes face in a scattered mosaic instea
 developing long directional slivers. A whisper of scanline and a soft vignette are all
 that's left of the CRT pass.
 
-An earlier build emulated the Saturn outright — a 400×232 buffer, nearest upscaled,
-with a shader patch snapping vertices to a coarse clip-space grid to reproduce the
-90s integer-math wobble. That code is still there behind `VERTEX_SNAP` in
-`p1_core.js` if you want the jitter back.
+**Saturn mode is still in there.** Press `R` and the buffer drops to 232 lines
+nearest-upscaled, the sky quantises to 15-bit, the full scanline/vignette pass comes
+back, and every material starts snapping its vertices to a coarse clip-space grid —
+the real 90s integer-math wobble, not a filter. The snap shader is always compiled in
+and gated on a uniform, so the switch is instant and doesn't rebuild a single
+material. The HUD is a separate full-res canvas, so it stays sharp either way.
 
 **A dragon with a flight model.** Wingbeats are driven by an *effort* value derived
 from actual vertical velocity, so climbing costs work and diving is free:
@@ -87,10 +90,12 @@ each bolt onto its target. Each bolt drags an additively-blended ribbon trail wh
 anchors are laid down *by distance travelled*, so the streak is the same length at
 30fps or 144.
 
-**A title theme that walks the band in.** "The Sky Still Owes Him" opens on a bare
-swelling pad, answers it with one clean guitar line, then rides a tom ramp into the
-full hook — it carries straight through the opening cinematic and hands off to the
-stage music the moment gameplay starts.
+**A title theme that walks the band in.** "The Sky Still Owes Him" opens as a
+fanfare — whole-note power chords over a swelling pad with a lead soaring on top —
+then a tom ramp drops it into the gallop riff at 10.9s. The build is in the note
+density, not the volume: it's big from the first bar and just gets *faster*. It
+carries straight through the opening cinematic and hands off to the stage music the
+moment gameplay starts.
 
 **A synthesized rock band.** Five original tracks, no samples. Notes sum into shared
 distortion channels *before* the waveshaper so power chords intermodulate the way a

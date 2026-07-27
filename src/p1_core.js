@@ -75,16 +75,32 @@ window.addEventListener('resize', resize);
 // headless tools render small so they aren't gated on software rasterisation).
 function setMaxH(h) { MAX_H = Math.max(180, h | 0); resize(); }
 
+// Saturn mode: vertex snap on, 232-line buffer nearest-upscaled, 15-bit sky,
+// full CRT overlay. Off by default; 'R' toggles it.
+var cleanMaxH = 1100;
+function setRetro(on) {
+  RETRO_ON = !!on;
+  for (var i = 0; i < retroSnaps.length; i++) retroSnaps[i].value = RETRO_ON ? 1 : 0;
+  skyUni.bands.value = RETRO_ON ? 26 : 216;
+  document.body.classList.toggle('crt', RETRO_ON);
+  setMaxH(RETRO_ON ? 232 : cleanMaxH);
+  return RETRO_ON;
+}
+function toggleRetro() { return setRetro(!RETRO_ON); }
+
 // ------------------------------------------------------------- retro shader
 // Snap clip-space verts to a coarse grid -> authentic 90s console wobble.
-// Disabled: the game now renders clean low-poly. Flip VERTEX_SNAP to re-enable.
-var VERTEX_SNAP = false;
+// The patch is always compiled in but gated on a uniform, so Saturn mode can
+// be toggled live without rebuilding every material in the scene.
 var JITTER_GRID = 96.0;
+var retroSnaps = [];              // every uSnap uniform we've handed out
+var RETRO_ON = false;
 function retroPatch(mat, grid) {
-  if (!VERTEX_SNAP) return mat;
   mat.onBeforeCompile = function (shader) {
     shader.uniforms.uGrid = { value: grid || JITTER_GRID };
-    shader.vertexShader = 'uniform float uGrid;\n' + shader.vertexShader;
+    shader.uniforms.uSnap = { value: RETRO_ON ? 1 : 0 };
+    retroSnaps.push(shader.uniforms.uSnap);
+    shader.vertexShader = 'uniform float uGrid;\nuniform float uSnap;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
       '#include <project_vertex>',
       [
@@ -94,7 +110,9 @@ function retroPatch(mat, grid) {
         '#endif',
         'mvPosition = modelViewMatrix * mvPosition;',
         'gl_Position = projectionMatrix * mvPosition;',
-        'gl_Position.xyz = floor(gl_Position.xyz / gl_Position.w * uGrid) / uGrid * gl_Position.w;'
+        'if (uSnap > 0.5) {',
+        '  gl_Position.xyz = floor(gl_Position.xyz / gl_Position.w * uGrid) / uGrid * gl_Position.w;',
+        '}'
       ].join('\n')
     );
   };
@@ -601,24 +619,24 @@ var SONGS = {};
 // ------------------------------------------- TITLE — "The Sky Still Owes Him"
 // A slow burn: pad alone, then one guitar line answering it, then the kit walks
 // in on a tom ramp and the whole band lands on the hook. Loops from the top.
-SONGS.title = song(132, ['P1', 'G1', 'R', 'A', 'A2', 'B', 'A', 'A2', 'B', 'C', 'X'], {
-  // ---- I. pad alone -------------------------------------------------------
-  P1: { pad: cat(w(40, 16), w(36, 16)), pv: 0.85 },
-  P2: { pad: cat(w(45, 16), w(35, 16)), pv: 0.95,
-        cln: cat(rest(24), w(64, 4), w(67, 4)), cv: 0.55 },
-
-  // ---- II. one guitar answers --------------------------------------------
-  G1: {
+SONGS.title = song(132, ['F1', 'F2', 'R', 'A', 'A2', 'B', 'A', 'A2', 'B', 'C', 'X'], {
+  // ---- I. the fanfare: big open chords, a soaring lead, no kit yet --------
+  F1: {
     pad:  cat(w(40, 16), w(36, 16)), pv: 1,
-    cln:  cat(w(71, 6), w(69, 2), w(67, 8), w(64, 6), w(67, 2), w(71, 8)), cv: 0.85,
-    bass: cat(w(28, 16), w(24, 16))
+    gtr:  cat(w(40, 16), w(36, 16)), pm: rep([0, 0, 0, 0], 8), gv: 0.95,
+    bass: cat(w(28, 16), w(24, 16)),
+    lead: cat(w(76, 10), w(74, 6), w(72, 10), w(71, 6)), lv: 0.9,
+    kick: D('x---------------x---------------'),
+    crash:D('x---------------x---------------')
   },
-  G2: {
+  F2: {
     pad:  cat(w(45, 16), w(35, 16)), pv: 1,
-    cln:  cat(w(72, 6), w(71, 2), w(69, 8), w(67, 4), w(69, 4), w(71, 6), rest(2)), cv: 0.9,
-    bass: cat(w(33, 16), w(35, 16)),
-    hat:  D('----------------x-x-x-x-x-x-x-x-'),
-    crash:D('----------------x---------------')
+    gtr:  cat(w(45, 16), w(35, 8), w(38, 8)), pm: rep([0, 0, 0, 0], 8), gv: 0.95,
+    bass: cat(w(33, 16), w(35, 8), w(26, 8)),
+    lead: cat(w(79, 10), w(78, 6), w(76, 6), w(74, 4), w(71, 6)), lv: 1,
+    kick: D('x---------------x-------x-------'),
+    crash:D('x--------------- ---------------'),
+    tom:  D('---------------- --------x-x-x-x-')
   },
 
   // ---- III. the ramp: toms build, guitar starts chugging ------------------
@@ -895,6 +913,7 @@ window.__PF = {
   pick: pick, angDelta: angDelta, V3: V3, tmpA: tmpA, tmpB: tmpB, tmpC: tmpC,
   renderer: renderer, scene: scene, camera: camera, resize: resize,
   M: M, G: G, retroPatch: retroPatch, setMaxH: setMaxH,
+  setRetro: setRetro, toggleRetro: toggleRetro, isRetro: function () { return RETRO_ON; },
   skyUni: skyUni, skyMesh: skyMesh,
   ambLight: ambLight, keyLight: keyLight, rimLight: rimLight,
   Audio_: Audio_, playMusic: playMusic, note: note, SONGS: SONGS,
