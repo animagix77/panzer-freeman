@@ -930,7 +930,7 @@ var MUSIC_FILES = {
   boss:   'sound/04_hour_sphinx.mp3',
   ending: 'sound/05_ending.mp3'
 };
-var MUSIC_VOL = 0.62;                 // mastered tracks vs. quiet synth SFX
+var MUSIC_VOL = 0.48;                 // mastered tracks sit UNDER the synth SFX
 var streams = {}, streamDead = false, curStream = null, fadeTimer = null;
 
 function streamFor(k) {
@@ -943,13 +943,19 @@ function streamFor(k) {
     a.addEventListener('playing', function () {
       // only silence the sequencer once audio is genuinely rolling — a
       // rejected play() must never leave the game mute
-      if (curStream === a) Audio_.setSong(null);
+      if (curStream === a) {
+        Audio_.setSong(null);
+        // mastered tracks flatten the little synth SFX; push the SFX bus up
+        // while a stream carries the music
+        if (Audio_.sfxGain) Audio_.sfxGain.gain.setTargetAtTime(0.95, Audio_.ctx.currentTime, 0.15);
+      }
     });
     a.addEventListener('error', function () {
       // one failure condemns the whole set — half-streamed music is worse
       // than none, and the common cause (no sound/ folder) affects all six
       streamDead = true;
       if (curStream) { try { curStream.pause(); } catch (e) {} curStream = null; }
+      if (Audio_.sfxGain) Audio_.sfxGain.gain.setTargetAtTime(0.5, Audio_.ctx.currentTime, 0.1);
       if (pendingKey) Audio_.setSong(SONGS[pendingKey] || null);
     });
     streams[k] = a;

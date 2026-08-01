@@ -307,6 +307,10 @@ function killEnemy(e, byPlayer) {
     Game.kills++;
     Game.combo++;
     Game.comboT = 2.6;
+    // heat: every kill stokes it, only taking a hit quenches it (no timer
+    // decay — the chain timer is strict, heat is the reward that lingers)
+    Game.heat = Math.min(1, (Game.heat || 0) + 1 / 12);
+    refreshWeapons();
     if (Game.combo > Game.bestCombo) Game.bestCombo = Game.combo;
     var mult = 1 + Math.min(Game.combo, 20) * 0.06;
     Game.score += Math.round(e.def.score * mult);
@@ -355,11 +359,18 @@ var VIGOUR_TIERS = [
     line: 'Thirty-six, and the sky had begun to feel small.' }
 ];
 var vigour = VIGOUR_TIERS[0], vigourIdx = 0;
+// Locks.max = the age-tier baseline plus up to +6 from heat, so a hot streak
+// visibly widens the volley and a hit visibly narrows it again.
+function refreshWeapons() {
+  Locks.max = vigour.locks + Math.floor((Game.heat || 0) * 6);
+}
+P.refreshWeapons = refreshWeapons;
 function applyVigour() {
   var idx = 0;
   for (var i = 0; i < VIGOUR_TIERS.length; i++) if (Game.age <= VIGOUR_TIERS[i].age) idx = i;
   var t = VIGOUR_TIERS[idx];
-  Locks.max = t.locks;
+  vigour = t;
+  refreshWeapons();
   Player.gunCD = t.gunCD;
   Player.gunDmg = t.dmg;
   if (idx > vigourIdx) {                        // only announce on the way down
@@ -367,7 +378,7 @@ function applyVigour() {
     if (t.name) sayQuip(t.name + '\n' + t.line, true);
     A.sLock();
   }
-  vigourIdx = idx; vigour = t;
+  vigourIdx = idx;
 }
 P.getVigour = function () { return { tier: vigourIdx, name: vigour.name, locks: Locks.max }; };
 function dropLocks(t) {
@@ -393,6 +404,9 @@ function damagePlayer(amount, hard) {
   Game.hurtT = 0.55;
   Game.shakeT = 0.5; Game.shakeMag = hard ? 2.4 : 1.4;
   Game.combo = 0;
+  if ((Game.heat || 0) > 0.4) sayQuip('The rhythm broke. It had been a good rhythm.', true);
+  Game.heat = 0;
+  refreshWeapons();
   A.sHit();
   flashScreen(0.55, '#ff3b2a');
   if (Math.random() < 0.5) sayQuip(pick([
@@ -820,8 +834,16 @@ function updatePlayer(dt) {
 
   // ---- camera (skipped while a cinematic owns it)
   if (cine) { P.skyMesh.position.copy(camera.position); return; }
+  // The turn reads through the CAMERA, not the dragon: steering swings the
+  // boom out of line and pans the view into the turn, Panzer-Dragoon style,
+  // while the dragon itself only banks. Lean lags the stick so the swing
+  // has weight.
+  Player.lean = damp(Player.lean || 0, ix, 4.2, dt);
+  var lean = Player.lean;
+  var camYawEff = yaw - lean * 0.24;
   var fwd = new V3(Math.sin(yaw), 0, Math.cos(yaw));
-  var camPos = Player.pos.clone().addScaledVector(fwd, -26);
+  var camDir = new V3(Math.sin(camYawEff), 0, Math.cos(camYawEff));
+  var camPos = Player.pos.clone().addScaledVector(camDir, -26);
   camPos.y += 6.2 + dragon.getBob() * 0.32;
   camPos.addScaledVector(fwd, dragon.getSurge() * 0.5);
   camPos.x += Math.sin(Game.time * 0.7) * 0.25;
@@ -831,11 +853,15 @@ function updatePlayer(dt) {
     camPos.x += rand(-s, s); camPos.y += rand(-s, s); camPos.z += rand(-s, s);
   }
   camera.position.copy(camPos);
-  var look = Player.pos.clone().addScaledVector(fwd, 34);
+  var lookYaw = yaw + lean * 0.34;
+  var look = Player.pos.clone();
+  look.x += Math.sin(lookYaw) * 34;
+  look.z += Math.cos(lookYaw) * 34;
   look.y += 6.0 - Player.aimY * 4.0;
   look.x += Input.ndx * 4.4 * -Math.cos(yaw);
   look.z += Input.ndx * 4.4 * Math.sin(yaw);
   camera.lookAt(look);
+  camera.rotateZ(-lean * 0.05);          // a breath of roll into the turn
 
   P.skyMesh.position.copy(camera.position);
 
@@ -865,9 +891,10 @@ function updateProjectiles(dt) {
       if (p.target.def) { if (p.target.alive) tp = p.target.pos; }
       else if (p.target.group && p.target.alive) { p.target.group.getWorldPosition(_lz); tp = _lz; }
     }
-    var spd = Math.min(215, 60 + p.age * 200);
+    var heat = Game.heat || 0;
+    var spd = Math.min(215 + heat * 95, 60 + p.age * (200 + heat * 170));
     if (tp) {
-      var k = 1.6 + p.age * 15;                    // homing tightens as it flies
+      var k = (1.6 + p.age * 15) * (1 + heat * 0.9);   // homing tightens as it flies, hotter = harder
       P.tmpA.copy(tp).sub(p.m.position).normalize().multiplyScalar(spd);
       p.v.lerp(P.tmpA, Math.min(1, dt * k));
     }

@@ -1307,13 +1307,14 @@ function buildDragon() {
     // ---- body ------------------------------------------------------------
     body.position.y = bob;
     body.position.z = surge;
-    // bank INTO the turn: moving screen-right drops the right wing
-    body.rotation.z = damp(body.rotation.z, (st.strafeX || 0) * 0.62, 7, dt);
+    // bank INTO the turn — gently. The turn itself now reads through the
+    // camera swing; the dragon just tilts, it does not slew across the screen.
+    body.rotation.z = damp(body.rotation.z, (st.strafeX || 0) * 0.30, 7, dt);
     // nose up on the climb, nose down in the dive
     pitchAim = damp(pitchAim, -vyN * 0.40, 4.5, dt);
     body.rotation.x = pitchAim + (stroking ? -0.03 : 0.014);
-    // and the nose leads the turn a little
-    body.rotation.y = damp(body.rotation.y, -(st.strafeX || 0) * 0.13, 5, dt);
+    // no body yaw: the camera pans the turn, the dragon holds its line
+    body.rotation.y = damp(body.rotation.y, 0, 5, dt);
 
     // ---- neck: reaches forward in a dive, rears up on a climb ------------
     for (var i = 0; i < necks.length; i++) {

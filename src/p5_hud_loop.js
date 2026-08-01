@@ -169,7 +169,7 @@ function updateLocks(dt) {
       if (d2 < bestD) { bestD = d2; best = t; }
     }
     if (!best) { Locks.cd = 0; break; }
-    Locks.list.push(best); Locks.cd += LOCK_CD; A.sLock();
+    Locks.list.push(best); Locks.cd += LOCK_CD * (1 - (Game.heat || 0) * 0.45); A.sLock();
   }
 }
 
@@ -284,6 +284,11 @@ function drawHUD(dt) {
   // ---------- score / combo (top-right)
   txt(('' + Game.score).padStart(8, '0'), w - pad, gy + 22, 26, '#ffd25e', 'right');
   txt('SCORE', w - pad, gy + 40, 12, '#7e7192', 'right');
+  if ((Game.heat || 0) > 0.01) {
+    var _ht = Game.heat;
+    var _hc = 'rgb(255,' + Math.round(210 - _ht * 130) + ',' + Math.round(148 - _ht * 110) + ')';
+    txt('HEAT ' + Math.round(_ht * 100) + '%  ·  ' + Locks.max + ' LOCKS', w - pad, gy + 88, 13, _hc, 'right');
+  }
   if (Game.combo > 1) {
     txt('×' + Game.combo + ' CHAIN', w - pad, gy + 66, 17, '#8fffc4', 'right');
   }
