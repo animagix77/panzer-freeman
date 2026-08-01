@@ -174,7 +174,8 @@ var EPISODES = [
     id: 'ep1', label: 'EPISODE I', name: 'THE ASHEN CANYON',
     sub: 'Where the empire buried its machines, the sand still hums.',
     music: 'ep1', length: 5400, railY: 22, speed: 56,
-    sky: { lo: 0xffb257, mid: 0xd15a56, hi: 0x33195e, sun: 0xffd08a, sunDir: [0.18, 0.06, 1], sunSize: 0.0034, bands: 24 },
+    weather: { ember: 0.85, wind: 0.35 },   // the buried machines still burn
+    sky: { lo: 0xffb257, mid: 0xd15a56, hi: 0x33195e, sun: 0xffd08a, sunDir: [0.18, 0.06, 1], sunSize: 0.0034, bands: 24, shaft: 0.46 },
     fog: { col: 0xc4785c, near: 110, far: 640 },
     light: { amb: 0x5d3a4a, ambI: 1.0, key: 0xffcf9a, keyI: 1.15, kd: [0.3, 0.55, 1], rim: 0x7d5fd0, rimI: 0.4 },
     terrain: {
@@ -206,6 +207,7 @@ var EPISODES = [
     id: 'ep2', label: 'EPISODE II', name: 'THE DROWNED CHOIR',
     sub: 'A city sang here once. Now only the water keeps the tune.',
     music: 'ep2', length: 5400, railY: 20, speed: 60,
+    weather: { rain: 1.0, wind: 0.7 },      // the drowned city, still drowning
     sky: { lo: 0x8fe0e6, mid: 0x2f7fa8, hi: 0x0e2140, sun: 0xdff4ff, sunDir: [-0.35, 0.22, 1], sunSize: 0.0022, bands: 22 },
     fog: { col: 0x3f90ad, near: 100, far: 620 },
     light: { amb: 0x2f4a68, ambI: 1.05, key: 0xd8f2ff, keyI: 1.0, kd: [-0.4, 0.6, 1], rim: 0x2fd8c8, rimI: 0.45 },
@@ -238,6 +240,7 @@ var EPISODES = [
     id: 'ep3', label: 'EPISODE III', name: 'THE CITADEL OF HOURS',
     sub: 'Above the last cloud, the Fountain keeps its own weather.',
     music: 'ep3', length: 5200, railY: 46, speed: 64,
+    weather: { snow: 1.0, wind: 0.5 },      // above the last cloud
     sky: { lo: 0xffa8d4, mid: 0x7a4fc0, hi: 0x120833, sun: 0xffd9f0, sunDir: [0.5, 0.3, -1], sunSize: 0.0030, bands: 20 },
     fog: { col: 0x6a45a0, near: 110, far: 660 },
     light: { amb: 0x4a3070, ambI: 1.1, key: 0xffc7ea, keyI: 1.0, kd: [0.5, 0.5, -1], rim: 0x62e0ff, rimI: 0.55 },
@@ -271,6 +274,7 @@ var EPISODES = [
     id: 'boss', label: 'FINAL', name: 'CHRONOS, THE HOUR-SPHINX',
     sub: 'It has counted every second of his life. It intends to keep them.',
     music: 'boss', length: 1e9, railY: 46, speed: 40,
+    weather: { snow: 0.5, ember: 0.7, wind: 0.9 },  // snow and forge-light together
     sky: { lo: 0xff7a4a, mid: 0x52205e, hi: 0x08030f, sun: 0xff9f5f, sunDir: [0.15, -0.06, 1], sunSize: 0.0042, bands: 18 },
     fog: { col: 0x3a1140, near: 120, far: 700 },
     light: { amb: 0x5c3358, ambI: 1.25, key: 0xffc190, keyI: 1.25, kd: [0.25, 0.45, -1], rim: 0x9a5fff, rimI: 0.7 },
@@ -303,3 +307,4 @@ P.world = {
 };
 
 })();
+if (window.__PFLOAD) __PFLOAD.set(0.5, 'SEEDING THE WORLD');

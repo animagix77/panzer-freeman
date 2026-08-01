@@ -20,7 +20,7 @@ var cur = {
   lo: new THREE.Color(), mid: new THREE.Color(), hi: new THREE.Color(), sun: new THREE.Color(),
   fog: new THREE.Color(), amb: new THREE.Color(), key: new THREE.Color(), rim: new THREE.Color(),
   fogNear: 60, fogFar: 430, sunDir: new V3(0, 0, 1), sunSize: 0.02, bands: 24,
-  ambI: 1, keyI: 1, rimI: 0.4, kd: new V3(0, 0.5, 1)
+  ambI: 1, keyI: 1, rimI: 0.4, shaft: 0.30, kd: new V3(0, 0.5, 1)
 };
 var tgt = JSON.parse('{}');
 function setTargets(ep) {
@@ -31,6 +31,7 @@ function setTargets(ep) {
     fogNear: ep.fog.near, fogFar: ep.fog.far,
     sunDir: new V3(ep.sky.sunDir[0], ep.sky.sunDir[1], ep.sky.sunDir[2]).normalize(),
     sunSize: ep.sky.sunSize, bands: ep.sky.bands,
+    shaft: ep.sky.shaft === undefined ? 0.30 : ep.sky.shaft,
     ambI: ep.light.ambI, keyI: ep.light.keyI, rimI: ep.light.rimI,
     kd: new V3(ep.light.kd[0], ep.light.kd[1], ep.light.kd[2]).normalize()
   };
@@ -38,6 +39,7 @@ function setTargets(ep) {
 function snapColors() {
   ['lo', 'mid', 'hi', 'sun', 'fog', 'amb', 'key', 'rim'].forEach(function (k) { cur[k].copy(tgt[k]); });
   cur.fogNear = tgt.fogNear; cur.fogFar = tgt.fogFar; cur.sunSize = tgt.sunSize; cur.bands = tgt.bands;
+  cur.shaft = tgt.shaft;
   cur.ambI = tgt.ambI; cur.keyI = tgt.keyI; cur.rimI = tgt.rimI;
   cur.sunDir.copy(tgt.sunDir); cur.kd.copy(tgt.kd);
   applyColors();
@@ -51,6 +53,7 @@ function stepColors(dt) {
   cur.fogFar = damp(cur.fogFar, tgt.fogFar, l, dt);
   cur.sunSize = damp(cur.sunSize, tgt.sunSize, l, dt);
   cur.bands = damp(cur.bands, tgt.bands, l, dt);
+  cur.shaft = damp(cur.shaft, tgt.shaft, l, dt);
   cur.ambI = damp(cur.ambI, tgt.ambI, l, dt);
   cur.keyI = damp(cur.keyI, tgt.keyI, l, dt);
   cur.rimI = damp(cur.rimI, tgt.rimI, l, dt);
@@ -63,6 +66,7 @@ function applyColors() {
   u.cLo.value.copy(cur.lo); u.cMid.value.copy(cur.mid); u.cHi.value.copy(cur.hi);
   u.sunCol.value.copy(cur.sun); u.sunDir.value.copy(cur.sunDir);
   u.sunSize.value = cur.sunSize; u.bands.value = Math.round(cur.bands);
+  u.shaftAmt.value = cur.shaft; u.shaftT.value = Game.time;
   scene.fog.color.copy(cur.fog);
   scene.fog.near = cur.fogNear; scene.fog.far = cur.fogFar;
   renderer.setClearColor(cur.fog, 1);
@@ -90,6 +94,7 @@ function enterEpisode(i, instant, silent, keepMusic) {
   setTargets(ep);
   if (instant) snapColors();
   terrain.configure(ep.terrain, Game.railZ);
+  if (P.weather) P.weather.configure(ep.weather);
   props.configure(ep.props, Game.railZ - 200);
   props2.configure(ep.props2, Game.railZ - 200);
   if (!silent) showCard(ep);
@@ -605,7 +610,7 @@ P.onEnd = function (won) {
   P.el.quip.style.opacity = '0'; E.setQuipT(0);
   hx.clearRect(0, 0, HUD.w, HUD.h);
   P.hudCanvas.style.display = 'none';
-  if (won) P.playMusic('title'); else A.stop();
+  if (won) P.playMusic('ending'); else { P.playMusic(null); A.stop(); }
 };
 
 // browsers won't start audio without a gesture — take the first one we get
@@ -715,19 +720,53 @@ function frame(now) {
   } else P.el.quip.style.opacity = '0';
 
   drawHUD(dt);
+  // weather rides the camera, so it updates after the camera is final
+  if (P.weather) P.weather.update(dt, camera.position, Game.time);
   renderer.render(scene, camera);
 }
 
 // ==================================================================== BOOT
-P.resize();
-Input.mx = HUD.w / 2; Input.my = HUD.h / 2; Input.ndx = 0; Input.ndy = 0;
-setTargets(EPISODES[0]);
-snapColors();
-terrain.configure(EPISODES[0].terrain, 0);
-props.configure(EPISODES[0].props, -200);
-props2.configure(EPISODES[0].props2, -200);
-Player.railY = EPISODES[0].railY;
-P.el.loading.classList.add('off');
-requestAnimationFrame(frame);
+// Staged across frames so the preload bar reports real work rather than a
+// fake sweep — each step yields before the next one runs.
+var LD = window.__PFLOAD || { step: function (p, l, n) { n(); }, done: function () {} };
+
+var BOOT = [
+  ['SQUARING THE VIEWPORT', function () {
+    P.resize();
+    Input.mx = HUD.w / 2; Input.my = HUD.h / 2; Input.ndx = 0; Input.ndy = 0;
+  }],
+  ['SIGHTING THE TARGETS', function () {
+    setTargets(EPISODES[0]);
+    snapColors();
+  }],
+  ['RAISING THE TERRAIN', function () {
+    terrain.configure(EPISODES[0].terrain, 0);
+  }],
+  ['GATHERING THE WEATHER', function () {
+    if (P.weather) { P.weather.configure(EPISODES[0].weather); P.weather.refresh(); }
+  }],
+  ['SCATTERING THE RUINS', function () {
+    props.configure(EPISODES[0].props, -200);
+    props2.configure(EPISODES[0].props2, -200);
+    Player.railY = EPISODES[0].railY;
+  }],
+  ['COMPILING SHADERS', function () {
+    // force every material through the GPU once, so the first real frame
+    // doesn't stall on shader compilation mid-flight
+    P.renderer.compile(P.scene, P.camera);
+  }]
+];
+
+(function runBoot(i) {
+  if (i >= BOOT.length) {
+    LD.done();
+    requestAnimationFrame(frame);
+    return;
+  }
+  LD.step(0.55 + 0.44 * (i / BOOT.length), BOOT[i][0], function () {
+    BOOT[i][1]();
+    runBoot(i + 1);
+  });
+})(0);
 
 })();

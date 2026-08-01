@@ -25,7 +25,7 @@ var Player = {
   camYaw: 0, viewIndex: 0, camYawTarget: 0,
   aimX: 0, aimY: 0,
   gunT: 0, laserT: 0,
-  railY: 24, invertY: true
+  railY: 24, invertY: true, gunCD: 0.085, gunDmg: 1
 };
 P.Player = Player;
 
@@ -338,6 +338,38 @@ function spawnOrb(pos, guaranteed) {
 
 // -------------------------------------------------------------------- locks
 var Locks = { list: [], max: 8, cd: 0 };
+
+// ------------------------------------------------------------ vigour tiers
+// Every year he sheds makes him faster and deadlier — the upgrade curve IS the
+// de-aging, so there are no pickups to balance and no new UI to explain. 89 is
+// the start, 24 the floor.
+var VIGOUR_TIERS = [
+  { age: 100, locks: 8,  gunCD: 0.085, dmg: 1, name: '' },
+  { age: 78,  locks: 10, gunCD: 0.074, dmg: 1, name: 'STEADIER HANDS',
+    line: 'Something in his shoulder let go. He fired again to be sure.' },
+  { age: 64,  locks: 12, gunCD: 0.063, dmg: 2, name: 'THE OLD RHYTHM',
+    line: 'Sixty-four. He had forgotten the gun could do that.' },
+  { age: 50,  locks: 14, gunCD: 0.054, dmg: 2, name: 'SECOND WIND',
+    line: 'Fifty. He stopped bracing for the recoil, and it stopped coming.' },
+  { age: 36,  locks: 16, gunCD: 0.046, dmg: 3, name: 'PRIME',
+    line: 'Thirty-six, and the sky had begun to feel small.' }
+];
+var vigour = VIGOUR_TIERS[0], vigourIdx = 0;
+function applyVigour() {
+  var idx = 0;
+  for (var i = 0; i < VIGOUR_TIERS.length; i++) if (Game.age <= VIGOUR_TIERS[i].age) idx = i;
+  var t = VIGOUR_TIERS[idx];
+  Locks.max = t.locks;
+  Player.gunCD = t.gunCD;
+  Player.gunDmg = t.dmg;
+  if (idx > vigourIdx) {                        // only announce on the way down
+    P.flashScreen(0.3, '#9fe8ff');
+    if (t.name) sayQuip(t.name + '\n' + t.line, true);
+    A.sLock();
+  }
+  vigourIdx = idx; vigour = t;
+}
+P.getVigour = function () { return { tier: vigourIdx, name: vigour.name, locks: Locks.max }; };
 function dropLocks(t) {
   for (var i = Locks.list.length - 1; i >= 0; i--) if (Locks.list[i] === t) Locks.list.splice(i, 1);
 }
@@ -347,10 +379,12 @@ P.Locks = Locks;
 function deAge(y) {
   Game.age = clamp(Game.age - y, 24, 100);
   dragon.setAge(Game.age);
+  applyVigour();
 }
 function addAge(y) {
   Game.age = clamp(Game.age + y, 24, 100);
   dragon.setAge(Game.age);
+  applyVigour();
 }
 function damagePlayer(amount, hard) {
   if (Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
@@ -380,7 +414,7 @@ P.flashScreen = flashScreen;
 // ------------------------------------------------------------------ firing
 function fireGun() {
   if (Player.gunT > 0) return;
-  Player.gunT = 0.085;
+  Player.gunT = Player.gunCD || 0.085;
   Game.shots++;
   var b = gunPool.get();
   var origin = getMuzzle();
@@ -389,7 +423,7 @@ function fireGun() {
   b.lookAt(origin.clone().add(dir));
   var grib = ribbonPool.get();
   ribbonReset(grib, origin.x, origin.y, origin.z);
-  bullets.push({ m: b, rib: grib, v: dir.clone().multiplyScalar(230), life: 2.2, dmg: 1 });
+  bullets.push({ m: b, rib: grib, v: dir.clone().multiplyScalar(230), life: 2.2, dmg: Player.gunDmg || 1 });
   dragon.muzzleT = 0.06;
   A.sGun();
 }
@@ -658,7 +692,27 @@ var QUIPS = [
   'No man chooses the morning he begins getting younger.',
   'Somewhere far below, the sand made a note of it.',
   'He had outlived better machines than that one.',
-  'The trick, he had learned, is to stop apologising for still being here.'
+  'The trick, he had learned, is to stop apologising for still being here.',
+  'His doctor had advised against strenuous activity.\nHis doctor had not been specific.',
+  'At his age most men take up birdwatching.\nHe had simply taken a bird.',
+  'He is not, strictly speaking, licensed for this airspace.',
+  'His knees have opinions about the dive.\nHis knees are outvoted.',
+  'Somewhere, an actuary is quietly revising a table.',
+  'The dragon banked before he asked it to.\nThey have been doing this a while.',
+  'He does not shout in combat. He finds it unnecessary,\nand the dragon finds it rude.',
+  'He aimed for the middle. The middle is no longer available.',
+  'They gave him a medal once. He has no idea where it is.\nHe knows exactly where it is.',
+  'He had left the stove on. Some years ago now.\nHe has made his peace with it.',
+  'A younger man would have missed.\nHe is, worryingly, becoming one.',
+  'Two years came back at once. One of them was a good year.',
+  'He had been young before. He remembered not caring for it.',
+  'The manual advises against this manoeuvre.\nThere is no manual.',
+  'He is not entirely certain the dragon is on his side.\nThe dragon is not saying.',
+  'That is the sound a thousand years of engineering makes\non its way down.',
+  'A machine built to count seconds has met a man\nwho intends to spend them.',
+  'His hands are steadier now than they were at thirty.\nHe has stopped asking why.',
+  'He would like it noted that he did not start this.\nHe would like it noted that he is finishing it.',
+  'There was a queue for the Fountain once.\nHe has resolved the queue.'
 ];
 var CHAIN_QUIPS = {
   5:  'Five in a row. He was not counting. He was absolutely counting.',
@@ -1138,3 +1192,4 @@ P.entities = {
 };
 
 })();
+if (window.__PFLOAD) __PFLOAD.set(0.55, 'TUNING THE ORGAN');

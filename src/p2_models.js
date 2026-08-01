@@ -16,6 +16,88 @@ function tet(r) { return new THREE.TetrahedronGeometry(r, 0); }
 function tor(r, t, a, b) { return new THREE.TorusGeometry(r, t, a || 4, b || 12); }
 function mesh(g, m) { return new THREE.Mesh(g, m); }
 
+function sgn(v) { return v < 0 ? -1 : 1; }
+
+// A lofted shell through stacked cross-sections. Each section is a superellipse
+// of half-width w/2 and half-depth d/2 — n near 2 is an ellipse, higher n
+// squares the corners off. Sampling it at NS angles gives a chamfered prism, so
+// a torso reads as a tapered armoured shell instead of a crate. Same idea as the
+// head's ring stack, generalised so armour can use it too.
+function loftGeo(S, NS, capBot, capTop, aFrom, aTo) {
+  var pos = [], i, r;
+  NS = NS || 10;
+  var A0 = aFrom === undefined ? 0 : aFrom;
+  var A1 = aTo === undefined ? TAU : aTo;
+  function pt(s, a) {
+    var ca = Math.cos(a), sa = Math.sin(a), p = 2 / (s.n || 3.2);
+    return [
+      s.w * 0.5 * sgn(ca) * Math.pow(Math.abs(ca), p) + (s.cx || 0),
+      s.y,
+      s.d * 0.5 * sgn(sa) * Math.pow(Math.abs(sa), p) + (s.cz || 0)
+    ];
+  }
+  function tri(A, B, C) { pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2]); }
+  function ang(i) { return A0 + (A1 - A0) * (i / NS); }
+  for (r = 0; r < S.length - 1; r++) {
+    for (i = 0; i < NS; i++) {
+      var a0 = ang(i), a1 = ang(i + 1);
+      var v00 = pt(S[r], a0), v01 = pt(S[r], a1);
+      var v10 = pt(S[r + 1], a0), v11 = pt(S[r + 1], a1);
+      tri(v00, v10, v11); tri(v00, v11, v01);
+    }
+  }
+  if (capBot !== false) {
+    var b = S[0], bc = [b.cx || 0, b.y, b.cz || 0];
+    for (i = 0; i < NS; i++) tri(bc, pt(b, ang(i + 1)), pt(b, ang(i)));
+  }
+  if (capTop !== false) {
+    var t = S[S.length - 1], tc = [t.cx || 0, t.y, t.cz || 0];
+    for (i = 0; i < NS; i++) tri(tc, pt(t, ang(i)), pt(t, ang(i + 1)));
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+// An extruded flat polygon — armour plates, tabards, emblem facets. Points are
+// [x, y] in the plate's own plane, fanned from the centroid so any convex or
+// mildly star-shaped outline closes without gaps, then swept to thickness t.
+function plateGeo(pts, t) {
+  var pos = [], i, n = pts.length, h = t * 0.5;
+  var cx = 0, cy = 0;
+  for (i = 0; i < n; i++) { cx += pts[i][0]; cy += pts[i][1]; }
+  cx /= n; cy /= n;
+  function tri(A, B, C) { pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2]); }
+  for (i = 0; i < n; i++) {
+    var a = pts[i], b = pts[(i + 1) % n];
+    tri([cx, cy, h], [a[0], a[1], h], [b[0], b[1], h]);          // front face
+    tri([cx, cy, -h], [b[0], b[1], -h], [a[0], a[1], -h]);       // back face
+    tri([a[0], a[1], h], [a[0], a[1], -h], [b[0], b[1], -h]);    // rim
+    tri([a[0], a[1], h], [b[0], b[1], -h], [b[0], b[1], h]);
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+function plate(pts, t, m) { return mesh(plateGeo(pts, t), m); }
+
+// Several plates sharing one material, merged into a single geometry. An emblem
+// is a handful of facets; left as separate meshes each costs a draw call for no
+// visual gain.
+function plates(polys, t, m) {
+  var pos = [], i, k;
+  for (i = 0; i < polys.length; i++) {
+    var a = plateGeo(polys[i], t).getAttribute('position').array;
+    for (k = 0; k < a.length; k++) pos.push(a[k]);
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return mesh(g, m);
+}
+
 // A wing sail: one continuous fan from a hub inside a closed outline. Because
 // the outline is star-shaped about the hub, the fan can't leave gaps between
 // panels — the whole membrane is a single airtight surface. Dropping the hub
@@ -307,35 +389,108 @@ function buildDragon() {
     function tag(p, s) { return [p[0], p[1], p[2], s]; }
 
     // ---- one closed outline, walked leading edge -> fingertips -> root ----
-    var out = [tag(S, 0), tag(E, 0.05), tag(W2, 0.12)];
+    // Each point also records WHICH joint carries it, so the membrane can be
+    // re-solved every frame as the arm folds instead of being a rigid sheet.
+    //   0 = shoulder (fixed)   1 = elbow   2 = wrist/fingers
+    var out = [], owner = [];
+    function add(p, shade, own) { out.push(tag(p, shade)); owner.push(own); }
+    add(S, 0, 0); add(E, 0.05, 1); add(W2, 0.12, 2);
     for (var fi = 0; fi < FG.length; fi++) {
-      out.push(tag(FG[fi], 0.30 + fi * 0.10));
+      add(FG[fi], 0.30 + fi * 0.10, 2);
       var nxt = fi < FG.length - 1 ? FG[fi + 1] : A;
       // shallow scallops between fingertips — a bite, not a bay
-      out.push(tag(pull(mix(FG[fi], nxt, 0.5), W2, 0.11), 0.92));
+      add(pull(mix(FG[fi], nxt, 0.5), W2, 0.11), 0.92, fi < FG.length - 1 ? 2 : 0);
     }
-    out.push(tag(A, 0.62));
-    out.push(tag(S, 0));                       // close the loop
+    add(A, 0.62, 0);
+    add(S, 0, 0);                              // close the loop
 
     // Hub sits under the middle of the sail: the fan centre and the camber.
     var hub = [ (W2[0] + A[0] * 0.5) * 0.62, W2[1] - 0.62, (W2[2] + A[2]) * 0.45 ];
 
     var mem = new THREE.Group();
-    mem.add(mesh(sail(out, hub, cWingLead, cWingTrail), mSail));
+    var sailMesh = mesh(sail(out, hub, cWingLead, cWingTrail), mSail);
+    mem.add(sailMesh);
     w.add(mem);
 
-    // ---- structure, drawn over the sail so the bones read as ribs ---------
-    w.add(bone(S, E, 0.26, 0.18, mHide));
-    w.add(bone(E, W2, 0.18, 0.13, mHide));
+    // ---- articulated bone chain -------------------------------------------
+    // The arm is now three nested groups rather than one rigid block, so the
+    // elbow and wrist can fold on the upstroke the way a bat's actually does.
+    var elbowG = new THREE.Group();
+    elbowG.position.set(E[0], E[1], E[2]);
+    w.add(elbowG);
+    var wristG = new THREE.Group();
+    wristG.position.set(W2[0] - E[0], W2[1] - E[1], W2[2] - E[2]);
+    elbowG.add(wristG);
+
+    function rel(p, o) { return [p[0] - o[0], p[1] - o[1], p[2] - o[2]]; }
+
+    w.add(bone(S, E, 0.26, 0.18, mHide));                       // humerus
+    elbowG.add(bone([0, 0, 0], rel(W2, E), 0.18, 0.13, mHide));  // forearm
     var knuckle = mesh(ico(0.19, 0), mHide2);
-    knuckle.position.set(W2[0], W2[1], W2[2]); w.add(knuckle);
+    wristG.add(knuckle);
     for (var k = 0; k < FG.length; k++) {
-      w.add(bone(W2, FG[k], 0.125 - k * 0.011, 0.035, mSpar));
+      wristG.add(bone([0, 0, 0], rel(FG[k], W2), 0.125 - k * 0.011, 0.035, mSpar));
     }
     w.add(bone(S, A, 0.13, 0.07, mSpar));                             // root chord
-    w.add(bone(W2, [side * 5.45, 1.18, -0.70], 0.07, 0.014, mClaw));  // thumb claw
+    wristG.add(bone([0, 0, 0], rel([side * 5.45, 1.18, -0.70], W2), 0.07, 0.014, mClaw));
 
     w.userData.mem = mem;
+    w.userData.side = side;
+    w.userData.elbow = elbowG;
+    w.userData.wrist = wristG;
+
+    // ---- membrane re-solve -------------------------------------------------
+    // The sail is one fan of triangles whose vertices are (hub, a, b) per edge.
+    // Rather than rebuild the geometry, we recompute the same vertices from the
+    // live joint transforms each frame — 39 verts per wing, cheap enough to do
+    // every tick and the only way the membrane can actually fold and billow.
+    var posAttr = sailMesh.geometry.getAttribute('position');
+    var E0 = new V3(E[0], E[1], E[2]);
+    var W0 = new V3(W2[0], W2[1], W2[2]);
+    var base = out.map(function (p) { return new V3(p[0], p[1], p[2]); });
+    var hub0 = new V3(hub[0], hub[1], hub[2]);
+    var cur = base.map(function (v) { return v.clone(); });
+    var curHub = hub0.clone();
+    var _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _v = new V3();
+
+    w.userData.solve = function (billow, chordFold) {
+      elbowG.updateMatrix();
+      wristG.updateMatrix();
+      // elbow frame, then wrist frame, both in wing-local space
+      _m.copy(elbowG.matrix);
+      _m2.multiplyMatrices(_m, wristG.matrix);
+
+      for (var i = 0; i < base.length; i++) {
+        var o = owner[i];
+        if (o === 0) { cur[i].copy(base[i]); continue; }
+        if (o === 1) {
+          _v.copy(base[i]).sub(E0).applyMatrix4(_m);
+          cur[i].copy(_v);
+        } else {
+          _v.copy(base[i]).sub(W0);
+          _v.applyMatrix4(_m2);
+          cur[i].copy(_v);
+        }
+        // aerodynamic load: the sail is pushed against the air, hardest at the
+        // trailing edge where there is least structure to resist it
+        var chord = base[i][3] === undefined ? 0.5 : 0;
+        cur[i].y += billow * (0.35 + 0.65 * Math.abs(base[i].z / 6)) ;
+      }
+      _v.copy(hub0).sub(W0).applyMatrix4(_m2);
+      curHub.copy(_v).lerp(hub0, 0.45);
+      curHub.y += billow * 1.15;                 // the belly of the sail moves most
+
+      var w2 = 0;
+      for (var e = 0; e < base.length - 1; e++) {
+        var a = cur[e], b = cur[e + 1];
+        posAttr.array[w2++] = curHub.x; posAttr.array[w2++] = curHub.y; posAttr.array[w2++] = curHub.z;
+        posAttr.array[w2++] = a.x; posAttr.array[w2++] = a.y; posAttr.array[w2++] = a.z;
+        posAttr.array[w2++] = b.x; posAttr.array[w2++] = b.y; posAttr.array[w2++] = b.z;
+      }
+      posAttr.needsUpdate = true;
+      sailMesh.geometry.computeVertexNormals();
+    };
+
     return w;
   }
   var wL = wing(-1), wR = wing(1);
@@ -418,6 +573,9 @@ function buildDragon() {
   rider.position.set(0, 1.15, 0.55);
   body.add(rider);
 
+  // modelled-rider placement, tuned against rendered gates
+  var RIDER_MODEL_SCALE = 1.62, RIDER_NECK_Y = 0.80, RIDER_MODEL_Z = -0.06;
+
   var SKIN_OLD = 0x7d5638, SKIN_YOUNG = 0x8d6242;
   var mSkin = new THREE.MeshPhongMaterial({ color: SKIN_OLD, flatShading: true, shininess: 8, specular: 0x2a1d14 });
   P.retroPatch(mSkin);
@@ -429,17 +587,181 @@ function buildDragon() {
   P.retroPatch(mHair);
   var mFleck = new THREE.MeshPhongMaterial({ color: 0x4f3220, flatShading: true, shininess: 0 });
   P.retroPatch(mFleck);
-  var mCoat = M(0x2c2f52, { shine: 10 });
-  var mCoat2 = M(0x8f3b2e);
-  var mBelt = M(0xc8a23f);
+  // Armour palette, de-lit from the reference sheet: brown leather carries the
+  // bulk, navy cloth is the secondary, bronze does every trim and fastener.
+  var mLeather  = M(0x635648, { shine: 6, spec: 0x241a12 });
+  var mLeatherD = M(0x40382f, { shine: 4 });
+  var mNavy     = M(0x2b3a58, { shine: 8 });
+  var mNavyDS   = M(0x2b3a58, { shine: 8, side: THREE.DoubleSide });
+  var mGold     = M(0x93815a, { shine: 34, spec: 0x5a4520 });
+  var mGoldDS   = M(0x93815a, { shine: 34, spec: 0x5a4520, side: THREE.DoubleSide });
+  var mCoat = mNavy, mCoat2 = mLeather, mBelt = mGold;   // legacy aliases
 
-  // ---- torso -------------------------------------------------------------
-  var torso = mesh(box(0.92, 1.15, 0.62), mCoat); torso.position.y = 0.2; rider.add(torso);
-  var coatTail = mesh(box(0.98, 0.9, 0.5), mCoat2);
-  coatTail.position.set(0, -0.35, -0.16); coatTail.rotation.x = 0.16; rider.add(coatTail);
-  var belt = mesh(box(0.96, 0.16, 0.66), mBelt); belt.position.y = -0.3; rider.add(belt);
-  var collar = mesh(box(0.98, 0.2, 0.68), mCoat2); collar.position.y = 0.74; rider.add(collar);
-  var neckR = mesh(cyl(0.17, 0.2, 0.3, 6), mSkinLo); neckR.position.y = 0.88; rider.add(neckR);
+  // A compact heraldic dragon, built from flat facets. Too small at gameplay
+  // range to read as anatomy — it only has to hold a serpentine silhouette.
+  // Kept deliberately blunt. At gameplay range this is ~25 px of gold; fine
+  // filigree just aliases into noise, so it reads as a compact crest instead.
+  var DRAGON_GLYPH = [
+    [[0.06, 0.26], [0.30, 0.30], [0.32, 0.14], [0.10, 0.10]],      // head
+    [[-0.08, 0.24], [0.10, 0.26], [0.08, 0.00], [-0.12, 0.02]],    // neck
+    [[-0.12, 0.02], [0.10, 0.00], [0.14, -0.26], [-0.06, -0.28]],  // body
+    [[-0.10, 0.16], [-0.32, 0.24], [-0.26, 0.00]],                 // wing
+    [[-0.06, -0.28], [0.14, -0.26], [0.06, -0.42]]                 // tail
+  ];
+  function dragonGlyph(sc, mat) {
+    var g = plates(DRAGON_GLYPH, 0.05, mat);
+    g.scale.setScalar(sc);
+    return g;
+  }
+
+  // ---- torso: a lofted armoured shell — broad chest, cinched waist, the
+  //      shoulder yoke sloping in to meet the collar ------------------------
+  var torso = new THREE.Group(); rider.add(torso);
+  var chest = mesh(loftGeo([
+    { y: -0.46, w: 0.74, d: 0.50, n: 4.6 },
+    { y: -0.30, w: 0.78, d: 0.53, n: 4.6 },
+    { y: -0.12, w: 0.74, d: 0.49, n: 4.6 },
+    { y:  0.14, w: 0.82, d: 0.54, n: 5.0 },
+    { y:  0.40, w: 0.88, d: 0.57, n: 5.0 },
+    { y:  0.58, w: 0.84, d: 0.54, n: 5.0 },
+    { y:  0.70, w: 0.60, d: 0.44, n: 4.2 }
+  ], 10), mLeather);
+  torso.add(chest);
+
+  // central placket: four bronze buckles stepping down the sternum
+  var placket = mesh(box(0.20, 0.92, 0.05), mLeatherD);
+  placket.position.set(0, 0.16, 0.278); torso.add(placket);
+  [[0.46, 0.302], [0.29, 0.306], [0.12, 0.300], [-0.05, 0.288]].forEach(function (b) {
+    var fr = mesh(box(0.115, 0.085, 0.035), mGold);
+    fr.position.set(0, b[0], b[1]); torso.add(fr);
+    var hole = mesh(box(0.055, 0.04, 0.045), mLeatherD);
+    hole.position.set(0, b[0], b[1] + 0.008); torso.add(hole);
+  });
+
+  // bandolier across the chest, with the ring at the sternum
+  var band = mesh(box(0.125, 1.24, 0.045), mLeatherD);
+  band.position.set(0.02, 0.16, 0.272); band.rotation.z = 0.44; torso.add(band);
+  var bandRing = mesh(tor(0.085, 0.024, 4, 10), mGold);
+  bandRing.position.set(0.055, 0.315, 0.318); torso.add(bandRing);
+
+  // ---- shoulder mantle: a flared navy cape carrying the dragon crests -----
+  // Left open in a V at the front so the buckle placket and bandolier stay
+  // readable — a closed cone just swallows the whole cuirass.
+  var MAN_GAP = 0.34;
+  var MAN_A0 = Math.PI * 0.5 + MAN_GAP, MAN_A1 = Math.PI * 0.5 + TAU - MAN_GAP;
+  var mantle = mesh(loftGeo([
+    { y: 0.70, w: 0.64, d: 0.50, n: 5.0 },
+    { y: 0.60, w: 1.18, d: 0.78, n: 6.0 },
+    { y: 0.47, w: 1.24, d: 0.84, n: 7.5 },
+    { y: 0.41, w: 1.20, d: 0.80, n: 7.5 }
+  ], 14, false, false, MAN_A0, MAN_A1), mNavyDS);
+  torso.add(mantle);
+  var mantleTrim = mesh(loftGeo([
+    { y: 0.445, w: 1.26, d: 0.86, n: 7.5 },
+    { y: 0.395, w: 1.21, d: 0.81, n: 7.5 }
+  ], 14, false, false, MAN_A0, MAN_A1), mGoldDS);
+  torso.add(mantleTrim);
+  [-1, 1].forEach(function (s) {
+    var crest = dragonGlyph(0.46, mGold);
+    crest.position.set(s * 0.325, 0.545, 0.375);
+    crest.rotation.set(-0.12, s * 0.16, 0);
+    crest.scale.x *= -s;                       // the pair faces inward
+    torso.add(crest);
+  });
+
+  // ---- standing collar, open in a V at the front -------------------------
+  // The sheet shows a leather collar with navy lining on the inner face, so
+  // it's two nested shells rather than the single navy one I had.
+  var COL_GAP = 0.62;
+  var COL_A0 = Math.PI * 0.5 + COL_GAP, COL_A1 = Math.PI * 0.5 + TAU - COL_GAP;
+  var mLeatherDS = M(0x635648, { shine: 6, spec: 0x241a12, side: THREE.DoubleSide });
+  var collarLine = mesh(loftGeo([
+    { y: 0.60, w: 0.58, d: 0.44, n: 3.0 },
+    { y: 0.92, w: 0.78, d: 0.62, n: 3.0 }
+  ], 12, false, false, COL_A0, COL_A1), mNavyDS);
+  torso.add(collarLine);
+  var collar = mesh(loftGeo([
+    { y: 0.60, w: 0.63, d: 0.49, n: 3.0 },
+    { y: 0.78, w: 0.73, d: 0.58, n: 3.0 },
+    { y: 0.92, w: 0.83, d: 0.67, n: 3.0 }
+  ], 12, false, false, COL_A0, COL_A1), mLeatherDS);
+  torso.add(collar);
+  var collarTrim = mesh(loftGeo([
+    { y: 0.885, w: 0.82, d: 0.66, n: 3.0 },
+    { y: 0.935, w: 0.85, d: 0.69, n: 3.0 }
+  ], 12, false, false, COL_A0, COL_A1), mGoldDS);
+  torso.add(collarTrim);
+
+  var neckR = mesh(cyl(0.17, 0.2, 0.34, 6), mSkinLo); neckR.position.y = 0.86; rider.add(neckR);
+
+  // ---- hips: belt, pouches, tabard, faulds --------------------------------
+  var hips = new THREE.Group(); rider.add(hips);
+  var belt = mesh(loftGeo([
+    { y: -0.44, w: 0.90, d: 0.62, n: 4.6 },
+    { y: -0.18, w: 0.93, d: 0.65, n: 4.6 }
+  ], 10, false, false), M(0x40382f, { shine: 4, side: THREE.DoubleSide }));
+  hips.add(belt);
+  var beltBuckle = mesh(box(0.30, 0.26, 0.05), mGold);
+  beltBuckle.position.set(0, -0.31, 0.335); hips.add(beltBuckle);
+  var beltHole = mesh(box(0.17, 0.14, 0.06), mLeatherD);
+  beltHole.position.set(0, -0.31, 0.345); hips.add(beltHole);
+
+  [-1, 1].forEach(function (s) {
+    var pouch = mesh(loftGeo([
+      { y: -0.52, w: 0.22, d: 0.19, n: 3.4 },
+      { y: -0.26, w: 0.24, d: 0.21, n: 3.4 }
+    ], 8, true, true), mLeather);
+    pouch.position.set(s * 0.44, 0, 0.20); hips.add(pouch);
+    var flap = mesh(box(0.25, 0.10, 0.23), mLeatherD);
+    flap.position.set(s * 0.44, -0.29, 0.20); hips.add(flap);
+    var stud = mesh(box(0.05, 0.06, 0.03), mGold);
+    stud.position.set(s * 0.44, -0.38, 0.31); hips.add(stud);
+  });
+
+  // faulds — brown scale panels falling either side of the tabard
+  [-1, 1].forEach(function (s) {
+    var f = plate([[-0.26, 0.02], [0.26, 0.06], [0.30, -0.46], [-0.22, -0.54]], 0.06, mLeather);
+    f.position.set(s * 0.40, -0.42, 0.14);
+    f.rotation.set(0.10, -s * 0.85, 0); hips.add(f);
+  });
+
+  // tabard — navy, gold-bordered, pointed, with the house dragon on it
+  var TAB = [[-0.23, 0.02], [0.23, 0.02], [0.23, -0.52], [0, -0.72], [-0.23, -0.52]];
+  var tabTrim = plate(TAB.map(function (p) { return [p[0] * 1.14, p[1] * 1.10]; }), 0.05, mGold);
+  tabTrim.position.set(0, -0.36, 0.345); hips.add(tabTrim);
+  var tabard = plate(TAB, 0.05, mNavy);
+  tabard.position.set(0, -0.36, 0.375); hips.add(tabard);
+  var tabCrest = dragonGlyph(0.40, mGold);
+  tabCrest.position.set(0, -0.60, 0.405); hips.add(tabCrest);
+
+  // ---- legs: straddling the saddle, mostly read as silhouette ------------
+  [-1, 1].forEach(function (s) {
+    var leg = new THREE.Group();
+    leg.position.set(s * 0.30, -0.50, 0.04);
+    leg.rotation.set(-0.72, 0, s * 0.22); hips.add(leg);
+    var thigh = mesh(loftGeo([
+      { y: -0.56, w: 0.29, d: 0.31, n: 3.0 },
+      { y:  0.02, w: 0.36, d: 0.38, n: 3.0 }
+    ], 8), mLeather);
+    leg.add(thigh);
+    var knee = new THREE.Group(); knee.position.set(0, -0.56, 0); knee.rotation.x = 1.05; leg.add(knee);
+    var kneeP = plate([[-0.17, 0.10], [0.17, 0.10], [0.20, -0.08], [0, -0.22], [-0.20, -0.08]], 0.07, mLeather);
+    kneeP.position.set(0, 0.02, 0.17); knee.add(kneeP);
+    var kneeT = plate([[-0.20, 0.13], [0.20, 0.13], [0.23, -0.09], [0, -0.26], [-0.23, -0.09]], 0.05, mGold);
+    kneeT.position.set(0, 0.02, 0.145); knee.add(kneeT);
+    var shin = mesh(loftGeo([
+      { y: -0.50, w: 0.30, d: 0.32, n: 3.0 },
+      { y:  0.00, w: 0.32, d: 0.34, n: 3.0 }
+    ], 8), mLeather);
+    knee.add(shin);
+    var strap = mesh(box(0.33, 0.06, 0.35), mGold);
+    strap.position.y = -0.34; knee.add(strap);
+    var boot = mesh(loftGeo([
+      { y: -0.62, w: 0.32, d: 0.46, cz: 0.07, n: 3.6 },
+      { y: -0.50, w: 0.31, d: 0.36, cz: 0.02, n: 3.4 }
+    ], 8), mLeatherD);
+    knee.add(boot);
+  });
 
   // ---- the head ----------------------------------------------------------
   var headR = new THREE.Group(); headR.position.y = 1.24; rider.add(headR);
@@ -689,42 +1011,107 @@ function buildDragon() {
     function (v, fy, fa, a) {
       var front = Math.max(0, Math.cos(a));
       var recede = front * front;
-      v.y = Math.min(v.y + recede * (1 - fy) * 0.34, 1.06);
-      v.z -= recede * (1 - fy) * 0.06;
+      v.y = Math.min(v.y + recede * (1 - fy) * 0.47, 1.06);
+      v.z -= recede * (1 - fy) * 0.075;
     });
   F.add(hairCap);
   var sideburns = [];
 
   // ---- moustache + close-trimmed beard, both hugging the jaw -------------
-  var stache = shellMesh(-0.318, -0.248, 0.27, 2, 6,
-    function (fy, fa) { return edgeFade(fy, fa, 0.055); }, mHair);
+  // The reference wears a trimmed moustache and a chin patch joined to the jaw
+  // by a thin line, not the full bib the old shell produced — so the chin patch
+  // is narrowed and every offset pulled in tight to the skull.
+  var stache = shellMesh(-0.322, -0.240, 0.35, 2, 8,
+    function (fy, fa) { return edgeFade(fy, fa, 0.062); }, mHair);
   F.add(stache);
   var beard = new THREE.Group(); F.add(beard);
-  var beardShell = shellMesh(-1.02, -0.42, 1.02, 6, 10,
-    function (fy, fa) { return edgeFade(fy, fa, 0.085); }, mHair);
+  var beardShell = shellMesh(-1.00, -0.50, 0.74, 6, 10,
+    function (fy, fa) { return edgeFade(fy, fa, 0.050); }, mHair);
   beard.add(beardShell);
-  var beardJaw = shellMesh(-0.98, -0.58, 1.35, 3, 12,
-    function (fy, fa) { return edgeFade(fy, fa, 0.05); }, mHair);
+  var beardJaw = shellMesh(-0.95, -0.60, 1.30, 3, 12,
+    function (fy, fa) { return edgeFade(fy, fa, 0.026); }, mHair);
   beard.add(beardJaw);
 
   // ---- arms ---------------------------------------------------------------
-  var armL = new THREE.Group(); armL.position.set(-0.52, 0.52, 0.05); rider.add(armL);
-  var upL = mesh(box(0.24, 0.62, 0.26), mCoat); upL.position.y = -0.28; armL.add(upL);
-  var loL = mesh(box(0.2, 0.5, 0.22), mCoat); loL.position.set(0, -0.72, 0.2); loL.rotation.x = -0.7; armL.add(loL);
-  var handL = mesh(box(0.2, 0.18, 0.2), mSkin); handL.position.set(0, -0.92, 0.42); armL.add(handL);
+  // Each arm: navy sleeve under a plated pauldron, bronze-trimmed vambrace on
+  // the forearm, fingerless glove leaving the fingertips bare.
+  function buildArm(s) {
+    var arm = new THREE.Group();
+    arm.position.set(s * 0.62, 0.46, 0.03); torso.add(arm);
 
-  var armR = new THREE.Group(); armR.position.set(0.52, 0.52, 0.05); rider.add(armR);
-  var upR = mesh(box(0.24, 0.62, 0.26), mCoat); upR.position.y = -0.28; armR.add(upR);
-  var loR = mesh(box(0.2, 0.52, 0.22), mCoat); loR.position.set(0, -0.7, 0.24); loR.rotation.x = -0.9; armR.add(loR);
-  var handR = mesh(box(0.22, 0.2, 0.22), mSkin); handR.position.set(0, -0.9, 0.5); armR.add(handR);
-  var gun = new THREE.Group(); gun.position.set(0, -0.92, 0.62); armR.add(gun);
+    var up = mesh(loftGeo([
+      { y: -0.62, w: 0.22, d: 0.24, n: 3.6 },
+      { y: -0.30, w: 0.25, d: 0.27, n: 3.6 },
+      { y:  0.04, w: 0.31, d: 0.33, n: 3.8 }
+    ], 8), mNavy);
+    arm.add(up);
+
+    // pauldron: a scale cap with an angular bronze lame under it
+    var pauld = mesh(loftGeo([
+      { y: -0.26, w: 0.42, d: 0.46, n: 9.0 },
+      { y: -0.06, w: 0.48, d: 0.52, n: 9.0 },
+      { y:  0.10, w: 0.40, d: 0.44, n: 8.0 }
+    ], 8, false, true), mLeather);
+    pauld.position.set(s * 0.05, 0.06, 0); arm.add(pauld);
+    // bronze rim around the cap's lower edge — a trim ring, not a slab
+    var pRim = mesh(loftGeo([
+      { y: -0.30, w: 0.44, d: 0.48, n: 9.0 },
+      { y: -0.24, w: 0.43, d: 0.47, n: 9.0 }
+    ], 8, false, false), mGoldDS);
+    pRim.position.set(s * 0.05, 0.06, 0); arm.add(pRim);
+    var pLame = mesh(loftGeo([
+      { y: -0.46, w: 0.38, d: 0.42, n: 8.0 },
+      { y: -0.30, w: 0.43, d: 0.47, n: 8.5 }
+    ], 8, false, true), mLeather);
+    pLame.position.set(s * 0.05, 0.06, 0); arm.add(pLame);
+    var pauldTrim = plate([[-0.27, 0.06], [0.27, 0.06], [0.23, -0.10], [-0.23, -0.10]], 0.05, mGold);
+    pauldTrim.position.set(s * 0.05, -0.20, 0.02);
+    pauldTrim.rotation.y = s * Math.PI * 0.5; arm.add(pauldTrim);
+    var lame = plate([[-0.24, 0.08], [0.24, 0.08], [0.20, -0.16], [-0.20, -0.16]], 0.06, mLeather);
+    lame.position.set(s * 0.10, -0.30, 0.01);
+    lame.rotation.y = s * Math.PI * 0.5; arm.add(lame);
+
+    var fore = new THREE.Group();
+    fore.position.set(0, -0.62, 0); fore.rotation.x = -0.78; arm.add(fore);
+    var vamb = mesh(loftGeo([
+      { y: -0.46, w: 0.21, d: 0.22, n: 3.2 },
+      { y:  0.00, w: 0.27, d: 0.28, n: 3.2 }
+    ], 8), mLeather);
+    fore.add(vamb);
+    [-0.06, -0.30].forEach(function (y) {
+      var ring = mesh(box(0.26, 0.045, 0.27), mGold);
+      ring.position.y = y; fore.add(ring);
+    });
+    var glove = mesh(loftGeo([
+      { y: -0.66, w: 0.20, d: 0.20, n: 3.2 },
+      { y: -0.48, w: 0.22, d: 0.23, n: 3.2 }
+    ], 8), mLeatherD);
+    fore.add(glove);
+    var tips = mesh(box(0.19, 0.09, 0.18), mSkin);
+    tips.position.y = -0.73; fore.add(tips);
+    return { arm: arm, fore: fore };
+  }
+  var aL = buildArm(-1), aR = buildArm(1);
+  var armL = aL.arm, armR = aR.arm;
+  // the cannon rides in the right glove, so it follows the forearm's angle
+  var gun = new THREE.Group(); gun.position.set(0, -0.72, 0.06);
+  gun.rotation.x = 0.78; aR.fore.add(gun);
   var gunBody = mesh(box(0.24, 0.26, 0.8), M(0x3a3f4a, { shine: 30, spec: 0x778 }));
   gunBody.position.z = 0.25; gun.add(gunBody);
   var gunTip = mesh(cyl(0.1, 0.15, 0.4, 6), M(0x6d7480, { shine: 40 }));
   gunTip.rotation.x = Math.PI * 0.5; gunTip.position.z = 0.75; gun.add(gunTip);
   var muzzle = mesh(oct(0.34), G(0xfff0a0, { transparent: true, opacity: 0.9, depthWrite: false }));
   muzzle.position.z = 0.95; muzzle.visible = false; gun.add(muzzle);
-  var saddle = mesh(box(1.3, 0.3, 1.7), M(0x5b3a26)); saddle.position.set(0, 0.95, 0.5); body.add(saddle);
+  // Slimmer, lower saddle — the old slab sat above the rider's belt line and
+  // swallowed the whole hip assembly.
+  var saddle = mesh(loftGeo([
+    { y: -0.11, w: 0.98, d: 1.30, n: 3.4 },
+    { y:  0.06, w: 1.10, d: 1.46, n: 3.6 },
+    { y:  0.13, w: 0.92, d: 1.30, n: 3.4 }
+  ], 10), M(0x5b3a26));
+  saddle.position.set(0, 0.84, 0.5); body.add(saddle);
+  var cantle = plate([[-0.44, -0.10], [0.44, -0.10], [0.34, 0.24], [-0.34, 0.24]], 0.10, M(0x4a2f1e));
+  cantle.position.set(0, 0.98, -0.10); cantle.rotation.x = -0.22; body.add(cantle);
 
   // ---------------------------------------------------------- age morphing
   var cSkinOld = new THREE.Color(SKIN_OLD), cSkinYoung = new THREE.Color(SKIN_YOUNG);
@@ -764,6 +1151,18 @@ function buildDragon() {
   // effort (fast, deep, powered beats), diving costs none (wings lock out and
   // it glides). A damped spring turns each downstroke into a real lift bob.
   var cycT = 0, periodJit = 0, beatFired = false;
+  // wing joint state: e/r are elbow and wrist angles, eV/rV their velocities,
+  // bil the current membrane load. WK is stiffness, WC damping — tuned so the
+  // wingtip settles in roughly one beat without ringing.
+  var WK = 190, WC = 17;
+  // ZK/ZC govern the stroke-axis whip — softer than the fold springs, so the
+  // tip visibly trails the beat instead of snapping level with it.
+  var ZK = 120, ZC = 9;
+  var wJ = [
+    { e: 0, eV: 0, r: 0, rV: 0, z: 0, zV: 0, rz: 0, rzV: 0, bil: 0 },
+    { e: 0, eV: 0, r: 0, rV: 0, z: 0, zV: 0, rz: 0, rzV: 0, bil: 0 }
+  ];
+  var wPrev = 0, wingV = 0;
   var effort = 0.25, bob = 0, bobV = 0, surge = 0, surgeV = 0;
   var pitchAim = 0, lastW = 0;
 
@@ -837,23 +1236,74 @@ function buildDragon() {
     surgeV -= surge * 40 * dt; surgeV *= Math.exp(-7 * dt);
     surge += surgeV * dt; surge = clamp(surge, -0.3, 0.3);
 
-    // ---- wing pose -------------------------------------------------------
+    // ---- wing pose: driven joints + second-order dynamics -----------------
+    // The shoulder is driven directly by the beat. The elbow and wrist are NOT:
+    // they are sprung masses that chase a target, so they lag on the way down
+    // and overshoot at the top of the stroke. That lag is what reads as the
+    // wing having weight. Same integrator as the tail chain.
     var amp = 0.30 + effort * 0.45;               // stroke depth
     var rest = 0.20 - eN * 0.16;                  // gliding wings sit flatter
     var sweep = (1 - eN) * 0.17;                  // and sweep back
     var flutter = (1 - eN) * 0.014;               // airflow judder in a glide
     var bank = (st.strafeX || 0) * 0.16;          // outer wing extends in a turn
 
-    wL.rotation.z =  rest + w * amp + bank + Math.sin(t * 21.0) * flutter;
-    wR.rotation.z = -rest - w * amp + bank - Math.sin(t * 21.7) * flutter;
-    wL.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06;
-    wR.rotation.x = wL.rotation.x;
-    wL.rotation.y = -0.10 + w * 0.10 + sweep;
-    wR.rotation.y =  0.10 - w * 0.10 - sweep;
-    // membranes billow against the air, lagging the arm
-    if (wL.userData.mem) wL.userData.mem.rotation.x = -w * (0.10 + eN * 0.16);
-    if (wR.userData.mem) wR.userData.mem.rotation.x = -w * (0.10 + eN * 0.16);
+    // stroke velocity, signed: negative on the downstroke (wing driving down)
+    var wV = (w - wPrev) / Math.max(dt, 1e-4); wPrev = w;
+    wingV = damp(wingV, wV, 22, dt);
 
+    // Real flapping folds on the upstroke: flexing the elbow and wrist cuts
+    // wing area so the recovery stroke costs less than the power stroke.
+    // ph<0.5 is the downstroke here, so fold tracks the back half.
+    var upStroke = clamp((ph - 0.5) / 0.5, 0, 1) * (ph < 1 ? 1 : 0);
+    var fold = upStroke * (0.55 + eN * 0.35);
+    var sweepT = sweep;
+
+    for (var wi = 0; wi < 2; wi++) {
+      var W = wi ? wR : wL, sgn = wi ? -1 : 1, J = wJ[wi];
+
+      // --- driven shoulder
+      var flutterN = Math.sin(t * (wi ? 21.7 : 21.0)) * flutter;
+      W.rotation.z = sgn * (rest + w * amp) + bank + sgn * flutterN;
+      W.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06;
+      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * sweepT;
+
+      // --- sprung elbow and wrist.  a'' = -k(a - target) - c*a'
+      var eT = -fold * 0.95 + wingV * 0.028;       // elbow folds, and lags the stroke
+      var rT = -fold * 1.25 - wingV * 0.045;       // wrist folds harder, lags more
+      J.eV += ((eT - J.e) * WK - J.eV * WC) * dt;  J.e += J.eV * dt;
+      J.rV += ((rT - J.r) * WK * 0.82 - J.rV * WC * 0.9) * dt;  J.r += J.rV * dt;
+      J.e = clamp(J.e, -1.35, 0.30);
+      J.r = clamp(J.r, -1.55, 0.35);
+
+      // Stroke-axis whip: the outer wing chases the shoulder's stroke with a
+      // lag, so mid-downstroke the tip is still up and mid-upstroke it still
+      // hangs low. Same axis as the shoulder drive (z), same sign convention,
+      // target opposing the stroke VELOCITY — this is what breaks the
+      // one-solid-slab read. The wrist rides on the elbow, so its angle
+      // compounds and the tip whips roughly 2.5x the elbow's flex.
+      var zT = clamp(-wingV * 0.115, -0.45, 0.45);
+      J.zV  += ((zT - J.z) * ZK - J.zV * ZC) * dt;          J.z  += J.zV * dt;
+      J.rzV += ((zT * 1.5 - J.rz) * ZK * 0.75 - J.rzV * ZC) * dt; J.rz += J.rzV * dt;
+      J.z  = clamp(J.z, -0.42, 0.42);
+      J.rz = clamp(J.rz, -0.60, 0.60);
+
+      W.userData.elbow.rotation.y = sgn * J.e * 0.72;
+      W.userData.elbow.rotation.x = J.e * 0.34;
+      W.userData.elbow.rotation.z = sgn * J.z;
+      W.userData.wrist.rotation.y = sgn * J.r * 0.85;
+      W.userData.wrist.rotation.x = J.r * 0.30;
+      W.userData.wrist.rotation.z = sgn * J.rz;
+
+      // --- quasi-steady aerodynamic load on the membrane.
+      // Lift on a thin sail goes as (relative airspeed)^2 times angle of attack.
+      // The membrane can only push back in tension, so it bulges away from the
+      // direction of travel: up under the power stroke, inverted on recovery.
+      var vRel = 0.55 + eN * 0.85;                       // forward airspeed proxy
+      var aoa  = -wingV * 0.16 - vyN * 0.25;             // angle of attack
+      var load = clamp(vRel * vRel * aoa, -1.6, 1.6);
+      J.bil += (load * 0.30 - J.bil) * Math.min(1, dt * 14);
+      W.userData.solve(J.bil, fold);
+    }
     // ---- body ------------------------------------------------------------
     body.position.y = bob;
     body.position.z = surge;
@@ -922,6 +1372,96 @@ function buildDragon() {
       muzzle.scale.setScalar(0.6 + Math.random() * 0.9); muzzle.rotation.z += dt * 20; }
     else muzzle.visible = false;
   };
+
+  // ------------------------------------------------- swap in the modelled rider
+  // The baked model replaces the procedural rider entirely, head included — the
+  // likeness is the whole point of supplying it. The procedural head is hidden
+  // but its transform node (headR) is kept, because the intro camera reads its
+  // world position and the aim code writes its rotation; both are forwarded to
+  // the model's Head bone. setAge() is re-derived below against what a static
+  // mesh can actually do.
+  if (P.riderModel) {
+    var RM = P.riderModel;
+    RM.pose({ lean: 0 });
+
+    var gunSet = {};
+    gun.traverse(function (o) { gunSet[o.uuid] = 1; });
+    [torso, hips].forEach(function (grp) {
+      grp.traverse(function (o) { if (o.isMesh && !gunSet[o.uuid]) o.visible = false; });
+    });
+    headR.traverse(function (o) { if (o.isMesh) o.visible = false; });
+
+    var mRoot = new THREE.Group();
+    mRoot.add(RM.mesh);
+    // model is ~1.7 units standing; the rider frame wants a ~0.71 head, so it
+    // comes in at roughly 2.6x. Hips land on the saddle, not at the origin.
+    mRoot.scale.setScalar(RIDER_MODEL_SCALE);
+    rider.add(mRoot);
+    // Align by the neck bone rather than a hand-tuned Y: re-posing the legs
+    // changes the bounding box, so any fixed offset drifts. This pins the
+    // collar to the sculpted head's chin whatever the pose does.
+    (function () {
+      mRoot.position.set(0, 0, RIDER_MODEL_Z);
+      rider.updateMatrixWorld(true);
+      var neck = RM.bones.neck || RM.bones.Head || RM.bones.Spine02;
+      if (neck) {
+        var w = new THREE.Vector3();
+        neck.getWorldPosition(w);
+        var inv = new THREE.Matrix4().copy(rider.matrixWorld).invert();
+        w.applyMatrix4(inv);
+        mRoot.position.y = RIDER_NECK_Y - w.y;
+      }
+    })();
+
+    // headR is what the intro camera targets and what the aim code rotates, so
+    // it has to sit on the model's actual head. Every pose change moves that
+    // bone, so this is a function called after each one rather than a one-off:
+    // setting it once left the camera aimed where the head was before the
+    // riding pose, i.e. at the top of the skull.
+    var _hw = new THREE.Vector3(), _hi = new THREE.Matrix4();
+    function syncHeadNode() {
+      var hb = RM.bones.Head;
+      if (!hb) return;
+      rider.updateMatrixWorld(true);
+      hb.getWorldPosition(_hw);
+      _hi.copy(rider.matrixWorld).invert();
+      _hw.applyMatrix4(_hi);
+      headR.position.copy(_hw);
+    }
+
+    api.riderMesh = RM.mesh;
+    api.riderBones = RM.bones;
+
+    // Forward the aim look onto the model's head bone, then snap headR onto
+    // wherever that bone actually ended up. headR is what the intro camera
+    // targets, and setting it once at build time left it aiming at where the
+    // head was BEFORE the riding pose moved it — so the camera framed the top
+    // of the skull instead of the face.
+    var _upd = api.update;
+    api.update = function (st, dt, t) {
+      _upd(st, dt, t);
+      RM.turn('Head', headR.rotation.x * 0.5 + RM.headLift, headR.rotation.y * 0.8, 0);
+      syncHeadNode();
+    };
+
+    // setAge, re-derived for a static mesh. Beard bulk and wrinkle strips were
+    // procedural geometry and are simply gone; what survives is the spine
+    // straightening and the hair going from white back to black, which is the
+    // cue that actually reads at gameplay range. Doing it honestly rather than
+    // pretending the old morph still runs.
+    var _setAge = setAge;
+    setAge = function (age) {
+      _setAge(age);                        // still drives the hidden sculpt
+      var t = clamp((89 - age) / (89 - 25), 0, 1);
+      RM.pose({ lean: lerp(1, 0, t) });
+      RM.setHairAge(t);
+      RM.turn('Head', RM.headLift, 0, 0);
+      syncHeadNode();
+    };
+    api.setAge = setAge;
+    setAge(89);
+  }
+
   return api;
 }
 
@@ -1191,3 +1731,4 @@ P.models = {
 };
 
 })();
+if (window.__PFLOAD) __PFLOAD.set(0.42, 'FORGING THE DRAGON');

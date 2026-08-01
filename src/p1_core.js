@@ -171,6 +171,7 @@ var SKY_FS = [
   'uniform vec3 cHi; uniform vec3 cMid; uniform vec3 cLo;',
   'uniform vec3 sunDir; uniform vec3 sunCol; uniform float sunSize;',
   'uniform float bands;',
+  'uniform float shaftAmt; uniform float shaftT;',
   'float bayer2(vec2 a){ a = floor(a); return fract(a.x/2.0 + a.y*a.y*0.75); }',
   'float bayer4(vec2 a){ return bayer2(0.5*a)*0.25 + bayer2(a); }',
   'void main(){',
@@ -183,6 +184,16 @@ var SKY_FS = [
   '  float disc = smoothstep(1.0 - sunSize, 1.0 - sunSize*0.35, sd);',
   '  float halo = pow(max(sd,0.0), 52.0);',
   '  c += sunCol * (disc*0.9 + halo*0.42);',
+  // Crepuscular shafts. Not volumetric — nothing occludes them — but two
+  // incommensurate angular harmonics around the sun axis read as god-rays and
+  // cost a handful of instructions instead of a second render target.
+  '  vec3 su = normalize(sunDir);',
+  '  vec3 tg = normalize(cross(su, vec3(0.0, 1.0, 0.0)));',
+  '  vec3 bt = cross(su, tg);',
+  '  float ang = atan(dot(d, bt), dot(d, tg));',
+  '  float sh = (0.5 + 0.5*sin(ang*7.0  + shaftT*0.07))',
+  '           * (0.55 + 0.45*sin(ang*13.0 - shaftT*0.11 + 2.1));',
+  '  c += sunCol * sh * pow(max(sd, 0.0), 7.0) * shaftAmt;',
   // Ordered dither at 8-bit — kills gradient banding rather than creating it.
   '  float dth = (bayer4(gl_FragCoord.xy) - 0.5);',
   '  c = floor(c * bands + dth) / bands;',
@@ -197,7 +208,9 @@ var skyUni = {
   sunDir:  { value: new V3(0.25, 0.06, 1).normalize() },
   sunCol:  { value: new THREE.Color(0xffd08a) },
   sunSize: { value: 0.016 },
-  bands:   { value: 216.0 }
+  bands:   { value: 216.0 },
+  shaftAmt: { value: 0.34 },
+  shaftT:   { value: 0.0 }
 };
 var skyMesh = new THREE.Mesh(
   new THREE.SphereGeometry(900, 48, 28),
@@ -248,6 +261,7 @@ var Audio_ = {
   toggle: function () {
     this.muted = !this.muted;
     if (this.master) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.55, this.ctx.currentTime, 0.02);
+    setStreamMuted(this.muted);
     return this.muted;
   },
   tone: function (freq, dur, type, vol, slideTo, dest) {
@@ -902,9 +916,109 @@ SONGS.boss = song(178, ['I', 'A', 'A', 'B', 'A', 'C', 'B'], {
   }
 });
 
+// ------------------------------------------------------- streamed soundtrack
+// Generated tracks live in sound/*.mp3 next to index.html. If they load, they
+// replace the procedural sequencer; if they don't (index.html travelling as a
+// bare single file, or a decode failure), the sequencer plays exactly as
+// before. So the single-file promise still holds — files are an upgrade, not
+// a dependency.
+var MUSIC_FILES = {
+  title:  'sound/00_title.mp3',
+  ep1:    'sound/01_ashen_canyon.mp3',
+  ep2:    'sound/02_the_drowned_choir.mp3',
+  ep3:    'sound/03_citadel_hours.mp3',
+  boss:   'sound/04_hour_sphinx.mp3',
+  ending: 'sound/05_ending.mp3'
+};
+var MUSIC_VOL = 0.62;                 // mastered tracks vs. quiet synth SFX
+var streams = {}, streamDead = false, curStream = null, fadeTimer = null;
+
+function streamFor(k) {
+  if (streamDead || !MUSIC_FILES[k]) return null;
+  if (!streams[k]) {
+    var a = new window.Audio(MUSIC_FILES[k]);
+    a.loop = true;
+    a.preload = 'auto';
+    a.volume = 0;
+    a.addEventListener('playing', function () {
+      // only silence the sequencer once audio is genuinely rolling — a
+      // rejected play() must never leave the game mute
+      if (curStream === a) Audio_.setSong(null);
+    });
+    a.addEventListener('error', function () {
+      // one failure condemns the whole set — half-streamed music is worse
+      // than none, and the common cause (no sound/ folder) affects all six
+      streamDead = true;
+      if (curStream) { try { curStream.pause(); } catch (e) {} curStream = null; }
+      if (pendingKey) Audio_.setSong(SONGS[pendingKey] || null);
+    });
+    streams[k] = a;
+  }
+  return streams[k];
+}
+
+function fadeStreams(next) {
+  if (fadeTimer) clearInterval(fadeTimer);
+  var prev = curStream;
+  curStream = next;
+  fadeTimer = setInterval(function () {
+    var done = true;
+    if (prev && prev !== next) {
+      prev.volume = Math.max(0, prev.volume - 0.08);
+      if (prev.volume <= 0.001) { try { prev.pause(); } catch (e) {} }
+      else done = false;
+    }
+    if (next) {
+      var tv = Audio_.muted ? 0 : MUSIC_VOL;
+      next.volume = Math.min(tv, next.volume + 0.06);
+      if (Math.abs(next.volume - tv) > 0.001) done = false;
+    }
+    if (done) { clearInterval(fadeTimer); fadeTimer = null; }
+  }, 50);
+}
+
+var pendingKey = null;
 function playMusic(k) {
   if (!Audio_.started) return;
-  Audio_.setSong(SONGS[k] || null);
+  pendingKey = k;
+  if (!k) {                                   // explicit stop
+    if (curStream) fadeStreams(null);
+    Audio_.setSong(null);
+    return;
+  }
+  // the sequencer starts (or keeps) playing regardless; the stream's
+  // 'playing' event silences it once real audio is confirmed rolling
+  Audio_.setSong(SONGS[k] || (k === 'ending' ? SONGS.title : null));
+  var st = streamFor(k);
+  if (st) {
+    fadeStreams(st);
+    var p = st.play();
+    if (p && p.catch) p.catch(function () {
+      // autoplay-gated (Safari): retry on the next real input
+      var retry = function () {
+        if (pendingKey === k && !streamDead) {
+          var q = st.play();
+          if (q && q.catch) q.catch(function () {});
+        }
+      };
+      window.addEventListener('pointerdown', retry, { once: true });
+      window.addEventListener('keydown', retry, { once: true });
+    });
+  }
+}
+function setStreamMuted(m) {
+  if (curStream) curStream.volume = m ? 0 : MUSIC_VOL;
+}
+// introspection for the check tools
+function musicState() {
+  return {
+    stream: curStream ? curStream.src.split('/').pop() : null,
+    playing: !!(curStream && !curStream.paused),
+    volume: curStream ? +curStream.volume.toFixed(2) : 0,
+    dead: streamDead,
+    pending: pendingKey,
+    seq: !!Audio_.song
+  };
 }
 
 // ------------------------------------------------------------------ export
@@ -916,7 +1030,7 @@ window.__PF = {
   setRetro: setRetro, toggleRetro: toggleRetro, isRetro: function () { return RETRO_ON; },
   skyUni: skyUni, skyMesh: skyMesh,
   ambLight: ambLight, keyLight: keyLight, rimLight: rimLight,
-  Audio_: Audio_, playMusic: playMusic, note: note, SONGS: SONGS,
+  Audio_: Audio_, playMusic: playMusic, musicState: musicState, note: note, SONGS: SONGS,
   hudCanvas: hudCanvas, hx: hx, glCanvas: glCanvas,
   el: { flash: elFlash, card: elCard, toast: elToast, pause: elPause, skip: elSkip, quip: elQuip,
         title: elTitle, over: elOver, win: elWin, loading: elLoading },

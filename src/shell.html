@@ -148,8 +148,63 @@
   }
   #pausebox.on { display:flex; }
   #pausebox div { font-size:clamp(18px,3vw,34px); letter-spacing:.4em; color:#ffd25e; }
-  #loading { position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; background:#07040f; color:#ffd25e; letter-spacing:.4em; font-size:14px;}
-  #loading.off { display:none; }
+  /* ---- Preload screen ---- */
+  #loading {
+    position:absolute; inset:0; z-index:30; display:flex;
+    align-items:center; justify-content:center; flex-direction:column;
+    background:
+      radial-gradient(ellipse at 50% 38%, rgba(120,40,90,.30) 0%, rgba(7,4,15,0) 62%),
+      #07040f;
+    color:#ffd25e; transition:opacity .45s ease;
+  }
+  #loading.off { opacity:0; pointer-events:none; }
+  #loading.gone { display:none; }
+  #ldWrap { width:min(78vw,520px); text-align:center; }
+  #ldTitle {
+    font-size:clamp(20px,4.2vw,40px); letter-spacing:.34em; color:#ffe9b0;
+    text-shadow:0 0 26px rgba(255,150,60,.34);
+  }
+  #ldSub {
+    margin-top:8px; font-size:clamp(9px,1.5vw,12px); letter-spacing:.42em;
+    color:rgba(255,210,94,.52);
+  }
+  /* a dragon silhouette drawn in CSS, so the screen needs nothing loaded */
+  #ldGlyph { margin:30px auto 26px; width:96px; height:34px; position:relative; }
+  #ldGlyph i {
+    position:absolute; display:block; background:#ffd25e;
+    animation:ldbeat 1.5s ease-in-out infinite;
+  }
+  #ldGlyph i:nth-child(1){ left:38px; top:14px; width:22px; height:6px; opacity:.9; }
+  #ldGlyph i:nth-child(2){ left:6px;  top:7px;  width:34px; height:5px; opacity:.9;
+    transform:rotate(-16deg); animation-delay:-.10s; }
+  #ldGlyph i:nth-child(3){ left:58px; top:7px;  width:34px; height:5px; opacity:.9;
+    transform:rotate(16deg);  animation-delay:-.10s; }
+  #ldGlyph i:nth-child(4){ left:0px;  top:21px; width:26px; height:4px; opacity:.5;
+    transform:rotate(14deg);  animation-delay:-.22s; }
+  #ldGlyph i:nth-child(5){ left:70px; top:21px; width:26px; height:4px; opacity:.5;
+    transform:rotate(-14deg); animation-delay:-.22s; }
+  @keyframes ldbeat { 0%,100% { margin-top:0; } 50% { margin-top:-5px; } }
+  #ldBarOuter { height:3px; background:rgba(255,210,94,.14); position:relative; overflow:hidden; }
+  #ldBar {
+    position:absolute; left:0; top:0; bottom:0; width:0%;
+    background:linear-gradient(90deg,#ff8a3c,#ffd25e);
+    box-shadow:0 0 14px rgba(255,180,80,.6);
+    transition:width .3s cubic-bezier(.2,.8,.2,1);
+  }
+  #ldStatus {
+    margin-top:14px; font-size:clamp(9px,1.4vw,11px); letter-spacing:.36em;
+    color:rgba(255,233,176,.72); min-height:1.2em; text-align:left;
+  }
+  #ldPct { float:right; color:rgba(255,210,94,.5); letter-spacing:.2em; }
+  #ldTip {
+    margin-top:26px; font-size:clamp(9px,1.4vw,11px); line-height:1.9;
+    letter-spacing:.16em; color:rgba(255,233,176,.42); min-height:3.8em;
+  }
+  #loading.err #ldBar { background:#d8452f; box-shadow:none; }
+  @media (prefers-reduced-motion: reduce) {
+    #ldGlyph i { animation:none; }
+    #ldBar { transition:none; }
+  }
   .noselect { cursor:none; }
 </style>
 </head>
@@ -215,10 +270,77 @@
     </div>
   </div>
 
-  <div id="loading">LOADING&nbsp;THE&nbsp;SKY&hellip;</div>
+  <div id="loading">
+    <div id="ldWrap">
+      <div id="ldTitle">PANZER FREEMAN</div>
+      <div id="ldSub">CHRONOS REQUIEM</div>
+      <div id="ldGlyph"><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="ldBarOuter"><div id="ldBar"></div></div>
+      <div id="ldStatus">WAKING THE ENGINE<span id="ldPct">0%</span></div>
+      <div id="ldTip"></div>
+    </div>
+  </div>
 </div>
 
+<script>
+// Preload reporting. Defined before anything heavy so the screen can paint and
+// report even if a later stage throws.
+(function () {
+  var bar = document.getElementById('ldBar');
+  var st  = document.getElementById('ldStatus');
+  var pct = document.getElementById('ldPct');
+  var tip = document.getElementById('ldTip');
+  var box = document.getElementById('loading');
+  var TIPS = [
+    'Every drone torn out of the air peels a year away.',
+    'Hold the left button to paint lock-ons. Release to fire the volley.',
+    'Q and E swing the view ninety degrees — the sky is all around you.',
+    'Press R at any time for Saturn mode: 232 lines and a vertex wobble.',
+    'The Fountain runs time backward for anyone who can reach it.',
+    'Take a hit and the years come back on.'
+  ];
+  tip.textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
+  var tipT = setInterval(function () {
+    tip.textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
+  }, 3200);
+
+  window.__PFLOAD = {
+    set: function (p, label) {
+      p = Math.max(0, Math.min(1, p));
+      bar.style.width = (p * 100).toFixed(0) + '%';
+      pct.textContent = (p * 100).toFixed(0) + '%';
+      if (label) st.childNodes[0].nodeValue = label;
+    },
+    // hand control back a frame at a time so the bar actually advances
+    step: function (p, label, next) {
+      this.set(p, label);
+      requestAnimationFrame(function () { requestAnimationFrame(next); });
+    },
+    done: function () {
+      clearInterval(tipT);
+      this.set(1, 'READY');
+      var self = this;
+      setTimeout(function () {
+        box.classList.add('off');
+        setTimeout(function () { box.classList.add('gone'); }, 500);
+      }, 220);
+    },
+    fail: function (msg) {
+      clearInterval(tipT);
+      box.classList.add('err');
+      bar.style.width = '100%';
+      st.childNodes[0].nodeValue = 'FAILED: ' + msg;
+      pct.textContent = '';
+    }
+  };
+  window.addEventListener('error', function (e) {
+    if (!box.classList.contains('gone')) window.__PFLOAD.fail(e.message || 'script error');
+  });
+  __PFLOAD.set(0.04, 'WAKING THE ENGINE');
+})();
+</script>
 <script>/* __THREE_JS__ */</script>
+<script>__PFLOAD.set(0.30, 'LOADING THE RENDERER');</script>
 <script>
 /* __GAME_JS__ */
 </script>
