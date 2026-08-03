@@ -4715,8 +4715,13 @@ function updatePlayer(dt) {
   Player.aimY = damp(Player.aimY, cine ? 0 : Input.ndy, 10, dt);
 
   // ---- dragon transform
+  // visYaw: the shared visual heading. Steering yaws BOTH the dragon root and
+  // the camera by the same amount, so on screen the dragon never rotates — it
+  // stays dead astern and banks while the whole view swings through the turn.
+  Player.lean = damp(Player.lean || 0, ix, 4.2, dt);
+  var visYaw = yaw + Player.lean * 0.40;
   dragon.root.position.copy(Player.pos);
-  dragon.root.rotation.y = yaw;
+  dragon.root.rotation.y = visYaw;
   dragon.update(dt, Game.time, {
     strafeX: clamp(Player.vx * -Math.cos(yaw) * 0.02 + Player.vz * Math.sin(yaw) * 0.02, -1, 1),
     strafeY: clamp(Player.vy * 0.02, -1, 1),
@@ -4732,16 +4737,14 @@ function updatePlayer(dt) {
 
   // ---- camera (skipped while a cinematic owns it)
   if (cine) { P.skyMesh.position.copy(camera.position); return; }
-  // The turn reads through the CAMERA, not the dragon: steering swings the
-  // boom out of line and pans the view into the turn, Panzer-Dragoon style,
-  // while the dragon itself only banks. Lean lags the stick so the swing
-  // has weight.
-  Player.lean = damp(Player.lean || 0, ix, 4.2, dt);
+  // The camera sits dead astern of visYaw — the SAME heading the dragon root
+  // uses — so steering rotates the world around a dragon that stays put on
+  // screen, only banking. The camera's yaw lags the dragon's by a breath
+  // (0.40 vs 0.34) so the turn still has parallax without exposing his flank.
   var lean = Player.lean;
-  var camYawEff = yaw - lean * 0.24;
-  var fwd = new V3(Math.sin(yaw), 0, Math.cos(yaw));
-  var camDir = new V3(Math.sin(camYawEff), 0, Math.cos(camYawEff));
-  var camPos = Player.pos.clone().addScaledVector(camDir, -26);
+  var camYawV = yaw + lean * 0.34;
+  var fwd = new V3(Math.sin(camYawV), 0, Math.cos(camYawV));
+  var camPos = Player.pos.clone().addScaledVector(fwd, -26);
   camPos.y += 6.2 + dragon.getBob() * 0.32;
   camPos.addScaledVector(fwd, dragon.getSurge() * 0.5);
   camPos.x += Math.sin(Game.time * 0.7) * 0.25;
@@ -4751,15 +4754,12 @@ function updatePlayer(dt) {
     camPos.x += rand(-s, s); camPos.y += rand(-s, s); camPos.z += rand(-s, s);
   }
   camera.position.copy(camPos);
-  var lookYaw = yaw + lean * 0.34;
-  var look = Player.pos.clone();
-  look.x += Math.sin(lookYaw) * 34;
-  look.z += Math.cos(lookYaw) * 34;
+  var look = Player.pos.clone().addScaledVector(fwd, 34);
   look.y += 6.0 - Player.aimY * 4.0;
-  look.x += Input.ndx * 4.4 * -Math.cos(yaw);
-  look.z += Input.ndx * 4.4 * Math.sin(yaw);
+  look.x += Input.ndx * 4.4 * -Math.cos(camYawV);
+  look.z += Input.ndx * 4.4 * Math.sin(camYawV);
   camera.lookAt(look);
-  camera.rotateZ(-lean * 0.05);          // a breath of roll into the turn
+  camera.rotateZ(-lean * 0.055);         // a breath of roll into the turn
 
   P.skyMesh.position.copy(camera.position);
 
