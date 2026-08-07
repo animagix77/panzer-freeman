@@ -1280,8 +1280,12 @@ function buildDragon() {
       // stretches — a bird steers by killing lift on one side, and the span
       // asymmetry is the whole visual. Computed FIRST: both the shoulder
       // sweep and the elbow/wrist folds below consume it.
-      var tuck = Math.max(0, (st.strafeX || 0) * -sgn);
-      var extend = Math.max(0, (st.strafeX || 0) * sgn) * 0.20;
+      // NB the rig's wing(-1) extends toward world -X, which the chase camera
+      // (looking +Z) shows on screen-RIGHT — so the sign here is the reverse
+      // of what the variable names suggest. strafeX>0 = turning screen-right
+      // = fold the -X wing.
+      var tuck = Math.max(0, (st.strafeX || 0) * sgn);
+      var extend = Math.max(0, (st.strafeX || 0) * -sgn) * 0.20;
 
       // --- driven shoulder
       var flutterN = Math.sin(t * (wi ? 21.7 : 21.0)) * flutter;
