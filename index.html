@@ -2691,18 +2691,22 @@ function buildDragon() {
     for (var wi = 0; wi < 2; wi++) {
       var W = wi ? wR : wL, sgn = wi ? -1 : 1, J = wJ[wi];
 
+      // the wing INSIDE a turn folds and sweeps back while the outer one
+      // stretches — a bird steers by killing lift on one side, and the span
+      // asymmetry is the whole visual. Computed FIRST: both the shoulder
+      // sweep and the elbow/wrist folds below consume it.
+      var tuck = Math.max(0, (st.strafeX || 0) * -sgn);
+      var extend = Math.max(0, (st.strafeX || 0) * sgn) * 0.20;
+
       // --- driven shoulder
       var flutterN = Math.sin(t * (wi ? 21.7 : 21.0)) * flutter;
       W.rotation.z = sgn * (rest + w * amp) + bank + sgn * flutterN;
       W.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06 + climbN * 0.09;
-      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * sweepT;
+      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * (sweepT + tuck * 0.30);
 
       // --- sprung elbow and wrist.  a'' = -k(a - target) - c*a'
-      // the wing INSIDE a turn folds while the outer one stays spread — the
-      // asymmetry that makes a banked turn read as flown rather than steered
-      var tuck = Math.max(0, (st.strafeX || 0) * -sgn) * 0.55;
-      var eT = -fold * 0.95 + wingV * 0.028 - tuck * 0.5 - diveN * 0.40;
-      var rT = -fold * 1.25 - wingV * 0.045 - tuck * 0.40 - diveN * 0.50;
+      var eT = -fold * 0.95 + wingV * 0.028 - tuck * 0.85 + extend * 0.35 - diveN * 0.40;
+      var rT = -fold * 1.25 - wingV * 0.045 - tuck * 0.80 + extend * 0.25 - diveN * 0.50;
       J.eV += ((eT - J.e) * WK - J.eV * WC) * dt;  J.e += J.eV * dt;
       J.rV += ((rT - J.r) * WK * 0.82 - J.rV * WC * 0.9) * dt;  J.r += J.rV * dt;
       J.e = clamp(J.e, -1.35, 0.30);
@@ -2720,10 +2724,12 @@ function buildDragon() {
       J.z  = clamp(J.z, -0.42, 0.42);
       J.rz = clamp(J.rz, -0.60, 0.60);
 
-      W.userData.elbow.rotation.y = sgn * J.e * 0.72;
+      // tuck lands on the yaw hinges directly as well as through the sprung
+      // fold — the spring alone caps out too shallow to read on screen
+      W.userData.elbow.rotation.y = sgn * (J.e * 0.72 - tuck * 0.55);
       W.userData.elbow.rotation.x = J.e * 0.34;
       W.userData.elbow.rotation.z = sgn * J.z;
-      W.userData.wrist.rotation.y = sgn * J.r * 0.85;
+      W.userData.wrist.rotation.y = sgn * (J.r * 0.85 - tuck * 0.60);
       W.userData.wrist.rotation.x = J.r * 0.30;
       W.userData.wrist.rotation.z = sgn * J.rz;
 
