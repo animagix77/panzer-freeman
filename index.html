@@ -2580,6 +2580,10 @@ function buildDragon() {
   var wPrev = 0, wingV = 0;
   var effort = 0.25, bob = 0, bobV = 0, surge = 0, surgeV = 0;
   var pitchAim = 0, lastW = 0;
+  // maneuver dynamics: pitch and roll are sprung (they overshoot and settle
+  // instead of easing), and gLoad is the low-passed vertical acceleration —
+  // the "pull" you feel hauling out of a dive.
+  var pitchAimV = 0, rollV = 0, gLoad = 0, prevVyG = 0;
 
   // ---- tail: a lagging spring chain ------------------------------------
   // Each joint keeps its own heading when the joint ahead of it turns, then
@@ -2621,6 +2625,11 @@ function buildDragon() {
     var effortT = clamp(0.24 + vyN * 1.05 + boost * 0.3, 0, 1.5);
     effort = damp(effort, effortT, 3.2, dt);      // muscles lag the intent
     var eN = clamp(effort / 1.5, 0, 1);
+
+    // ---- g-load: rate of change of climb speed, low-passed ----------------
+    var dvyG = ((st.vy || 0) - prevVyG) / Math.max(dt, 1e-4);
+    prevVyG = st.vy || 0;
+    gLoad = damp(gLoad, clamp(dvyG / 60, -1.4, 1.4), 6, dt);
 
     // ---- wingbeat: a flap takes a fixed ~0.4s no matter how often it comes,
     // so at low effort the dragon holds a glide and flaps only occasionally.
@@ -2671,7 +2680,11 @@ function buildDragon() {
     // ph<0.5 is the downstroke here, so fold tracks the back half.
     var upStroke = clamp((ph - 0.5) / 0.5, 0, 1) * (ph < 1 ? 1 : 0);
     var fold = upStroke * (0.55 + eN * 0.35);
-    var sweepT = sweep;
+    // dive: wings rake back into a tuck the steeper he drops; the sweep is the
+    // silhouette of a stooping raptor, not a parachute
+    var diveN = Math.max(0, -vyN) * (1 - eN);
+    var climbN = Math.max(0, vyN);
+    var sweepT = sweep + diveN * 0.34;
 
     for (var wi = 0; wi < 2; wi++) {
       var W = wi ? wR : wL, sgn = wi ? -1 : 1, J = wJ[wi];
@@ -2679,12 +2692,15 @@ function buildDragon() {
       // --- driven shoulder
       var flutterN = Math.sin(t * (wi ? 21.7 : 21.0)) * flutter;
       W.rotation.z = sgn * (rest + w * amp) + bank + sgn * flutterN;
-      W.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06;
+      W.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06 + climbN * 0.09;
       W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * sweepT;
 
       // --- sprung elbow and wrist.  a'' = -k(a - target) - c*a'
-      var eT = -fold * 0.95 + wingV * 0.028;       // elbow folds, and lags the stroke
-      var rT = -fold * 1.25 - wingV * 0.045;       // wrist folds harder, lags more
+      // the wing INSIDE a turn folds while the outer one stays spread — the
+      // asymmetry that makes a banked turn read as flown rather than steered
+      var tuck = Math.max(0, (st.strafeX || 0) * -sgn) * 0.55;
+      var eT = -fold * 0.95 + wingV * 0.028 - tuck * 0.5 - diveN * 0.40;
+      var rT = -fold * 1.25 - wingV * 0.045 - tuck * 0.40 - diveN * 0.50;
       J.eV += ((eT - J.e) * WK - J.eV * WC) * dt;  J.e += J.eV * dt;
       J.rV += ((rT - J.r) * WK * 0.82 - J.rV * WC * 0.9) * dt;  J.r += J.rV * dt;
       J.e = clamp(J.e, -1.35, 0.30);
@@ -2696,7 +2712,7 @@ function buildDragon() {
       // target opposing the stroke VELOCITY — this is what breaks the
       // one-solid-slab read. The wrist rides on the elbow, so its angle
       // compounds and the tip whips roughly 2.5x the elbow's flex.
-      var zT = clamp(-wingV * 0.115, -0.45, 0.45);
+      var zT = clamp(-wingV * 0.115 - gLoad * 0.16, -0.50, 0.50);
       J.zV  += ((zT - J.z) * ZK - J.zV * ZC) * dt;          J.z  += J.zV * dt;
       J.rzV += ((zT * 1.5 - J.rz) * ZK * 0.75 - J.rzV * ZC) * dt; J.rz += J.rzV * dt;
       J.z  = clamp(J.z, -0.42, 0.42);
@@ -2715,18 +2731,27 @@ function buildDragon() {
       // direction of travel: up under the power stroke, inverted on recovery.
       var vRel = 0.55 + eN * 0.85;                       // forward airspeed proxy
       var aoa  = -wingV * 0.16 - vyN * 0.25;             // angle of attack
-      var load = clamp(vRel * vRel * aoa, -1.6, 1.6);
+      var load = clamp(vRel * vRel * aoa + gLoad * 0.55, -1.8, 1.8);
       J.bil += (load * 0.30 - J.bil) * Math.min(1, dt * 14);
       W.userData.solve(J.bil, fold);
     }
     // ---- body ------------------------------------------------------------
-    body.position.y = bob;
+    // g-sag: hauling out of a dive presses him down between his own wings;
+    // pushing over into one floats him up off the saddle line
+    body.position.y = bob - gLoad * 0.30;
     body.position.z = surge;
-    // bank INTO the turn — gently. The turn itself now reads through the
-    // camera swing; the dragon just tilts, it does not slew across the screen.
-    body.rotation.z = damp(body.rotation.z, (st.strafeX || 0) * 0.30, 7, dt);
+    // roll is a spring, not an ease — it overshoots a few degrees and settles,
+    // which is what a real roll input does
+    var rollT = (st.strafeX || 0) * 0.34;
+    rollV += ((rollT - body.rotation.z) * 26 - rollV * 7.5) * dt;
+    body.rotation.z += rollV * dt;
     // nose up on the climb, nose down in the dive
-    pitchAim = damp(pitchAim, -vyN * 0.40, 4.5, dt);
+    // pitch: sprung with mild overshoot, target steeper than before, and a
+    // banked turn drops the nose a touch (the coordinated-turn pitch coupling)
+    var pitchT = -vyN * 0.46 + body.rotation.z * body.rotation.z * 0.35;
+    pitchAimV += ((pitchT - pitchAim) * 20 - pitchAimV * 6.5) * dt;
+    pitchAim += pitchAimV * dt;
+    pitchAim = clamp(pitchAim, -0.62, 0.55);
     body.rotation.x = pitchAim + (stroking ? -0.03 : 0.014);
     // no body yaw: the camera pans the turn, the dragon holds its line
     body.rotation.y = damp(body.rotation.y, 0, 5, dt);
@@ -2736,7 +2761,8 @@ function buildDragon() {
       var lag = i * 0.5;
       necks[i].rotation.y = Math.sin(t * 1.4 - lag) * 0.06 - (st.strafeX || 0) * 0.09;
       necks[i].rotation.x = Math.sin(t * 1.9 - i * 0.4) * 0.035 - 0.03
-                          - vyN * 0.05 - w * 0.02 * eN;
+                          - vyN * 0.05 - w * 0.02 * eN
+                          + gLoad * 0.045 * (i + 1);
     }
     head.rotation.x = Math.sin(t * 1.2) * 0.05 - vyN * 0.10;
 
