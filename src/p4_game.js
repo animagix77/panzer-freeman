@@ -291,18 +291,32 @@ function spawnEnemy(type, opts) {
   if (opts.pos) e.pos.copy(opts.pos);
   g.position.copy(e.pos);
   g.scale.setScalar(bs);
+  e.bs = bs;
   enemies.push(e);
   return e;
 }
 
+function enemyCols(e) {
+  return e.type === 'carrier' ? [SHARD_MATS.hot, SHARD_MATS.white, SHARD_MATS.fire]
+       : e.type === 'ray' ? [SHARD_MATS.cyan, SHARD_MATS.white, SHARD_MATS.smoke]
+       : [SHARD_MATS.fire, SHARD_MATS.hot, SHARD_MATS.smoke];
+}
 function killEnemy(e, byPlayer) {
   if (!e.alive) return;
   e.alive = false;
-  var cols = e.type === 'carrier' ? [SHARD_MATS.hot, SHARD_MATS.white, SHARD_MATS.fire]
-           : e.type === 'ray' ? [SHARD_MATS.cyan, SHARD_MATS.white, SHARD_MATS.smoke]
-           : [SHARD_MATS.fire, SHARD_MATS.hot, SHARD_MATS.smoke];
-  boom(e.pos, e.def.radius * 1.4, cols);
-  A.sBoom(e.def.radius > 2.3);
+  var flying = e.type === 'wasp' || e.type === 'ray' || e.type === 'chaser';
+  if (flying) {
+    // a machine shot out of the sky falls out of the sky: spin, drop, then
+    // burst. Scoring lands NOW; the corpse is scenery.
+    e.dying = 0.55 + Math.random() * 0.3;
+    e.spinA = rand(7, 12) * (Math.random() < 0.5 ? -1 : 1);
+    e.fallV = rand(2, 7);
+    spawnImpact(e.pos, 0xffa050, 1.3);
+    A.sBoom(false);
+  } else {
+    boom(e.pos, e.def.radius * 1.4, enemyCols(e));
+    A.sBoom(e.def.radius > 2.3);
+  }
   if (byPlayer) {
     Game.kills++;
     Game.combo++;
@@ -319,9 +333,11 @@ function killEnemy(e, byPlayer) {
   }
   if (e.def.drops) for (var i = 0; i < e.def.drops; i++) spawnOrb(e.pos, true);
   else if (Math.random() < 0.055) spawnOrb(e.pos, false);
-  freeEnemyMesh(e.type, e.g);
-  var idx = enemies.indexOf(e); if (idx >= 0) enemies.splice(idx, 1);
   dropLocks(e);
+  if (!e.dying) {
+    freeEnemyMesh(e.type, e.g);
+    var idx = enemies.indexOf(e); if (idx >= 0) enemies.splice(idx, 1);
+  }
 }
 
 function hurtEnemy(e, dmg) {
@@ -868,6 +884,12 @@ function updatePlayer(dt) {
   look.z += Input.ndx * 4.4 * Math.sin(camYawV);
   camera.lookAt(look);
   camera.rotateZ(-lean * 0.035);         // a whisper of roll, not a tilt-a-whirl
+  // speed reads through the lens: diving widens the field, and each wingbeat
+  // surge breathes it slightly
+  var fovT = 56 + Math.max(0, -Player.vy / 44) * 7 + Math.abs(lean) * 1.5
+           + Math.max(0, dragon.getSurge()) * 6;
+  camera.fov = damp(camera.fov, fovT, 4.5, dt);
+  camera.updateProjectionMatrix();
 
   P.skyMesh.position.copy(camera.position);
 
@@ -1063,8 +1085,39 @@ function updateEnemies(dt) {
     var e = enemies[i];
     e.t += dt;
     var d = e.def;
+
+    // ---- death spiral: no AI, just ballistics and spin ------------------
+    if (e.dying !== undefined) {
+      e.dying -= dt;
+      e.fallV += 30 * dt;
+      e.pos.y -= e.fallV * dt;
+      e.pos.z -= 8 * dt;
+      e.g.position.copy(e.pos);
+    // bank into lateral motion — nothing alive slides sideways flat
+    if (e.type !== 'turret') {
+      var latVX = (e.pos.x - prevX) / Math.max(dt, 1e-4);
+      e.bank = e.bank === undefined ? 0 : e.bank;
+      e.bank += (clamp(-latVX * 0.028, -0.55, 0.55) - e.bank) * Math.min(1, dt * 6);
+      e.g.rotation.z += e.bank;
+    }
+    // hit flinch: a sharp swell that decays with the damage flash
+    var fl = e.flashT > 0 ? e.flashT / 0.09 : 0;
+    e.g.scale.setScalar((e.bs || 1) * (1 + fl * 0.22));
+      e.g.rotation.z += e.spinA * dt;
+      e.g.rotation.x += e.spinA * 0.55 * dt;
+      var gh = P.terrain.enabled ? P.terrain.heightAt(e.pos.x, e.pos.z) : -1e9;
+      if (e.dying <= 0 || e.pos.y <= gh + 1) {
+        boom(e.pos, e.def.radius * 1.5, enemyCols(e));
+        A.sBoom(e.def.radius > 2.3);
+        freeEnemyMesh(e.type, e.g);
+        enemies.splice(i, 1);
+      }
+      continue;
+    }
+
     var toP = P.tmpA.copy(Player.pos).sub(e.pos);
     var dist = toP.length();
+    var prevX = e.pos.x;
 
     switch (e.type) {
       case 'wasp': {
@@ -1122,6 +1175,16 @@ function updateEnemies(dt) {
     }
 
     e.g.position.copy(e.pos);
+    // bank into lateral motion — nothing alive slides sideways flat
+    if (e.type !== 'turret') {
+      var latVX = (e.pos.x - prevX) / Math.max(dt, 1e-4);
+      e.bank = e.bank === undefined ? 0 : e.bank;
+      e.bank += (clamp(-latVX * 0.028, -0.55, 0.55) - e.bank) * Math.min(1, dt * 6);
+      e.g.rotation.z += e.bank;
+    }
+    // hit flinch: a sharp swell that decays with the damage flash
+    var fl = e.flashT > 0 ? e.flashT / 0.09 : 0;
+    e.g.scale.setScalar((e.bs || 1) * (1 + fl * 0.22));
 
     // hit flash
     if (e.flashT > 0) {

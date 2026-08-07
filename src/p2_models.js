@@ -499,8 +499,10 @@ function buildDragon() {
   // ---- legs / claws
   // Folded up against the belly the way a bird carries them in flight, built
   // from tapered bones instead of boxes so they don't read as cargo.
+  var legs = [];
   [-1, 1].forEach(function (s) {
     var leg = new THREE.Group(); leg.position.set(s * 0.72, -0.62, 0.30); body.add(leg);
+    legs.push(leg);
     var hipJ  = [0, 0, 0];
     var kneeJ = [s * 0.30, -0.62, -0.62];    // knee swings down and back
     var ankJ  = [s * 0.22, -0.34, -1.42];    // shin folds forward again
@@ -1327,10 +1329,20 @@ function buildDragon() {
     body.position.z = surge;
     // roll is a spring, not an ease — it overshoots a few degrees and settles,
     // which is what a real roll input does
-    var rollT = (st.strafeX || 0) * 0.34;
+    var rollT = (st.strafeX || 0) * 0.34 + w * eN * 0.022;   // each power stroke rocks him
     rollV += ((rollT - body.rotation.z) * 26 - rollV * 7.5) * dt;
     body.rotation.z += rollV * dt;
     // nose up on the climb, nose down in the dive
+    // ---- legs: tucked hard when working, dangling loose in a glide --------
+    // A bird pulls its feet up under power and lets them hang when it coasts;
+    // pulling g swings them aft. Whole-group rotation — the joints are baked.
+    for (var li = 0; li < legs.length; li++) {
+      var legT = -0.16 * eN                                   // tuck under power
+               + (1 - eN) * (0.09 + Math.sin(t * 1.25 + li * 2.1) * 0.05)  // loose sway
+               + gLoad * 0.14;                                 // trail under g
+      legs[li].rotation.x = damp(legs[li].rotation.x, legT, 5, dt);
+    }
+
     // pitch: sprung with mild overshoot, target steeper than before, and a
     // banked turn drops the nose a touch (the coordinated-turn pitch coupling)
     var pitchT = -vyN * 0.46 + body.rotation.z * body.rotation.z * 0.35;
@@ -1350,6 +1362,9 @@ function buildDragon() {
                           + gLoad * 0.045 * (i + 1);
     }
     head.rotation.x = Math.sin(t * 1.2) * 0.05 - vyN * 0.10;
+    // the head looks INTO the turn before the body comes around — the tell
+    // every animal gives before it changes direction
+    head.rotation.y = damp(head.rotation.y, -(st.strafeX || 0) * 0.30, 4.5, dt);
 
     // ---- tail: lagging chain + organic waver ------------------------------
     // How much the dragon rotated this frame. The tail doesn't get told about
@@ -1465,9 +1480,20 @@ function buildDragon() {
     // head was BEFORE the riding pose moved it — so the camera framed the top
     // of the skull instead of the face.
     var _upd = api.update;
+    var riderBaseY = 0;
     api.update = function (st, dt, t) {
       _upd(st, dt, t);
-      RM.turn('Head', headR.rotation.x * 0.5 + RM.headLift, headR.rotation.y * 0.8, 0);
+      // saddle dynamics: the rider is a passenger with mass, not a bolt-on.
+      // He lags the wingbeat bounce, sinks under g, leans into the bank and
+      // braces forward when the dragon pulls hard.
+      if (riderBaseY) {
+        rider.position.y = riderBaseY - clamp(bobV, -3, 3) * 0.035 - gLoad * 0.11;
+      }
+      rider.rotation.z = damp(rider.rotation.z, (st.strafeX || 0) * 0.11, 6, dt);
+      rider.rotation.x += gLoad * 0.07;                         // brace on the pull
+      // gaze stabilisation: eyes hold the horizon while the body pitches
+      RM.turn('Head', headR.rotation.x * 0.5 + RM.headLift - pitchAim * 0.45,
+              headR.rotation.y * 0.8, 0);
       syncHeadNode();
     };
 
@@ -1484,6 +1510,7 @@ function buildDragon() {
       RM.setHairAge(t);
       RM.turn('Head', RM.headLift, 0, 0);
       syncHeadNode();
+      riderBaseY = rider.position.y;      // dynamics oscillate around the age posture
     };
     api.setAge = setAge;
     setAge(89);
