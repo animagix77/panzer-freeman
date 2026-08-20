@@ -231,6 +231,101 @@ var rimLight = new THREE.DirectionalLight(0x6f8bff, 0.58);
 rimLight.position.set(-0.6, 0.25, -1).normalize();
 scene.add(ambLight, keyLight, rimLight);
 
+// ------------------------------------------------------------------ shadows
+// A shadow map on a flat-shaded Saturn-era game is a fight worth picking
+// carefully. Soft PCF shadows would look wrong immediately — the whole art
+// direction is hard edges and banded light. BasicShadowMap gives a hard,
+// aliased, stair-stepped edge, which is exactly what a machine of that era
+// would have produced if it could have produced one at all.
+//
+// The cost is kept honest by scope, not by resolution: only the dragon, the
+// enemies and the boss cast, only the terrain receives, and the light's
+// orthographic frustum is a tight box dragged along with the player rather
+// than one big enough for the whole world.
+renderer.shadowMap.enabled = false;      // opt-in; see setShadows() below
+renderer.shadowMap.type = THREE.BasicShadowMap;
+renderer.shadowMap.autoUpdate = true;
+
+var SHADOW_SPAN = 120;
+keyLight.castShadow = false;
+keyLight.shadow.mapSize.set(1024, 1024);
+var sc = keyLight.shadow.camera;
+sc.left = -SHADOW_SPAN; sc.right = SHADOW_SPAN;
+sc.top = SHADOW_SPAN; sc.bottom = -SHADOW_SPAN;
+sc.near = 1; sc.far = 460;
+// Mutating an OrthographicCamera's extents does nothing until the projection is
+// rebuilt. Without this the shadow camera keeps its default ±5 frustum and the
+// map comes back empty — which looks exactly like shadows being switched off.
+sc.updateProjectionMatrix();
+keyLight.shadow.bias = -0.0016;
+// A DirectionalLight aims at its target; give it one we can move.
+var shadowFocus = new THREE.Object3D();
+scene.add(shadowFocus);
+keyLight.target = shadowFocus;
+
+// The light sits SHADOW_BACK units up-sun from whatever it is lighting, so the
+// frustum stays tight no matter how far down the rail the player has flown.
+var SHADOW_BACK = 240;
+// The episode palette owns the sun DIRECTION; the shadow rig owns where along
+// that direction the light actually sits. Before this split, stepColors() wrote
+// a unit vector straight into keyLight.position every frame, which parked the
+// light one unit from the origin and collapsed the shadow frustum to nothing.
+var sunDir = new V3(0.4, 0.7, 1).normalize();
+// Every episode's sun sits near the horizon — it is a sunset game. Physically
+// that throws a shadow hundreds of units down-rail, off-screen, which costs a
+// full depth pass and shows the player nothing. So the KEY LIGHT keeps the
+// palette's azimuth but is lifted to at least this elevation, which lands the
+// shadow within about 1.3 altitudes of its caster. The sky shader still draws
+// the sun exactly where the palette put it; only the lighting rig is raised.
+var MIN_SUN_ELEV = 0.60;     // dir.y as a fraction of the horizontal magnitude
+var rawSunDir = new V3(0.4, 0.7, 1).normalize();
+function setSunDir(v) {
+  rawSunDir.copy(v);
+  if (rawSunDir.lengthSq() < 1e-8) rawSunDir.set(0.4, 0.7, 1);
+  rawSunDir.normalize();
+  applySunDir();
+}
+function applySunDir() {
+  sunDir.copy(rawSunDir);
+  // The lift is only worth its distortion when something is actually casting.
+  // With shadows off, the palette's sun angle is used exactly as authored.
+  if (SHADOWS_ON) {
+    var horiz = Math.sqrt(sunDir.x * sunDir.x + sunDir.z * sunDir.z);
+    if (sunDir.y < MIN_SUN_ELEV * horiz) {
+      var k = horiz > 1e-6 ? (sunDir.y / MIN_SUN_ELEV) / horiz : 0;
+      sunDir.x *= k; sunDir.z *= k;
+      sunDir.normalize();
+    }
+  }
+  placeKeyLight();
+}
+function placeKeyLight() {
+  var f = shadowFocus.position;
+  keyLight.position.set(
+    f.x + sunDir.x * SHADOW_BACK,
+    f.y + sunDir.y * SHADOW_BACK,
+    f.z + sunDir.z * SHADOW_BACK
+  );
+}
+function trackShadow(focusX, focusY, focusZ) {
+  shadowFocus.position.set(focusX, focusY, focusZ);
+  shadowFocus.updateMatrixWorld();
+  placeKeyLight();
+}
+// Default OFF. The map itself is correct — a hard, stair-stepped, era-correct
+// shadow, verified landing on the terrain — but at the sunset angles every
+// episode uses it lands well outside the chase camera's framing, and the depth
+// pass is not free. G turns it on for anyone who wants it.
+var SHADOWS_ON = false;
+function setShadows(on) {
+  SHADOWS_ON = !!on;
+  renderer.shadowMap.enabled = SHADOWS_ON;
+  keyLight.castShadow = SHADOWS_ON;
+  applySunDir();
+  scene.traverse(function (o) { if (o.isMesh && o.material) o.material.needsUpdate = true; });
+}
+function toggleShadows() { setShadows(!SHADOWS_ON); return SHADOWS_ON; }
+
 scene.fog = new THREE.Fog(0xc0507a, 70, 460);
 
 // ------------------------------------------------------------------- audio
@@ -1036,10 +1131,14 @@ window.__PF = {
   setRetro: setRetro, toggleRetro: toggleRetro, isRetro: function () { return RETRO_ON; },
   skyUni: skyUni, skyMesh: skyMesh,
   ambLight: ambLight, keyLight: keyLight, rimLight: rimLight,
+  trackShadow: trackShadow, setShadows: setShadows, toggleShadows: toggleShadows,
+  setSunDir: setSunDir,
+  shadowsOn: function () { return SHADOWS_ON; },
   Audio_: Audio_, playMusic: playMusic, musicState: musicState, note: note, SONGS: SONGS,
   hudCanvas: hudCanvas, hx: hx, glCanvas: glCanvas,
   el: { flash: elFlash, card: elCard, toast: elToast, pause: elPause, skip: elSkip, quip: elQuip,
-        title: elTitle, over: elOver, win: elWin, loading: elLoading },
+        title: elTitle, over: elOver, win: elWin, loading: elLoading,
+        perf: document.getElementById('perf') },
   HUD: (window.HUD = { w: window.innerWidth, h: window.innerHeight })
 };
 

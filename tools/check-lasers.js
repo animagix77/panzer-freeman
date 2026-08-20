@@ -38,6 +38,14 @@ const path = require('path');
   await page.waitForTimeout(260);
   await page.screenshot({ path: 'laser-3.png' });
 
+  // A homing bolt takes ~1.5 s of game time to close on a target 300 units out.
+  // Headless runs at ~3 fps, so the old 860 ms sample landed while every laser
+  // was still in flight and the run always reported 0 hits — which looked like
+  // a broken weapon rather than an impatient test.
+  for (let k = 0; k < 30; k++) {
+    await page.waitForTimeout(400);
+    if (await page.evaluate(() => window.__PF.entities.lasers.length === 0)) break;
+  }
   const st = await page.evaluate(() => ({
     lasers: window.__PF.entities.lasers.length,
     hits: window.__PF.Game.hits,
@@ -45,6 +53,7 @@ const path = require('path');
     calls: window.__PF.renderer.info.render.calls
   }));
   console.log('locks painted:', locks, JSON.stringify(st));
+  console.log(st.hits > 0 ? 'homing: bolts connect' : 'homing: NO HITS — investigate');
   console.log('ERRORS', errs.length ? errs.slice(0,5).join('\n') : 'none');
   await b.close();
 })();

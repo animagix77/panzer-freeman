@@ -127,6 +127,15 @@
     font-size:clamp(13px,2vw,22px); letter-spacing:.2em; color:#8fffc4;
     text-shadow:2px 2px 0 #04301c; opacity:0; pointer-events:none; white-space:nowrap;
   }
+  #perf {
+    position:absolute; left:10px; top:10px; z-index:20; display:none;
+    font-size:11px; line-height:1.55; letter-spacing:.08em; color:#9fe8ff;
+    background:rgba(4,10,20,.62); border:1px solid rgba(159,232,255,.28);
+    padding:6px 9px; white-space:pre; pointer-events:none; text-shadow:1px 1px 0 #04121e;
+  }
+  #perf.on { display:block; }
+  #perf b { color:#ffd25e; font-weight:normal; }
+  #perf i { color:#ff8a5a; font-style:normal; }
   #quip {
     position:absolute; left:50%; bottom:13%; transform:translateX(-50%); z-index:14;
     width:min(74%, 900px); text-align:center;
@@ -222,6 +231,7 @@
   <div id="skiphint">PRESS ANY KEY TO SKIP</div>
   <div id="quip"></div>
   <div id="pausebox"><div>— PAUSED —</div></div>
+  <div id="perf"></div>
 
   <div class="screen on" id="title">
     <div class="plate">
@@ -245,6 +255,8 @@
         <div><span class="kbd">M</span><span class="d">mute</span></div>
         <div><span class="kbd">I</span><span class="d">invert pitch</span></div>
         <div><span class="kbd">R</span><span class="d">Saturn mode</span></div>
+        <div><span class="kbd">G</span><span class="d">cast shadows</span></div>
+        <div><span class="kbd">F3</span><span class="d">performance</span></div>
       </div>
       <button class="btn" id="startBtn">Begin the Descent</button>
       <div class="tiny">A LOW-POLY TRIBUTE TO PANZER DRAGOON (SEGA SATURN, 1995)</div>

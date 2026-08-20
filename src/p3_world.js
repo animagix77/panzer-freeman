@@ -61,6 +61,7 @@ Terrain.prototype._mkChunk = function () {
   P.retroPatch(mat);
   var mesh = new THREE.Mesh(g, mat);
   mesh.frustumCulled = false;
+  mesh.receiveShadow = true;   // the ground is the only shadow receiver
   this.group.add(mesh);
   return { mesh: mesh, geo: g, mat: mat, z: 0 };
 };

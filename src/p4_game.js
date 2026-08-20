@@ -13,7 +13,7 @@ var Game = {
   age: 89, startAge: 89, score: 0, kills: 0, shots: 0, hits: 0,
   bestCombo: 0, combo: 0, comboT: 0,
   hurtT: 0, invulnT: 0, shakeT: 0, shakeMag: 0,
-  transition: 0, ending: false, bossActive: false, orbsTaken: 0, cinematic: false
+  ending: false, bossActive: false, orbsTaken: 0, cinematic: false
 };
 P.Game = Game;
 
@@ -40,7 +40,7 @@ dragon.onBeat = function (power, effort) {
 // --------------------------------------------------------------- input state
 var Input = {
   keys: {}, mx: 0, my: 0, ndx: 0, ndy: 0,
-  lmb: false, rmb: false, lmbT: 0, painted: 0
+  lmb: false, rmb: false, painted: 0
 };
 P.Input = Input;
 
@@ -51,25 +51,58 @@ function Pool(make, n) {
 }
 Pool.prototype.get = function () {
   var o = this.free.pop();
-  if (!o) { o = this.make(); scene.add(o); }
+  if (!o) { o = this.make(); scene.add(o); this.grown++; }
   o.visible = true; return o;
 };
 Pool.prototype.put = function (o) { o.visible = false; this.free.push(o); };
+Pool.prototype.grown = 0;
+Pool.prototype.name = '?';
+
+// The same exponential factor damp() uses, for the places that need to smooth
+// something damp() can't take — an angle through angDelta, or a Vector3.lerp.
+// `min(1, dt * k)` was doing this job and made the rate framerate-dependent.
+function dampF(l, dt) { return 1 - Math.exp(-l * dt); }
+
+// ---- swept collision -----------------------------------------------------
+// Squared distance from point c to the segment a→b. Allocation-free: this runs
+// bullets × enemies times per frame.
+var _segA = new V3();
+function segPointD2(a, b, c) {
+  var abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
+  var acx = c.x - a.x, acy = c.y - a.y, acz = c.z - a.z;
+  var ab2 = abx * abx + aby * aby + abz * abz;
+  var t = ab2 > 1e-9 ? (acx * abx + acy * aby + acz * abz) / ab2 : 0;
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  var dx = acx - abx * t, dy = acy - aby * t, dz = acz - abz * t;
+  return dx * dx + dy * dy + dz * dz;
+}
+P.segPointD2 = segPointD2;
 
 // --- Panzer-Dragoon homing laser: a hot head dragging a curved ribbon -----
+// Nothing mutates a projectile's material — colour and blending are fixed per
+// pool — so one material each is enough. It also means a pool that has to grow
+// mid-fight allocates geometry only, not a shader compile.
+var MAT_LASER_HEAD = new THREE.MeshBasicMaterial({
+  color: 0xffffff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false });
+var MAT_LASER_HALO = new THREE.MeshBasicMaterial({
+  color: 0x3fb8ff, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.4,
+  depthWrite: false, fog: false });
+var MAT_GUN = new THREE.MeshBasicMaterial({
+  color: 0xfff2b0, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false });
+var MAT_RIBBON = new THREE.MeshBasicMaterial({
+  vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
+  depthWrite: false, side: THREE.DoubleSide, fog: false });
+var GEO_LASER_HEAD = new THREE.OctahedronGeometry(0.34, 0);
+var GEO_LASER_HALO = new THREE.OctahedronGeometry(0.55, 0);
+
 var laserPool = new Pool(function () {
   var g = new THREE.Group();
-  var head = new THREE.Mesh(new THREE.OctahedronGeometry(0.34, 0), new THREE.MeshBasicMaterial({
-    color: 0xffffff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false
-  }));
+  var head = new THREE.Mesh(GEO_LASER_HEAD, MAT_LASER_HEAD);
   head.scale.set(0.5, 0.5, 1.5); g.add(head);
-  var halo = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), new THREE.MeshBasicMaterial({
-    color: 0x3fb8ff, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.4,
-    depthWrite: false, fog: false
-  }));
+  var halo = new THREE.Mesh(GEO_LASER_HALO, MAT_LASER_HALO);
   halo.scale.set(1, 1, 1.9); g.add(halo);
   return g;
-}, 24);
+}, 32);
 
 // ---- ribbon trails -------------------------------------------------------
 var RIB_N = 18;
@@ -84,16 +117,13 @@ var ribbonPool = new Pool(function () {
   }
   g.setIndex(idx);
   g.setDrawRange(0, 0);
-  var mm = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
-    vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
-    depthWrite: false, side: THREE.DoubleSide, fog: false
-  }));
+  var mm = new THREE.Mesh(g, MAT_RIBBON);
   mm.frustumCulled = false;
   mm.userData.pts = [];
   for (var k = 0; k < RIB_N; k++) mm.userData.pts.push(new V3());
   mm.userData.n = 0;
   return mm;
-}, 44);
+}, 200);   // one per live bullet + laser + fading tail, measured at peak combat
 
 function ribbonReset(rib, x, y, z) {
   rib.userData.n = 1;
@@ -157,17 +187,23 @@ function releaseTrail(rib, width, headCol, tailCol) {
 }
 
 // ---- impact flash: hot core, radiating spikes, expanding ring -----------
+// The materials have to be per-instance — spawnImpact() tints mArm and the
+// update fades mCore — but the eight meshes in each flash were also building
+// eight fresh geometries, sixteen times over. They are identical; share them.
+var GEO_IMPACT_CORE = new THREE.IcosahedronGeometry(1, 0);
+var GEO_IMPACT_SPIKE = new THREE.ConeGeometry(0.44, 3.0, 4);
+var GEO_IMPACT_RING = new THREE.TorusGeometry(1, 0.14, 3, 16);
 var impactPool = new Pool(function () {
   var g = new THREE.Group();
   var mCore = new THREE.MeshBasicMaterial({ color: 0xffffff, blending: THREE.AdditiveBlending,
     transparent: true, depthWrite: false, fog: false });
   var mArm = new THREE.MeshBasicMaterial({ color: 0x7fe8ff, blending: THREE.AdditiveBlending,
     transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide });
-  var core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), mCore); g.add(core);
+  var core = new THREE.Mesh(GEO_IMPACT_CORE, mCore); g.add(core);
   var spikes = new THREE.Group();
   var axes = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
   for (var i = 0; i < axes.length; i++) {
-    var sp = new THREE.Mesh(new THREE.ConeGeometry(0.44, 3.0, 4), mArm);
+    var sp = new THREE.Mesh(GEO_IMPACT_SPIKE, mArm);
     var a = axes[i];
     sp.position.set(a[0] * 1.6, a[1] * 1.6, a[2] * 1.6);
     sp.lookAt(a[0] * 8, a[1] * 8, a[2] * 8);
@@ -175,10 +211,10 @@ var impactPool = new Pool(function () {
     spikes.add(sp);
   }
   g.add(spikes);
-  var ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.14, 3, 16), mArm); g.add(ring);
+  var ring = new THREE.Mesh(GEO_IMPACT_RING, mArm); g.add(ring);
   g.userData = { mCore: mCore, mArm: mArm, core: core, spikes: spikes, ring: ring };
   return g;
-}, 16);
+}, 24);
 var impacts = [];
 function spawnImpact(pos, armColor, size) {
   var g = impactPool.get();
@@ -189,22 +225,25 @@ function spawnImpact(pos, armColor, size) {
 }
 
 var gunPool = new Pool(function () {
-  var m2 = new THREE.Mesh(new THREE.OctahedronGeometry(0.34, 0), new THREE.MeshBasicMaterial({
-    color: 0xfff2b0, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false
-  }));
+  var m2 = new THREE.Mesh(GEO_LASER_HEAD, MAT_GUN);
   m2.scale.set(0.5, 0.5, 2.2);
   return m2;
-}, 40);
+}, 64);
 
+// mdl.tet/oct/tor mint a fresh geometry per call — right for the model builders,
+// which then translate and merge them, but wasteful for a pool of 220 identical
+// shards. These four are never mutated after construction, so one each will do.
+var GEO_EB_CORE = mdl.oct(0.42), GEO_EB_HALO = mdl.oct(0.85);
+var GEO_SHARD = mdl.tet(0.55);
 var ebPool = new Pool(function () {
   var g = new THREE.Group();
-  g.add(mdl.mesh(mdl.oct(0.42), G(0xffd0a0)));
-  var h = mdl.mesh(mdl.oct(0.85), G(0xff4a2a, { transparent: true, opacity: 0.45, depthWrite: false }));
+  g.add(mdl.mesh(GEO_EB_CORE, G(0xffd0a0)));
+  var h = mdl.mesh(GEO_EB_HALO, G(0xff4a2a, { transparent: true, opacity: 0.45, depthWrite: false }));
   g.add(h);
   return g;
 }, 90);
 
-var shardPool = new Pool(function () { return mdl.mesh(mdl.tet(0.55), G(0xffffff)); }, 220);
+var shardPool = new Pool(function () { return mdl.mesh(GEO_SHARD, G(0xffffff)); }, 220);
 
 var lasers = [], bullets = [], ebullets = [], shards = [], orbs = [], rings = [];
 
@@ -237,23 +276,49 @@ function boom(pos, size, colorSet, count) {
   rings.push({ m: r, life: 0.42, max: 0.42, size: size });
 }
 
+var GEO_RING = mdl.tor(1, 0.1, 3, 14);
 var ringPool = new Pool(function () {
-  var r = mdl.mesh(mdl.tor(1, 0.1, 3, 14), G(0xffffff, { transparent: true, opacity: 0.7, depthWrite: false }));
+  var r = mdl.mesh(GEO_RING, G(0xffffff, { transparent: true, opacity: 0.7, depthWrite: false }));
   return r;
-}, 24);
+}, 48);   // a multi-kill can boom a dozen enemies in the same frame
 
 // ------------------------------------------------------------------ enemies
 var enemies = [];
-var enemyPools = {};
+var enemyPools = {}, enemyBuilds = 0;   // enemyBuilds is a prewarm-coverage counter
+// Only solid things cast. Additive sprites — trails, flames, impact flashes —
+// would punch black holes in the shadow map, so they are left out on purpose.
+function castAll(root) {
+  root.traverse(function (o) {
+    if (!o.isMesh) return;
+    var m = o.material;
+    if (m && (m.transparent || m.blending === THREE.AdditiveBlending)) return;
+    o.castShadow = true;
+  });
+}
+P.castAll = castAll;
 function getEnemyMesh(type) {
   if (!enemyPools[type]) enemyPools[type] = [];
   var p = enemyPools[type];
   if (p.length) { var o = p.pop(); o.visible = true; return o; }
   var g = mdl.ENEMY_DEFS[type].build();
+  enemyBuilds++;
+  castAll(g);
   scene.add(g);
   return g;
 }
 function freeEnemyMesh(type, g) { g.visible = false; enemyPools[type].push(g); }
+// Enemy meshes used to be built the first time each type appeared — mid-flight,
+// at full speed, with the GPU already busy. maxAlive is 16, so one wave of a
+// fresh type could build a dozen rigs inside a single frame. Build them at boot.
+var PREWARM = { wasp: 10, ray: 8, turret: 5, chaser: 8, carrier: 4, mine: 7 };
+function prewarmEnemies() {
+  for (var type in PREWARM) {
+    if (!mdl.ENEMY_DEFS[type]) continue;
+    var made = [], i;
+    for (i = 0; i < PREWARM[type]; i++) made.push(getEnemyMesh(type));
+    for (i = 0; i < made.length; i++) freeEnemyMesh(type, made[i]);
+  }
+}
 
 function spawnEnemy(type, opts) {
   opts = opts || {};
@@ -397,6 +462,20 @@ function applyVigour() {
   vigourIdx = idx;
 }
 P.getVigour = function () { return { tier: vigourIdx, name: vigour.name, locks: Locks.max }; };
+P.applyVigour = applyVigour;      // exported so the harnesses can drive tiers directly
+// A fresh flight has to start cold. vigourIdx and vigour are module-local, so
+// resetGame() could not clear them — "Fly Again" kept PRIME's 0.046 s cooldown
+// and 22 locks until the first kill quietly demoted it back to tier 0.
+P.resetWeapons = function () {
+  Game.heat = 0;
+  vigourIdx = 0;
+  vigour = VIGOUR_TIERS[0];
+  Player.gunCD = vigour.gunCD;
+  Player.gunDmg = vigour.dmg;
+  Locks.list.length = 0;
+  Locks.cd = 0;
+  refreshWeapons();
+};
 function dropLocks(t) {
   for (var i = Locks.list.length - 1; i >= 0; i--) if (Locks.list[i] === t) Locks.list.splice(i, 1);
 }
@@ -511,8 +590,8 @@ P.getAimPoint = getAimPoint;
 // ----------------------------------------------------------------- the boss
 var Boss = {
   built: null, group: null, active: false, angle: 0, angleTarget: 0,
-  dist: 128, height: 14, hp: 180, maxHp: 180, phase: 0, t: 0,
-  atkT: 2.5, dead: false, deathT: 0, sweepT: 0, entering: 0
+  dist: 128, height: 14, phase: 0, t: 0,
+  atkT: 2.5, dead: false, deathT: 0, entering: 0
 };
 P.Boss = Boss;
 
@@ -532,8 +611,7 @@ function bossStart() {
     c.group.visible = true;
     c.core.material = G(0x6affd0, { transparent: true, opacity: 0.95 });
   }
-  Boss.maxHp = Boss.built.cores.length * Boss.built.cores[0].maxHp;
-  Game.bossActive = true;
+  Game.bossActive = true;   // the HP bar sums the cores directly; Boss has no pool of its own
 }
 
 function bossCoreHit(c, dmg) {
@@ -617,12 +695,11 @@ function updateBoss(dt) {
     B.dist = damp(B.dist, 128, 1.1, dt);
   } else {
     // phase 2+: drift between angles
-    if (B.phase >= 1) {
-      B.angleTarget += 0; // set on core destruction
-      if (B.t % 12 < dt && B.phase >= 2) B.angleTarget = pick([0, Math.PI * 0.5, Math.PI, -Math.PI * 0.5]);
-    }
+    // angleTarget is otherwise set on core destruction; from phase 2 it also
+    // wanders on its own every 12 s so the fight never settles into one face.
+    if (B.phase >= 2 && B.t % 12 < dt) B.angleTarget = pick([0, Math.PI * 0.5, Math.PI, -Math.PI * 0.5]);
   }
-  B.angle += P.angDelta(B.angle, B.angleTarget) * Math.min(1, dt * 0.9);
+  B.angle += P.angDelta(B.angle, B.angleTarget) * dampF(0.9, dt);
   var dir = new V3(Math.sin(B.angle), 0, Math.cos(B.angle));
   var bp = Player.pos.clone().add(dir.multiplyScalar(B.dist));
   bp.y += B.height + Math.sin(B.t * 0.6) * 4;
@@ -792,7 +869,7 @@ function updatePlayer(dt) {
   Game.railZ += speed * (1 - vyPrev * 0.15) * dt;
 
   // ---- view rotation
-  Player.camYaw += P.angDelta(Player.camYaw, Player.camYawTarget) * Math.min(1, dt * 7.5);
+  Player.camYaw += P.angDelta(Player.camYaw, Player.camYawTarget) * dampF(7.5, dt);
 
   // ---- steering (camera-relative in the XZ plane)
   var cine = Game.cinematic;
@@ -924,7 +1001,7 @@ function updateProjectiles(dt) {
     if (tp) {
       var k = (1.6 + p.age * 15) * (1 + heat * 0.9);   // homing tightens as it flies, hotter = harder
       P.tmpA.copy(tp).sub(p.m.position).normalize().multiplyScalar(spd);
-      p.v.lerp(P.tmpA, Math.min(1, dt * k));
+      p.v.lerp(P.tmpA, dampF(k, dt));
     }
     p.v.setLength(spd);
     p.m.position.addScaledVector(p.v, dt);
@@ -973,6 +1050,11 @@ function updateProjectiles(dt) {
   // player gun bullets
   for (i = bullets.length - 1; i >= 0; i--) {
     p = bullets[i];
+    // Remember where the bullet was: at 220 u/s a 30 fps frame steps it 7.3
+    // units, wider than most hitboxes, so a point test at each end misses
+    // cleanly through the target. Sweep the segment instead — hit rate stops
+    // depending on the player's framerate, and ACCURACY stops lying.
+    _segA.copy(p.m.position);
     p.m.position.addScaledVector(p.v, dt);
     ribbonAdvance(p.rib, p.m.position.x, p.m.position.y, p.m.position.z, 4.2);
     ribbonBuild(p.rib, 0.19, 0xffeeb4, 0xd8400f, 0.8);
@@ -982,7 +1064,8 @@ function updateProjectiles(dt) {
       for (var e = 0; e < enemies.length; e++) {
         var en = enemies[e];
         if (!en.alive) continue;
-        if (p.m.position.distanceTo(en.pos) < en.def.radius + 1.1) {
+        var er = en.def.radius + 1.1;
+        if (segPointD2(_segA, p.m.position, en.pos) < er * er) {
           hurtEnemy(en, p.dmg); Game.hits++;
           spawnImpact(p.m.position, 0xffc463, 0.62);
           gone = true; break;
@@ -994,7 +1077,7 @@ function updateProjectiles(dt) {
         var core = Boss.built.cores[c];
         if (!core.alive) continue;
         var wp = P.tmpC; core.group.getWorldPosition(wp);
-        if (p.m.position.distanceTo(wp) < 7.0) {
+        if (segPointD2(_segA, p.m.position, wp) < 49.0) {
           bossCoreHit(core, 1.1); Game.hits++;
           spawnImpact(p.m.position, 0xffc463, 0.62);
           gone = true; break;
@@ -1009,11 +1092,12 @@ function updateProjectiles(dt) {
   // enemy bullets
   for (i = ebullets.length - 1; i >= 0; i--) {
     p = ebullets[i];
+    _segA.copy(p.m.position);
     p.m.position.addScaledVector(p.v, dt);
     p.m.rotation.x += dt * 6; p.m.rotation.y += dt * 4;
     p.life -= dt;
     var dead = p.life <= 0;
-    if (!dead && p.m.position.distanceTo(Player.pos) < 3.0) {
+    if (!dead && segPointD2(_segA, p.m.position, Player.pos) < 9.0) {
       damagePlayer(p.dmg || 2.6, false);
       boom(p.m.position, 0.8, [SHARD_MATS.fire, SHARD_MATS.hot], 6);
       dead = true;
@@ -1093,16 +1177,6 @@ function updateEnemies(dt) {
       e.pos.y -= e.fallV * dt;
       e.pos.z -= 8 * dt;
       e.g.position.copy(e.pos);
-    // bank into lateral motion — nothing alive slides sideways flat
-    if (e.type !== 'turret') {
-      var latVX = (e.pos.x - prevX) / Math.max(dt, 1e-4);
-      e.bank = e.bank === undefined ? 0 : e.bank;
-      e.bank += (clamp(-latVX * 0.028, -0.55, 0.55) - e.bank) * Math.min(1, dt * 6);
-      e.g.rotation.z += e.bank;
-    }
-    // hit flinch: a sharp swell that decays with the damage flash
-    var fl = e.flashT > 0 ? e.flashT / 0.09 : 0;
-    e.g.scale.setScalar((e.bs || 1) * (1 + fl * 0.22));
       e.g.rotation.z += e.spinA * dt;
       e.g.rotation.x += e.spinA * 0.55 * dt;
       var gh = P.terrain.enabled ? P.terrain.heightAt(e.pos.x, e.pos.z) : -1e9;
@@ -1179,18 +1253,19 @@ function updateEnemies(dt) {
     if (e.type !== 'turret') {
       var latVX = (e.pos.x - prevX) / Math.max(dt, 1e-4);
       e.bank = e.bank === undefined ? 0 : e.bank;
-      e.bank += (clamp(-latVX * 0.028, -0.55, 0.55) - e.bank) * Math.min(1, dt * 6);
+      e.bank += (clamp(-latVX * 0.028, -0.55, 0.55) - e.bank) * dampF(6, dt);
       e.g.rotation.z += e.bank;
     }
-    // hit flinch: a sharp swell that decays with the damage flash
-    var fl = e.flashT > 0 ? e.flashT / 0.09 : 0;
-    e.g.scale.setScalar((e.bs || 1) * (1 + fl * 0.22));
-
-    // hit flash
+    // hit flinch: a sharp swell that decays with the damage flash, then eases
+    // back. One write per frame — two fought each other here.
     if (e.flashT > 0) {
       e.flashT -= dt;
-      e.g.scale.setScalar(e.bs * 1.18);
+      var fl = Math.max(0, e.flashT) / 0.09;
+      e.g.scale.setScalar(e.bs * (1 + fl * 0.22));
     } else e.g.scale.setScalar(damp(e.g.scale.x, e.bs, 14, dt));
+
+    // the enemy has moved since dist was measured; gates below want the new one
+    dist = P.tmpA.copy(Player.pos).sub(e.pos).length();
 
     // shooting
     if (d.fireRate > 0 && dist < 300 && Game.state === 'playing' && !Game.ending) {
@@ -1253,6 +1328,12 @@ P.entities = {
   updateBoss: updateBoss, bossStart: bossStart, Boss: Boss,
   fireGun: fireGun, fireLasers: fireLasers, boom: boom, SHARD_MATS: SHARD_MATS,
   spawnOrb: spawnOrb, spawnImpact: spawnImpact, impacts: impacts,
+  prewarm: prewarmEnemies,
+  poolStats: function () {
+    return { laser: laserPool.grown, ribbon: ribbonPool.grown, gun: gunPool.grown,
+             impact: impactPool.grown, eb: ebPool.grown, shard: shardPool.grown,
+             ring: ringPool.grown, enemyBuilds: enemyBuilds };
+  },
   reset: function () {
     var i;
     for (i = enemies.length - 1; i >= 0; i--) { freeEnemyMesh(enemies[i].type, enemies[i].g); }

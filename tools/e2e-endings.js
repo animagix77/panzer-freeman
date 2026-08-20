@@ -24,10 +24,17 @@ const path = require('path');
   await page.evaluate(() => { window.__PF.Game.invulnT = 0; window.__PF.damagePlayer(30, true); window.__PF.Game.invulnT = 0; window.__PF.damagePlayer(30, true); });
   await page.waitForTimeout(1200);
   const overState = await page.evaluate(() => window.__PF.Game.state);
+  const overText = await page.evaluate(() => document.getElementById('overStats').textContent);
   await page.screenshot({ path: 'shot-over.png' });
 
   // --- restart + win path
   await page.click('#againBtn'); await page.waitForTimeout(900);
+  // Skip the restart cinematic too. Under swiftshader the page runs at ~3 fps,
+  // so INTRO_LEN's 7.4 s of game time costs ~50 s of wall clock and used to eat
+  // the whole walk budget — the boss then never spawned and this test failed on
+  // timing rather than on anything the game did.
+  await page.evaluate(() => window.__PF.setIntroT(1.0));
+  await page.waitForTimeout(900);
   // walk forward through the episodes until the boss shows up
   for (let g = 0; g < 40; g++) {
     const st = await page.evaluate(() => {
@@ -86,7 +93,7 @@ const path = require('path');
   const winState = await page.evaluate(() => window.__PF.Game.state);
   await page.screenshot({ path: 'shot-win.png' });
   const winText = await page.evaluate(() => document.getElementById('winStats').textContent + ' | ' + document.getElementById('winAge').textContent);
-  console.log(JSON.stringify({ paused, overState, bossOn, winState, winText }, null, 1));
+  console.log(JSON.stringify({ paused, overState, overText, bossOn, winState, winText }, null, 1));
   console.log('ERRORS', errors.length ? errors.slice(0,8).join('\n') : 'none');
   await browser.close();
 })();

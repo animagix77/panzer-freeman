@@ -22,7 +22,7 @@ var cur = {
   fogNear: 60, fogFar: 430, sunDir: new V3(0, 0, 1), sunSize: 0.02, bands: 24,
   ambI: 1, keyI: 1, rimI: 0.4, shaft: 0.30, kd: new V3(0, 0.5, 1)
 };
-var tgt = JSON.parse('{}');
+var tgt = {};                 // filled by setTargets() before the first frame
 function setTargets(ep) {
   tgt = {
     lo: new THREE.Color(ep.sky.lo), mid: new THREE.Color(ep.sky.mid), hi: new THREE.Color(ep.sky.hi),
@@ -72,7 +72,7 @@ function applyColors() {
   renderer.setClearColor(cur.fog, 1);
   P.ambLight.color.copy(cur.amb); P.ambLight.intensity = cur.ambI;
   P.keyLight.color.copy(cur.key); P.keyLight.intensity = cur.keyI;
-  P.keyLight.position.copy(cur.kd);
+  P.setSunDir(cur.kd);      // direction only — the shadow rig sets the distance
   P.rimLight.color.copy(cur.rim); P.rimLight.intensity = cur.rimI;
 }
 
@@ -100,7 +100,6 @@ function enterEpisode(i, instant, silent, keepMusic) {
   if (!silent) showCard(ep);
   if (!keepMusic) P.playMusic(ep.music);
   if (ep.id === 'boss') {
-    Player.railY = Player.railY;
     setTimeout(function () { if (Game.state === 'playing') E.bossStart(); }, 2600);
   }
 }
@@ -406,7 +405,23 @@ window.addEventListener('keydown', function (e) {
     P.toast(Player.invertY ? 'PITCH: INVERTED' : 'PITCH: NORMAL');
   }
   if (k === 'r') P.toast(P.toggleRetro() ? 'SATURN MODE' : 'CLEAN MODE');
+  if (k === 'g') P.toast(P.toggleShadows() ? 'SHADOWS ON' : 'SHADOWS OFF');
+  if (k === 'f3') {
+    e.preventDefault();
+    perfOn = !perfOn;
+    P.el.perf.classList.toggle('on', perfOn);
+    if (perfOn) { P.el.perf.textContent = 'SAMPLING…'; perfT = perfFrames = perfSum = perfWorst = 0; }
+  }
 });
+P.setPerf = function (on) {          // for the headless harnesses
+  perfOn = !!on;
+  P.el.perf.classList.toggle('on', perfOn);
+};
+P.perfInfo = function () {
+  return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+           geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures,
+           programs: renderer.info.programs ? renderer.info.programs.length : 0 };
+};
 window.addEventListener('keyup', function (e) { Input.keys[keyName(e)] = false; });
 window.addEventListener('blur', function () { Input.keys = {}; Input.lmb = false; Input.rmb = false; });
 
@@ -420,7 +435,7 @@ window.addEventListener('mousedown', function (e) {
   if (Game.state === 'intro') { skipIntro(); return; }
   if (Game.state !== 'playing') return;
   updMouse(e);
-  if (e.button === 0) { Input.lmb = true; Input.lmbT = 0; }
+  if (e.button === 0) { Input.lmb = true; }
   if (e.button === 2) Input.rmb = true;
 });
 window.addEventListener('mouseup', function (e) {
@@ -555,6 +570,7 @@ function resetGame() {
   Player.viewIndex = 0; Player.camYaw = 0; Player.camYawTarget = 0;
   Player.railY = EPISODES[0].railY;
   P.dragon.setAge(89);
+  P.resetWeapons();
   E.setFlash(0);
   Boss.dead = false;
 }
@@ -586,7 +602,12 @@ P.onEnd = function (won) {
   var acc = Game.shots ? Math.round(Game.hits / Game.shots * 100) : 0;
   var finalAge = won ? clamp(Game.age - 4, 24, 100) : Game.age;
   if (won) { Game.age = finalAge; P.dragon.setAge(finalAge); }
-  var stats = 'YEARS SHED <b>' + (89 - finalAge).toFixed(1) + '</b> &nbsp;·&nbsp; KILLS <b>' + Game.kills +
+  // A loss ends at 100, so "years shed" was always a negative number on the
+  // over screen. Time took them; say so.
+  var shed = Game.startAge - finalAge;
+  var ageStat = shed >= 0 ? 'YEARS SHED <b>' + shed.toFixed(1) + '</b>'
+                          : 'YEARS TAKEN <b>' + (-shed).toFixed(1) + '</b>';
+  var stats = ageStat + ' &nbsp;·&nbsp; KILLS <b>' + Game.kills +
               '</b> &nbsp;·&nbsp; BEST CHAIN <b>×' + Game.bestCombo + '</b><br>ACCURACY <b>' + acc +
               '%</b> &nbsp;·&nbsp; ORBS <b>' + Game.orbsTaken + '</b> &nbsp;·&nbsp; SCORE <b>' + Game.score + '</b>';
   if (won) {
@@ -637,7 +658,10 @@ document.getElementById('winBtn').addEventListener('click', startGame);
 var lastT = 0;
 function frame(now) {
   requestAnimationFrame(frame);
-  var dt = Math.min(0.05, (now - lastT) / 1000 || 0.016);
+  // dt is clamped so one slow frame can't teleport the world. The perf readout
+  // must NOT use the clamped value — it would report a 90 ms stall as 20 fps.
+  var rawDt = (now - lastT) / 1000 || 0.016;
+  var dt = Math.min(0.05, rawDt);
   lastT = now;
   _frameId++; P.frames = _frameId;
 
@@ -691,8 +715,33 @@ function frame(now) {
     props.update(Game.railZ);
     props2.update(Game.railZ);
     stepColors(dt);
-  } else {
+  } else if (Game.state === 'win' || Game.state === 'over') {
+    // The result plates are 74% opaque, not opaque. A hard-frozen 3D scene
+    // behind them reads as a crash, so the dragon keeps gliding out — slower,
+    // levelling off, with nobody at the reins.
+    Game.time += dt;
+    Game.railZ += 20 * dt;
+    Player.pos.z = Game.railZ;
+    Player.pos.x = damp(Player.pos.x, 0, 0.5, dt);
+    Player.pos.y = damp(Player.pos.y, Player.railY + 5, 0.45, dt);
+    P.dragon.root.position.copy(Player.pos);
+    P.dragon.root.rotation.y = damp(P.dragon.root.rotation.y, 0, 1.0, dt);
+    P.dragon.update(dt, Game.time, { strafeX: 0, strafeY: 0,
+      vy: Math.sin(Game.time * 0.45) * 7, aimX: 0, aimY: 0, boost: 0 });
+    var oy = Math.sin(Game.time * 0.16) * 0.5;
+    camera.position.set(
+      Player.pos.x + Math.sin(oy) * -40,
+      Player.pos.y + 8,
+      Player.pos.z + Math.cos(oy) * -40
+    );
+    camera.lookAt(Player.pos.x, Player.pos.y + 1.5, Player.pos.z + 8);
+    P.skyMesh.position.copy(camera.position);
+    terrain.update(Game.railZ);
+    props.update(Game.railZ);
+    props2.update(Game.railZ);
     stepColors(dt);
+  } else {
+    stepColors(dt);   // paused — deliberately frozen
   }
 
   // screen flash
@@ -724,10 +773,41 @@ function frame(now) {
     P.el.quip.style.opacity = clamp(qt > 3.1 ? (3.6 - qt) / 0.5 : Math.min(1, qt / 0.8), 0, 1).toFixed(3);
   } else P.el.quip.style.opacity = '0';
 
+  // Drag the shadow frustum along the rail. A single box wide enough for the
+  // whole world would quantise every shadow into mush; this one is 240 units
+  // across and follows the player, so the map stays dense where it is looked at.
+  if (P.shadowsOn()) P.trackShadow(Player.pos.x, Player.pos.y - 12, Player.pos.z + 40);
+
   drawHUD(dt);
   // weather rides the camera, so it updates after the camera is final
   if (P.weather) P.weather.update(dt, camera.position, Game.time);
   renderer.render(scene, camera);
+  if (perfOn) samplePerf(rawDt);
+}
+
+// ------------------------------------------------------------------- perf
+// F3. renderer.info is only truthful after render(), so this reads it at the
+// very end of the frame. The frame-time figure is a 1%-low as well as a mean,
+// because a 60 fps average with a 90 ms hitch in it is not a 60 fps game.
+var perfOn = false, perfT = 0, perfFrames = 0, perfSum = 0, perfWorst = 0;
+function samplePerf(dt) {
+  perfFrames++; perfSum += dt; perfT += dt;
+  if (dt > perfWorst) perfWorst = dt;
+  if (perfT < 0.5) return;
+  var info = renderer.info, mean = perfSum / perfFrames;
+  var fps = mean > 0 ? 1 / mean : 0;
+  var worstMs = perfWorst * 1000;
+  P.el.perf.innerHTML =
+    'FPS <b>' + fps.toFixed(0) + '</b>   FRAME <b>' + (mean * 1000).toFixed(1) + ' ms</b>' +
+    '   WORST ' + (worstMs > 33 ? '<i>' + worstMs.toFixed(1) + ' ms</i>' : '<b>' + worstMs.toFixed(1) + ' ms</b>') + '\n' +
+    'DRAW <b>' + info.render.calls + '</b>   TRIS <b>' + (info.render.triangles / 1000).toFixed(1) + 'k</b>\n' +
+    'GEOM <b>' + info.memory.geometries + '</b>   TEX <b>' + info.memory.textures + '</b>   PROG <b>' +
+      (info.programs ? info.programs.length : 0) + '</b>\n' +
+    'ENEMIES <b>' + E.enemies.length + '</b>   SHOTS <b>' + E.bullets.length + '+' + E.ebullets.length +
+      '</b>   LOCKS <b>' + Locks.list.length + '/' + Locks.max + '</b>\n' +
+    'AGE <b>' + Game.age.toFixed(1) + '</b>   HEAT <b>' + ((Game.heat || 0) * 100).toFixed(0) + '%</b>' +
+      '   TIER <b>' + P.getVigour().tier + '</b>';
+  perfT = 0; perfFrames = 0; perfSum = 0; perfWorst = 0;
 }
 
 // ==================================================================== BOOT
@@ -754,6 +834,16 @@ var BOOT = [
     props.configure(EPISODES[0].props, -200);
     props2.configure(EPISODES[0].props2, -200);
     Player.railY = EPISODES[0].railY;
+  }],
+  ['FORGING THE SWARM', function () {
+    E.prewarm();          // build every enemy rig now, not mid-wave
+  }],
+  ['CASTING THE SHADOWS', function () {
+    // Casters are marked once, after everything exists. The enemy rigs are
+    // marked as they are built, so this only has to catch the dragon and boss.
+    P.castAll(P.dragon.root);
+    if (Boss.group) P.castAll(Boss.group);
+    P.trackShadow(0, 0, 0);
   }],
   ['COMPILING SHADERS', function () {
     // force every material through the GPU once, so the first real frame

@@ -127,6 +127,15 @@
     font-size:clamp(13px,2vw,22px); letter-spacing:.2em; color:#8fffc4;
     text-shadow:2px 2px 0 #04301c; opacity:0; pointer-events:none; white-space:nowrap;
   }
+  #perf {
+    position:absolute; left:10px; top:10px; z-index:20; display:none;
+    font-size:11px; line-height:1.55; letter-spacing:.08em; color:#9fe8ff;
+    background:rgba(4,10,20,.62); border:1px solid rgba(159,232,255,.28);
+    padding:6px 9px; white-space:pre; pointer-events:none; text-shadow:1px 1px 0 #04121e;
+  }
+  #perf.on { display:block; }
+  #perf b { color:#ffd25e; font-weight:normal; }
+  #perf i { color:#ff8a5a; font-style:normal; }
   #quip {
     position:absolute; left:50%; bottom:13%; transform:translateX(-50%); z-index:14;
     width:min(74%, 900px); text-align:center;
@@ -222,6 +231,7 @@
   <div id="skiphint">PRESS ANY KEY TO SKIP</div>
   <div id="quip"></div>
   <div id="pausebox"><div>— PAUSED —</div></div>
+  <div id="perf"></div>
 
   <div class="screen on" id="title">
     <div class="plate">
@@ -245,6 +255,8 @@
         <div><span class="kbd">M</span><span class="d">mute</span></div>
         <div><span class="kbd">I</span><span class="d">invert pitch</span></div>
         <div><span class="kbd">R</span><span class="d">Saturn mode</span></div>
+        <div><span class="kbd">G</span><span class="d">cast shadows</span></div>
+        <div><span class="kbd">F3</span><span class="d">performance</span></div>
       </div>
       <button class="btn" id="startBtn">Begin the Descent</button>
       <div class="tiny">A LOW-POLY TRIBUTE TO PANZER DRAGOON (SEGA SATURN, 1995)</div>
@@ -580,6 +592,101 @@ keyLight.position.set(0.4, 0.7, 1).normalize();
 var rimLight = new THREE.DirectionalLight(0x6f8bff, 0.58);
 rimLight.position.set(-0.6, 0.25, -1).normalize();
 scene.add(ambLight, keyLight, rimLight);
+
+// ------------------------------------------------------------------ shadows
+// A shadow map on a flat-shaded Saturn-era game is a fight worth picking
+// carefully. Soft PCF shadows would look wrong immediately — the whole art
+// direction is hard edges and banded light. BasicShadowMap gives a hard,
+// aliased, stair-stepped edge, which is exactly what a machine of that era
+// would have produced if it could have produced one at all.
+//
+// The cost is kept honest by scope, not by resolution: only the dragon, the
+// enemies and the boss cast, only the terrain receives, and the light's
+// orthographic frustum is a tight box dragged along with the player rather
+// than one big enough for the whole world.
+renderer.shadowMap.enabled = false;      // opt-in; see setShadows() below
+renderer.shadowMap.type = THREE.BasicShadowMap;
+renderer.shadowMap.autoUpdate = true;
+
+var SHADOW_SPAN = 120;
+keyLight.castShadow = false;
+keyLight.shadow.mapSize.set(1024, 1024);
+var sc = keyLight.shadow.camera;
+sc.left = -SHADOW_SPAN; sc.right = SHADOW_SPAN;
+sc.top = SHADOW_SPAN; sc.bottom = -SHADOW_SPAN;
+sc.near = 1; sc.far = 460;
+// Mutating an OrthographicCamera's extents does nothing until the projection is
+// rebuilt. Without this the shadow camera keeps its default ±5 frustum and the
+// map comes back empty — which looks exactly like shadows being switched off.
+sc.updateProjectionMatrix();
+keyLight.shadow.bias = -0.0016;
+// A DirectionalLight aims at its target; give it one we can move.
+var shadowFocus = new THREE.Object3D();
+scene.add(shadowFocus);
+keyLight.target = shadowFocus;
+
+// The light sits SHADOW_BACK units up-sun from whatever it is lighting, so the
+// frustum stays tight no matter how far down the rail the player has flown.
+var SHADOW_BACK = 240;
+// The episode palette owns the sun DIRECTION; the shadow rig owns where along
+// that direction the light actually sits. Before this split, stepColors() wrote
+// a unit vector straight into keyLight.position every frame, which parked the
+// light one unit from the origin and collapsed the shadow frustum to nothing.
+var sunDir = new V3(0.4, 0.7, 1).normalize();
+// Every episode's sun sits near the horizon — it is a sunset game. Physically
+// that throws a shadow hundreds of units down-rail, off-screen, which costs a
+// full depth pass and shows the player nothing. So the KEY LIGHT keeps the
+// palette's azimuth but is lifted to at least this elevation, which lands the
+// shadow within about 1.3 altitudes of its caster. The sky shader still draws
+// the sun exactly where the palette put it; only the lighting rig is raised.
+var MIN_SUN_ELEV = 0.60;     // dir.y as a fraction of the horizontal magnitude
+var rawSunDir = new V3(0.4, 0.7, 1).normalize();
+function setSunDir(v) {
+  rawSunDir.copy(v);
+  if (rawSunDir.lengthSq() < 1e-8) rawSunDir.set(0.4, 0.7, 1);
+  rawSunDir.normalize();
+  applySunDir();
+}
+function applySunDir() {
+  sunDir.copy(rawSunDir);
+  // The lift is only worth its distortion when something is actually casting.
+  // With shadows off, the palette's sun angle is used exactly as authored.
+  if (SHADOWS_ON) {
+    var horiz = Math.sqrt(sunDir.x * sunDir.x + sunDir.z * sunDir.z);
+    if (sunDir.y < MIN_SUN_ELEV * horiz) {
+      var k = horiz > 1e-6 ? (sunDir.y / MIN_SUN_ELEV) / horiz : 0;
+      sunDir.x *= k; sunDir.z *= k;
+      sunDir.normalize();
+    }
+  }
+  placeKeyLight();
+}
+function placeKeyLight() {
+  var f = shadowFocus.position;
+  keyLight.position.set(
+    f.x + sunDir.x * SHADOW_BACK,
+    f.y + sunDir.y * SHADOW_BACK,
+    f.z + sunDir.z * SHADOW_BACK
+  );
+}
+function trackShadow(focusX, focusY, focusZ) {
+  shadowFocus.position.set(focusX, focusY, focusZ);
+  shadowFocus.updateMatrixWorld();
+  placeKeyLight();
+}
+// Default OFF. The map itself is correct — a hard, stair-stepped, era-correct
+// shadow, verified landing on the terrain — but at the sunset angles every
+// episode uses it lands well outside the chase camera's framing, and the depth
+// pass is not free. G turns it on for anyone who wants it.
+var SHADOWS_ON = false;
+function setShadows(on) {
+  SHADOWS_ON = !!on;
+  renderer.shadowMap.enabled = SHADOWS_ON;
+  keyLight.castShadow = SHADOWS_ON;
+  applySunDir();
+  scene.traverse(function (o) { if (o.isMesh && o.material) o.material.needsUpdate = true; });
+}
+function toggleShadows() { setShadows(!SHADOWS_ON); return SHADOWS_ON; }
 
 scene.fog = new THREE.Fog(0xc0507a, 70, 460);
 
@@ -1386,10 +1493,14 @@ window.__PF = {
   setRetro: setRetro, toggleRetro: toggleRetro, isRetro: function () { return RETRO_ON; },
   skyUni: skyUni, skyMesh: skyMesh,
   ambLight: ambLight, keyLight: keyLight, rimLight: rimLight,
+  trackShadow: trackShadow, setShadows: setShadows, toggleShadows: toggleShadows,
+  setSunDir: setSunDir,
+  shadowsOn: function () { return SHADOWS_ON; },
   Audio_: Audio_, playMusic: playMusic, musicState: musicState, note: note, SONGS: SONGS,
   hudCanvas: hudCanvas, hx: hx, glCanvas: glCanvas,
   el: { flash: elFlash, card: elCard, toast: elToast, pause: elPause, skip: elSkip, quip: elQuip,
-        title: elTitle, over: elOver, win: elWin, loading: elLoading },
+        title: elTitle, over: elOver, win: elWin, loading: elLoading,
+        perf: document.getElementById('perf') },
   HUD: (window.HUD = { w: window.innerWidth, h: window.innerHeight })
 };
 
@@ -3509,6 +3620,7 @@ Terrain.prototype._mkChunk = function () {
   P.retroPatch(mat);
   var mesh = new THREE.Mesh(g, mat);
   mesh.frustumCulled = false;
+  mesh.receiveShadow = true;   // the ground is the only shadow receiver
   this.group.add(mesh);
   return { mesh: mesh, geo: g, mat: mat, z: 0 };
 };
@@ -3974,7 +4086,7 @@ var Game = {
   age: 89, startAge: 89, score: 0, kills: 0, shots: 0, hits: 0,
   bestCombo: 0, combo: 0, comboT: 0,
   hurtT: 0, invulnT: 0, shakeT: 0, shakeMag: 0,
-  transition: 0, ending: false, bossActive: false, orbsTaken: 0, cinematic: false
+  ending: false, bossActive: false, orbsTaken: 0, cinematic: false
 };
 P.Game = Game;
 
@@ -4001,7 +4113,7 @@ dragon.onBeat = function (power, effort) {
 // --------------------------------------------------------------- input state
 var Input = {
   keys: {}, mx: 0, my: 0, ndx: 0, ndy: 0,
-  lmb: false, rmb: false, lmbT: 0, painted: 0
+  lmb: false, rmb: false, painted: 0
 };
 P.Input = Input;
 
@@ -4012,25 +4124,58 @@ function Pool(make, n) {
 }
 Pool.prototype.get = function () {
   var o = this.free.pop();
-  if (!o) { o = this.make(); scene.add(o); }
+  if (!o) { o = this.make(); scene.add(o); this.grown++; }
   o.visible = true; return o;
 };
 Pool.prototype.put = function (o) { o.visible = false; this.free.push(o); };
+Pool.prototype.grown = 0;
+Pool.prototype.name = '?';
+
+// The same exponential factor damp() uses, for the places that need to smooth
+// something damp() can't take — an angle through angDelta, or a Vector3.lerp.
+// `min(1, dt * k)` was doing this job and made the rate framerate-dependent.
+function dampF(l, dt) { return 1 - Math.exp(-l * dt); }
+
+// ---- swept collision -----------------------------------------------------
+// Squared distance from point c to the segment a→b. Allocation-free: this runs
+// bullets × enemies times per frame.
+var _segA = new V3();
+function segPointD2(a, b, c) {
+  var abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
+  var acx = c.x - a.x, acy = c.y - a.y, acz = c.z - a.z;
+  var ab2 = abx * abx + aby * aby + abz * abz;
+  var t = ab2 > 1e-9 ? (acx * abx + acy * aby + acz * abz) / ab2 : 0;
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  var dx = acx - abx * t, dy = acy - aby * t, dz = acz - abz * t;
+  return dx * dx + dy * dy + dz * dz;
+}
+P.segPointD2 = segPointD2;
 
 // --- Panzer-Dragoon homing laser: a hot head dragging a curved ribbon -----
+// Nothing mutates a projectile's material — colour and blending are fixed per
+// pool — so one material each is enough. It also means a pool that has to grow
+// mid-fight allocates geometry only, not a shader compile.
+var MAT_LASER_HEAD = new THREE.MeshBasicMaterial({
+  color: 0xffffff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false });
+var MAT_LASER_HALO = new THREE.MeshBasicMaterial({
+  color: 0x3fb8ff, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.4,
+  depthWrite: false, fog: false });
+var MAT_GUN = new THREE.MeshBasicMaterial({
+  color: 0xfff2b0, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false });
+var MAT_RIBBON = new THREE.MeshBasicMaterial({
+  vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
+  depthWrite: false, side: THREE.DoubleSide, fog: false });
+var GEO_LASER_HEAD = new THREE.OctahedronGeometry(0.34, 0);
+var GEO_LASER_HALO = new THREE.OctahedronGeometry(0.55, 0);
+
 var laserPool = new Pool(function () {
   var g = new THREE.Group();
-  var head = new THREE.Mesh(new THREE.OctahedronGeometry(0.34, 0), new THREE.MeshBasicMaterial({
-    color: 0xffffff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false
-  }));
+  var head = new THREE.Mesh(GEO_LASER_HEAD, MAT_LASER_HEAD);
   head.scale.set(0.5, 0.5, 1.5); g.add(head);
-  var halo = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), new THREE.MeshBasicMaterial({
-    color: 0x3fb8ff, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.4,
-    depthWrite: false, fog: false
-  }));
+  var halo = new THREE.Mesh(GEO_LASER_HALO, MAT_LASER_HALO);
   halo.scale.set(1, 1, 1.9); g.add(halo);
   return g;
-}, 24);
+}, 32);
 
 // ---- ribbon trails -------------------------------------------------------
 var RIB_N = 18;
@@ -4045,16 +4190,13 @@ var ribbonPool = new Pool(function () {
   }
   g.setIndex(idx);
   g.setDrawRange(0, 0);
-  var mm = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
-    vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
-    depthWrite: false, side: THREE.DoubleSide, fog: false
-  }));
+  var mm = new THREE.Mesh(g, MAT_RIBBON);
   mm.frustumCulled = false;
   mm.userData.pts = [];
   for (var k = 0; k < RIB_N; k++) mm.userData.pts.push(new V3());
   mm.userData.n = 0;
   return mm;
-}, 44);
+}, 200);   // one per live bullet + laser + fading tail, measured at peak combat
 
 function ribbonReset(rib, x, y, z) {
   rib.userData.n = 1;
@@ -4118,17 +4260,23 @@ function releaseTrail(rib, width, headCol, tailCol) {
 }
 
 // ---- impact flash: hot core, radiating spikes, expanding ring -----------
+// The materials have to be per-instance — spawnImpact() tints mArm and the
+// update fades mCore — but the eight meshes in each flash were also building
+// eight fresh geometries, sixteen times over. They are identical; share them.
+var GEO_IMPACT_CORE = new THREE.IcosahedronGeometry(1, 0);
+var GEO_IMPACT_SPIKE = new THREE.ConeGeometry(0.44, 3.0, 4);
+var GEO_IMPACT_RING = new THREE.TorusGeometry(1, 0.14, 3, 16);
 var impactPool = new Pool(function () {
   var g = new THREE.Group();
   var mCore = new THREE.MeshBasicMaterial({ color: 0xffffff, blending: THREE.AdditiveBlending,
     transparent: true, depthWrite: false, fog: false });
   var mArm = new THREE.MeshBasicMaterial({ color: 0x7fe8ff, blending: THREE.AdditiveBlending,
     transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide });
-  var core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), mCore); g.add(core);
+  var core = new THREE.Mesh(GEO_IMPACT_CORE, mCore); g.add(core);
   var spikes = new THREE.Group();
   var axes = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
   for (var i = 0; i < axes.length; i++) {
-    var sp = new THREE.Mesh(new THREE.ConeGeometry(0.44, 3.0, 4), mArm);
+    var sp = new THREE.Mesh(GEO_IMPACT_SPIKE, mArm);
     var a = axes[i];
     sp.position.set(a[0] * 1.6, a[1] * 1.6, a[2] * 1.6);
     sp.lookAt(a[0] * 8, a[1] * 8, a[2] * 8);
@@ -4136,10 +4284,10 @@ var impactPool = new Pool(function () {
     spikes.add(sp);
   }
   g.add(spikes);
-  var ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.14, 3, 16), mArm); g.add(ring);
+  var ring = new THREE.Mesh(GEO_IMPACT_RING, mArm); g.add(ring);
   g.userData = { mCore: mCore, mArm: mArm, core: core, spikes: spikes, ring: ring };
   return g;
-}, 16);
+}, 24);
 var impacts = [];
 function spawnImpact(pos, armColor, size) {
   var g = impactPool.get();
@@ -4150,22 +4298,25 @@ function spawnImpact(pos, armColor, size) {
 }
 
 var gunPool = new Pool(function () {
-  var m2 = new THREE.Mesh(new THREE.OctahedronGeometry(0.34, 0), new THREE.MeshBasicMaterial({
-    color: 0xfff2b0, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false
-  }));
+  var m2 = new THREE.Mesh(GEO_LASER_HEAD, MAT_GUN);
   m2.scale.set(0.5, 0.5, 2.2);
   return m2;
-}, 40);
+}, 64);
 
+// mdl.tet/oct/tor mint a fresh geometry per call — right for the model builders,
+// which then translate and merge them, but wasteful for a pool of 220 identical
+// shards. These four are never mutated after construction, so one each will do.
+var GEO_EB_CORE = mdl.oct(0.42), GEO_EB_HALO = mdl.oct(0.85);
+var GEO_SHARD = mdl.tet(0.55);
 var ebPool = new Pool(function () {
   var g = new THREE.Group();
-  g.add(mdl.mesh(mdl.oct(0.42), G(0xffd0a0)));
-  var h = mdl.mesh(mdl.oct(0.85), G(0xff4a2a, { transparent: true, opacity: 0.45, depthWrite: false }));
+  g.add(mdl.mesh(GEO_EB_CORE, G(0xffd0a0)));
+  var h = mdl.mesh(GEO_EB_HALO, G(0xff4a2a, { transparent: true, opacity: 0.45, depthWrite: false }));
   g.add(h);
   return g;
 }, 90);
 
-var shardPool = new Pool(function () { return mdl.mesh(mdl.tet(0.55), G(0xffffff)); }, 220);
+var shardPool = new Pool(function () { return mdl.mesh(GEO_SHARD, G(0xffffff)); }, 220);
 
 var lasers = [], bullets = [], ebullets = [], shards = [], orbs = [], rings = [];
 
@@ -4198,23 +4349,49 @@ function boom(pos, size, colorSet, count) {
   rings.push({ m: r, life: 0.42, max: 0.42, size: size });
 }
 
+var GEO_RING = mdl.tor(1, 0.1, 3, 14);
 var ringPool = new Pool(function () {
-  var r = mdl.mesh(mdl.tor(1, 0.1, 3, 14), G(0xffffff, { transparent: true, opacity: 0.7, depthWrite: false }));
+  var r = mdl.mesh(GEO_RING, G(0xffffff, { transparent: true, opacity: 0.7, depthWrite: false }));
   return r;
-}, 24);
+}, 48);   // a multi-kill can boom a dozen enemies in the same frame
 
 // ------------------------------------------------------------------ enemies
 var enemies = [];
-var enemyPools = {};
+var enemyPools = {}, enemyBuilds = 0;   // enemyBuilds is a prewarm-coverage counter
+// Only solid things cast. Additive sprites — trails, flames, impact flashes —
+// would punch black holes in the shadow map, so they are left out on purpose.
+function castAll(root) {
+  root.traverse(function (o) {
+    if (!o.isMesh) return;
+    var m = o.material;
+    if (m && (m.transparent || m.blending === THREE.AdditiveBlending)) return;
+    o.castShadow = true;
+  });
+}
+P.castAll = castAll;
 function getEnemyMesh(type) {
   if (!enemyPools[type]) enemyPools[type] = [];
   var p = enemyPools[type];
   if (p.length) { var o = p.pop(); o.visible = true; return o; }
   var g = mdl.ENEMY_DEFS[type].build();
+  enemyBuilds++;
+  castAll(g);
   scene.add(g);
   return g;
 }
 function freeEnemyMesh(type, g) { g.visible = false; enemyPools[type].push(g); }
+// Enemy meshes used to be built the first time each type appeared — mid-flight,
+// at full speed, with the GPU already busy. maxAlive is 16, so one wave of a
+// fresh type could build a dozen rigs inside a single frame. Build them at boot.
+var PREWARM = { wasp: 10, ray: 8, turret: 5, chaser: 8, carrier: 4, mine: 7 };
+function prewarmEnemies() {
+  for (var type in PREWARM) {
+    if (!mdl.ENEMY_DEFS[type]) continue;
+    var made = [], i;
+    for (i = 0; i < PREWARM[type]; i++) made.push(getEnemyMesh(type));
+    for (i = 0; i < made.length; i++) freeEnemyMesh(type, made[i]);
+  }
+}
 
 function spawnEnemy(type, opts) {
   opts = opts || {};
@@ -4358,6 +4535,20 @@ function applyVigour() {
   vigourIdx = idx;
 }
 P.getVigour = function () { return { tier: vigourIdx, name: vigour.name, locks: Locks.max }; };
+P.applyVigour = applyVigour;      // exported so the harnesses can drive tiers directly
+// A fresh flight has to start cold. vigourIdx and vigour are module-local, so
+// resetGame() could not clear them — "Fly Again" kept PRIME's 0.046 s cooldown
+// and 22 locks until the first kill quietly demoted it back to tier 0.
+P.resetWeapons = function () {
+  Game.heat = 0;
+  vigourIdx = 0;
+  vigour = VIGOUR_TIERS[0];
+  Player.gunCD = vigour.gunCD;
+  Player.gunDmg = vigour.dmg;
+  Locks.list.length = 0;
+  Locks.cd = 0;
+  refreshWeapons();
+};
 function dropLocks(t) {
   for (var i = Locks.list.length - 1; i >= 0; i--) if (Locks.list[i] === t) Locks.list.splice(i, 1);
 }
@@ -4472,8 +4663,8 @@ P.getAimPoint = getAimPoint;
 // ----------------------------------------------------------------- the boss
 var Boss = {
   built: null, group: null, active: false, angle: 0, angleTarget: 0,
-  dist: 128, height: 14, hp: 180, maxHp: 180, phase: 0, t: 0,
-  atkT: 2.5, dead: false, deathT: 0, sweepT: 0, entering: 0
+  dist: 128, height: 14, phase: 0, t: 0,
+  atkT: 2.5, dead: false, deathT: 0, entering: 0
 };
 P.Boss = Boss;
 
@@ -4493,8 +4684,7 @@ function bossStart() {
     c.group.visible = true;
     c.core.material = G(0x6affd0, { transparent: true, opacity: 0.95 });
   }
-  Boss.maxHp = Boss.built.cores.length * Boss.built.cores[0].maxHp;
-  Game.bossActive = true;
+  Game.bossActive = true;   // the HP bar sums the cores directly; Boss has no pool of its own
 }
 
 function bossCoreHit(c, dmg) {
@@ -4578,12 +4768,11 @@ function updateBoss(dt) {
     B.dist = damp(B.dist, 128, 1.1, dt);
   } else {
     // phase 2+: drift between angles
-    if (B.phase >= 1) {
-      B.angleTarget += 0; // set on core destruction
-      if (B.t % 12 < dt && B.phase >= 2) B.angleTarget = pick([0, Math.PI * 0.5, Math.PI, -Math.PI * 0.5]);
-    }
+    // angleTarget is otherwise set on core destruction; from phase 2 it also
+    // wanders on its own every 12 s so the fight never settles into one face.
+    if (B.phase >= 2 && B.t % 12 < dt) B.angleTarget = pick([0, Math.PI * 0.5, Math.PI, -Math.PI * 0.5]);
   }
-  B.angle += P.angDelta(B.angle, B.angleTarget) * Math.min(1, dt * 0.9);
+  B.angle += P.angDelta(B.angle, B.angleTarget) * dampF(0.9, dt);
   var dir = new V3(Math.sin(B.angle), 0, Math.cos(B.angle));
   var bp = Player.pos.clone().add(dir.multiplyScalar(B.dist));
   bp.y += B.height + Math.sin(B.t * 0.6) * 4;
@@ -4753,7 +4942,7 @@ function updatePlayer(dt) {
   Game.railZ += speed * (1 - vyPrev * 0.15) * dt;
 
   // ---- view rotation
-  Player.camYaw += P.angDelta(Player.camYaw, Player.camYawTarget) * Math.min(1, dt * 7.5);
+  Player.camYaw += P.angDelta(Player.camYaw, Player.camYawTarget) * dampF(7.5, dt);
 
   // ---- steering (camera-relative in the XZ plane)
   var cine = Game.cinematic;
@@ -4885,7 +5074,7 @@ function updateProjectiles(dt) {
     if (tp) {
       var k = (1.6 + p.age * 15) * (1 + heat * 0.9);   // homing tightens as it flies, hotter = harder
       P.tmpA.copy(tp).sub(p.m.position).normalize().multiplyScalar(spd);
-      p.v.lerp(P.tmpA, Math.min(1, dt * k));
+      p.v.lerp(P.tmpA, dampF(k, dt));
     }
     p.v.setLength(spd);
     p.m.position.addScaledVector(p.v, dt);
@@ -4934,6 +5123,11 @@ function updateProjectiles(dt) {
   // player gun bullets
   for (i = bullets.length - 1; i >= 0; i--) {
     p = bullets[i];
+    // Remember where the bullet was: at 220 u/s a 30 fps frame steps it 7.3
+    // units, wider than most hitboxes, so a point test at each end misses
+    // cleanly through the target. Sweep the segment instead — hit rate stops
+    // depending on the player's framerate, and ACCURACY stops lying.
+    _segA.copy(p.m.position);
     p.m.position.addScaledVector(p.v, dt);
     ribbonAdvance(p.rib, p.m.position.x, p.m.position.y, p.m.position.z, 4.2);
     ribbonBuild(p.rib, 0.19, 0xffeeb4, 0xd8400f, 0.8);
@@ -4943,7 +5137,8 @@ function updateProjectiles(dt) {
       for (var e = 0; e < enemies.length; e++) {
         var en = enemies[e];
         if (!en.alive) continue;
-        if (p.m.position.distanceTo(en.pos) < en.def.radius + 1.1) {
+        var er = en.def.radius + 1.1;
+        if (segPointD2(_segA, p.m.position, en.pos) < er * er) {
           hurtEnemy(en, p.dmg); Game.hits++;
           spawnImpact(p.m.position, 0xffc463, 0.62);
           gone = true; break;
@@ -4955,7 +5150,7 @@ function updateProjectiles(dt) {
         var core = Boss.built.cores[c];
         if (!core.alive) continue;
         var wp = P.tmpC; core.group.getWorldPosition(wp);
-        if (p.m.position.distanceTo(wp) < 7.0) {
+        if (segPointD2(_segA, p.m.position, wp) < 49.0) {
           bossCoreHit(core, 1.1); Game.hits++;
           spawnImpact(p.m.position, 0xffc463, 0.62);
           gone = true; break;
@@ -4970,11 +5165,12 @@ function updateProjectiles(dt) {
   // enemy bullets
   for (i = ebullets.length - 1; i >= 0; i--) {
     p = ebullets[i];
+    _segA.copy(p.m.position);
     p.m.position.addScaledVector(p.v, dt);
     p.m.rotation.x += dt * 6; p.m.rotation.y += dt * 4;
     p.life -= dt;
     var dead = p.life <= 0;
-    if (!dead && p.m.position.distanceTo(Player.pos) < 3.0) {
+    if (!dead && segPointD2(_segA, p.m.position, Player.pos) < 9.0) {
       damagePlayer(p.dmg || 2.6, false);
       boom(p.m.position, 0.8, [SHARD_MATS.fire, SHARD_MATS.hot], 6);
       dead = true;
@@ -5054,16 +5250,6 @@ function updateEnemies(dt) {
       e.pos.y -= e.fallV * dt;
       e.pos.z -= 8 * dt;
       e.g.position.copy(e.pos);
-    // bank into lateral motion — nothing alive slides sideways flat
-    if (e.type !== 'turret') {
-      var latVX = (e.pos.x - prevX) / Math.max(dt, 1e-4);
-      e.bank = e.bank === undefined ? 0 : e.bank;
-      e.bank += (clamp(-latVX * 0.028, -0.55, 0.55) - e.bank) * Math.min(1, dt * 6);
-      e.g.rotation.z += e.bank;
-    }
-    // hit flinch: a sharp swell that decays with the damage flash
-    var fl = e.flashT > 0 ? e.flashT / 0.09 : 0;
-    e.g.scale.setScalar((e.bs || 1) * (1 + fl * 0.22));
       e.g.rotation.z += e.spinA * dt;
       e.g.rotation.x += e.spinA * 0.55 * dt;
       var gh = P.terrain.enabled ? P.terrain.heightAt(e.pos.x, e.pos.z) : -1e9;
@@ -5140,18 +5326,19 @@ function updateEnemies(dt) {
     if (e.type !== 'turret') {
       var latVX = (e.pos.x - prevX) / Math.max(dt, 1e-4);
       e.bank = e.bank === undefined ? 0 : e.bank;
-      e.bank += (clamp(-latVX * 0.028, -0.55, 0.55) - e.bank) * Math.min(1, dt * 6);
+      e.bank += (clamp(-latVX * 0.028, -0.55, 0.55) - e.bank) * dampF(6, dt);
       e.g.rotation.z += e.bank;
     }
-    // hit flinch: a sharp swell that decays with the damage flash
-    var fl = e.flashT > 0 ? e.flashT / 0.09 : 0;
-    e.g.scale.setScalar((e.bs || 1) * (1 + fl * 0.22));
-
-    // hit flash
+    // hit flinch: a sharp swell that decays with the damage flash, then eases
+    // back. One write per frame — two fought each other here.
     if (e.flashT > 0) {
       e.flashT -= dt;
-      e.g.scale.setScalar(e.bs * 1.18);
+      var fl = Math.max(0, e.flashT) / 0.09;
+      e.g.scale.setScalar(e.bs * (1 + fl * 0.22));
     } else e.g.scale.setScalar(damp(e.g.scale.x, e.bs, 14, dt));
+
+    // the enemy has moved since dist was measured; gates below want the new one
+    dist = P.tmpA.copy(Player.pos).sub(e.pos).length();
 
     // shooting
     if (d.fireRate > 0 && dist < 300 && Game.state === 'playing' && !Game.ending) {
@@ -5214,6 +5401,12 @@ P.entities = {
   updateBoss: updateBoss, bossStart: bossStart, Boss: Boss,
   fireGun: fireGun, fireLasers: fireLasers, boom: boom, SHARD_MATS: SHARD_MATS,
   spawnOrb: spawnOrb, spawnImpact: spawnImpact, impacts: impacts,
+  prewarm: prewarmEnemies,
+  poolStats: function () {
+    return { laser: laserPool.grown, ribbon: ribbonPool.grown, gun: gunPool.grown,
+             impact: impactPool.grown, eb: ebPool.grown, shard: shardPool.grown,
+             ring: ringPool.grown, enemyBuilds: enemyBuilds };
+  },
   reset: function () {
     var i;
     for (i = enemies.length - 1; i >= 0; i--) { freeEnemyMesh(enemies[i].type, enemies[i].g); }
@@ -5276,7 +5469,7 @@ var cur = {
   fogNear: 60, fogFar: 430, sunDir: new V3(0, 0, 1), sunSize: 0.02, bands: 24,
   ambI: 1, keyI: 1, rimI: 0.4, shaft: 0.30, kd: new V3(0, 0.5, 1)
 };
-var tgt = JSON.parse('{}');
+var tgt = {};                 // filled by setTargets() before the first frame
 function setTargets(ep) {
   tgt = {
     lo: new THREE.Color(ep.sky.lo), mid: new THREE.Color(ep.sky.mid), hi: new THREE.Color(ep.sky.hi),
@@ -5326,7 +5519,7 @@ function applyColors() {
   renderer.setClearColor(cur.fog, 1);
   P.ambLight.color.copy(cur.amb); P.ambLight.intensity = cur.ambI;
   P.keyLight.color.copy(cur.key); P.keyLight.intensity = cur.keyI;
-  P.keyLight.position.copy(cur.kd);
+  P.setSunDir(cur.kd);      // direction only — the shadow rig sets the distance
   P.rimLight.color.copy(cur.rim); P.rimLight.intensity = cur.rimI;
 }
 
@@ -5354,7 +5547,6 @@ function enterEpisode(i, instant, silent, keepMusic) {
   if (!silent) showCard(ep);
   if (!keepMusic) P.playMusic(ep.music);
   if (ep.id === 'boss') {
-    Player.railY = Player.railY;
     setTimeout(function () { if (Game.state === 'playing') E.bossStart(); }, 2600);
   }
 }
@@ -5660,7 +5852,23 @@ window.addEventListener('keydown', function (e) {
     P.toast(Player.invertY ? 'PITCH: INVERTED' : 'PITCH: NORMAL');
   }
   if (k === 'r') P.toast(P.toggleRetro() ? 'SATURN MODE' : 'CLEAN MODE');
+  if (k === 'g') P.toast(P.toggleShadows() ? 'SHADOWS ON' : 'SHADOWS OFF');
+  if (k === 'f3') {
+    e.preventDefault();
+    perfOn = !perfOn;
+    P.el.perf.classList.toggle('on', perfOn);
+    if (perfOn) { P.el.perf.textContent = 'SAMPLING…'; perfT = perfFrames = perfSum = perfWorst = 0; }
+  }
 });
+P.setPerf = function (on) {          // for the headless harnesses
+  perfOn = !!on;
+  P.el.perf.classList.toggle('on', perfOn);
+};
+P.perfInfo = function () {
+  return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+           geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures,
+           programs: renderer.info.programs ? renderer.info.programs.length : 0 };
+};
 window.addEventListener('keyup', function (e) { Input.keys[keyName(e)] = false; });
 window.addEventListener('blur', function () { Input.keys = {}; Input.lmb = false; Input.rmb = false; });
 
@@ -5674,7 +5882,7 @@ window.addEventListener('mousedown', function (e) {
   if (Game.state === 'intro') { skipIntro(); return; }
   if (Game.state !== 'playing') return;
   updMouse(e);
-  if (e.button === 0) { Input.lmb = true; Input.lmbT = 0; }
+  if (e.button === 0) { Input.lmb = true; }
   if (e.button === 2) Input.rmb = true;
 });
 window.addEventListener('mouseup', function (e) {
@@ -5809,6 +6017,7 @@ function resetGame() {
   Player.viewIndex = 0; Player.camYaw = 0; Player.camYawTarget = 0;
   Player.railY = EPISODES[0].railY;
   P.dragon.setAge(89);
+  P.resetWeapons();
   E.setFlash(0);
   Boss.dead = false;
 }
@@ -5840,7 +6049,12 @@ P.onEnd = function (won) {
   var acc = Game.shots ? Math.round(Game.hits / Game.shots * 100) : 0;
   var finalAge = won ? clamp(Game.age - 4, 24, 100) : Game.age;
   if (won) { Game.age = finalAge; P.dragon.setAge(finalAge); }
-  var stats = 'YEARS SHED <b>' + (89 - finalAge).toFixed(1) + '</b> &nbsp;·&nbsp; KILLS <b>' + Game.kills +
+  // A loss ends at 100, so "years shed" was always a negative number on the
+  // over screen. Time took them; say so.
+  var shed = Game.startAge - finalAge;
+  var ageStat = shed >= 0 ? 'YEARS SHED <b>' + shed.toFixed(1) + '</b>'
+                          : 'YEARS TAKEN <b>' + (-shed).toFixed(1) + '</b>';
+  var stats = ageStat + ' &nbsp;·&nbsp; KILLS <b>' + Game.kills +
               '</b> &nbsp;·&nbsp; BEST CHAIN <b>×' + Game.bestCombo + '</b><br>ACCURACY <b>' + acc +
               '%</b> &nbsp;·&nbsp; ORBS <b>' + Game.orbsTaken + '</b> &nbsp;·&nbsp; SCORE <b>' + Game.score + '</b>';
   if (won) {
@@ -5891,7 +6105,10 @@ document.getElementById('winBtn').addEventListener('click', startGame);
 var lastT = 0;
 function frame(now) {
   requestAnimationFrame(frame);
-  var dt = Math.min(0.05, (now - lastT) / 1000 || 0.016);
+  // dt is clamped so one slow frame can't teleport the world. The perf readout
+  // must NOT use the clamped value — it would report a 90 ms stall as 20 fps.
+  var rawDt = (now - lastT) / 1000 || 0.016;
+  var dt = Math.min(0.05, rawDt);
   lastT = now;
   _frameId++; P.frames = _frameId;
 
@@ -5945,8 +6162,33 @@ function frame(now) {
     props.update(Game.railZ);
     props2.update(Game.railZ);
     stepColors(dt);
-  } else {
+  } else if (Game.state === 'win' || Game.state === 'over') {
+    // The result plates are 74% opaque, not opaque. A hard-frozen 3D scene
+    // behind them reads as a crash, so the dragon keeps gliding out — slower,
+    // levelling off, with nobody at the reins.
+    Game.time += dt;
+    Game.railZ += 20 * dt;
+    Player.pos.z = Game.railZ;
+    Player.pos.x = damp(Player.pos.x, 0, 0.5, dt);
+    Player.pos.y = damp(Player.pos.y, Player.railY + 5, 0.45, dt);
+    P.dragon.root.position.copy(Player.pos);
+    P.dragon.root.rotation.y = damp(P.dragon.root.rotation.y, 0, 1.0, dt);
+    P.dragon.update(dt, Game.time, { strafeX: 0, strafeY: 0,
+      vy: Math.sin(Game.time * 0.45) * 7, aimX: 0, aimY: 0, boost: 0 });
+    var oy = Math.sin(Game.time * 0.16) * 0.5;
+    camera.position.set(
+      Player.pos.x + Math.sin(oy) * -40,
+      Player.pos.y + 8,
+      Player.pos.z + Math.cos(oy) * -40
+    );
+    camera.lookAt(Player.pos.x, Player.pos.y + 1.5, Player.pos.z + 8);
+    P.skyMesh.position.copy(camera.position);
+    terrain.update(Game.railZ);
+    props.update(Game.railZ);
+    props2.update(Game.railZ);
     stepColors(dt);
+  } else {
+    stepColors(dt);   // paused — deliberately frozen
   }
 
   // screen flash
@@ -5978,10 +6220,41 @@ function frame(now) {
     P.el.quip.style.opacity = clamp(qt > 3.1 ? (3.6 - qt) / 0.5 : Math.min(1, qt / 0.8), 0, 1).toFixed(3);
   } else P.el.quip.style.opacity = '0';
 
+  // Drag the shadow frustum along the rail. A single box wide enough for the
+  // whole world would quantise every shadow into mush; this one is 240 units
+  // across and follows the player, so the map stays dense where it is looked at.
+  if (P.shadowsOn()) P.trackShadow(Player.pos.x, Player.pos.y - 12, Player.pos.z + 40);
+
   drawHUD(dt);
   // weather rides the camera, so it updates after the camera is final
   if (P.weather) P.weather.update(dt, camera.position, Game.time);
   renderer.render(scene, camera);
+  if (perfOn) samplePerf(rawDt);
+}
+
+// ------------------------------------------------------------------- perf
+// F3. renderer.info is only truthful after render(), so this reads it at the
+// very end of the frame. The frame-time figure is a 1%-low as well as a mean,
+// because a 60 fps average with a 90 ms hitch in it is not a 60 fps game.
+var perfOn = false, perfT = 0, perfFrames = 0, perfSum = 0, perfWorst = 0;
+function samplePerf(dt) {
+  perfFrames++; perfSum += dt; perfT += dt;
+  if (dt > perfWorst) perfWorst = dt;
+  if (perfT < 0.5) return;
+  var info = renderer.info, mean = perfSum / perfFrames;
+  var fps = mean > 0 ? 1 / mean : 0;
+  var worstMs = perfWorst * 1000;
+  P.el.perf.innerHTML =
+    'FPS <b>' + fps.toFixed(0) + '</b>   FRAME <b>' + (mean * 1000).toFixed(1) + ' ms</b>' +
+    '   WORST ' + (worstMs > 33 ? '<i>' + worstMs.toFixed(1) + ' ms</i>' : '<b>' + worstMs.toFixed(1) + ' ms</b>') + '\n' +
+    'DRAW <b>' + info.render.calls + '</b>   TRIS <b>' + (info.render.triangles / 1000).toFixed(1) + 'k</b>\n' +
+    'GEOM <b>' + info.memory.geometries + '</b>   TEX <b>' + info.memory.textures + '</b>   PROG <b>' +
+      (info.programs ? info.programs.length : 0) + '</b>\n' +
+    'ENEMIES <b>' + E.enemies.length + '</b>   SHOTS <b>' + E.bullets.length + '+' + E.ebullets.length +
+      '</b>   LOCKS <b>' + Locks.list.length + '/' + Locks.max + '</b>\n' +
+    'AGE <b>' + Game.age.toFixed(1) + '</b>   HEAT <b>' + ((Game.heat || 0) * 100).toFixed(0) + '%</b>' +
+      '   TIER <b>' + P.getVigour().tier + '</b>';
+  perfT = 0; perfFrames = 0; perfSum = 0; perfWorst = 0;
 }
 
 // ==================================================================== BOOT
@@ -6008,6 +6281,16 @@ var BOOT = [
     props.configure(EPISODES[0].props, -200);
     props2.configure(EPISODES[0].props2, -200);
     Player.railY = EPISODES[0].railY;
+  }],
+  ['FORGING THE SWARM', function () {
+    E.prewarm();          // build every enemy rig now, not mid-wave
+  }],
+  ['CASTING THE SHADOWS', function () {
+    // Casters are marked once, after everything exists. The enemy rigs are
+    // marked as they are built, so this only has to catch the dragon and boss.
+    P.castAll(P.dragon.root);
+    if (Boss.group) P.castAll(Boss.group);
+    P.trackShadow(0, 0, 0);
   }],
   ['COMPILING SHADERS', function () {
     // force every material through the GPU once, so the first real frame
