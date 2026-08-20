@@ -1436,12 +1436,15 @@ function buildDragon() {
     var RM = P.riderModel;
     RM.pose({ lean: 0 });
 
+    // Hide the procedural rider wholesale, by walking the rider group rather
+    // than a list of its parts. The list version missed neckR, which hangs off
+    // `rider` directly rather than off torso/hips — under the knight's armoured
+    // collar nobody saw it, but in front of a suit jacket it read as a brown
+    // slab bolted to the chest. Anything added to the rider from here on is
+    // hidden by default; only the cannon is kept.
     var gunSet = {};
     gun.traverse(function (o) { gunSet[o.uuid] = 1; });
-    [torso, hips].forEach(function (grp) {
-      grp.traverse(function (o) { if (o.isMesh && !gunSet[o.uuid]) o.visible = false; });
-    });
-    headR.traverse(function (o) { if (o.isMesh) o.visible = false; });
+    rider.traverse(function (o) { if (o.isMesh && !gunSet[o.uuid]) o.visible = false; });
 
     var mRoot = new THREE.Group();
     mRoot.add(RM.mesh);

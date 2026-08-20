@@ -57,7 +57,10 @@ const path = require('path');
     P.Boss.built.cores.forEach(c => { if (c.alive) { c.hp = 1; } });
   });
   // shoot the cores dead
-  for (let i=0;i<60;i++){
+  // Budget, not a guess: the rider model is ~10k tris and swiftshader runs the
+  // page at ~3 fps, so every keypress and volley costs real wall clock. 60
+  // iterations left the last core alive on a heavier scene.
+  for (let i=0;i<110;i++){
     const alive = await page.evaluate(()=> window.__PF.Boss.active && !window.__PF.Boss.dead);
     if (!alive) break;
     const need = await page.evaluate(() => {
@@ -86,7 +89,7 @@ const path = require('path');
       ang: window.__PF.Boss.angle.toFixed(2), view: window.__PF.Player.viewIndex,
       phase: window.__PF.Boss.phase, dead: window.__PF.Boss.dead })));
   }
-  for (let k=0;k<26;k++){
+  for (let k=0;k<50;k++){
     await page.waitForTimeout(700);
     if (await page.evaluate(()=>window.__PF.Game.state !== 'playing')) break;
   }
