@@ -577,7 +577,7 @@ function resetGame() {
 
 function startGame() {
   A.init();
-  if (!A.song) P.playMusic('title');   // in case the gesture that armed audio was this click
+  P.playMusic('title');   // in case the gesture that armed audio was this click
   resetGame();
   Game.state = 'intro';
   Game.cinematic = true;

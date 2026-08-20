@@ -8,7 +8,7 @@
     "check:controls": "node tools/check-controls.js",
     "check:flight": "node tools/check-flight.js",
     "check:music": "node tools/check-music.js",
-    "ost": "node tools/render-ost.js"
+    "check:fixes": "node tools/check-fixes.js"
   },
   "keywords": ["threejs", "webgl", "rail-shooter", "low-poly", "sega-saturn", "webaudio", "game"],
   "license": "MIT",

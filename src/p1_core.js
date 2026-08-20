@@ -330,8 +330,11 @@ scene.fog = new THREE.Fog(0xc0507a, 70, 460);
 
 // ------------------------------------------------------------------- audio
 var Audio_ = {
-  ctx: null, master: null, musicGain: null, sfxGain: null,
-  muted: false, started: false, step: 0, nextTime: 0, tempo: 0.135, pattern: null,
+  // musicGain is gone with the synth band: the soundtrack is an <audio>
+  // element now and never enters this graph, so master -> sfxGain is the
+  // whole music-side story.
+  ctx: null, master: null, sfxGain: null,
+  muted: false, started: false,
 
   init: function (ctxOverride) {
     if (this.started && !ctxOverride) return;
@@ -339,14 +342,11 @@ var Audio_ = {
     if (!AC && !ctxOverride) return;
     this.ctx = ctxOverride || new AC();
     this.master = this.ctx.createGain();  this.master.gain.value = 0.55;
-    this.musicGain = this.ctx.createGain(); this.musicGain.gain.value = 0.62;
-    this.sfxGain = this.ctx.createGain();   this.sfxGain.gain.value = 0.5;
-    this.musicGain.connect(this.master); this.sfxGain.connect(this.master);
+    this.sfxGain = this.ctx.createGain();  this.sfxGain.gain.value = SFX_GAIN;
+    this.sfxGain.connect(this.master);
     this.master.connect(this.ctx.destination);
     this.noiseBuf = this._noise();
     this.started = true;
-    this.nextTime = this.ctx.currentTime + 0.06;
-    this.initMusic();
   },
   _noise: function () {
     var n = this.ctx.sampleRate * 1.2, b = this.ctx.createBuffer(1, n, this.ctx.sampleRate), d = b.getChannelData(0);
@@ -414,609 +414,21 @@ var Audio_ = {
   },
   sWarn:  function () { this.tone(300, 0.16, 'sawtooth', 0.11, 150); },
 
-  // ================= ROCK ENGINE ==========================================
-  // Shared distortion channels (notes are summed BEFORE the waveshaper, so
-  // power chords intermodulate the way a real amp does), plus a tracker-style
-  // sequencer running 16th notes.
-  _curve: function (amount) {
-    var n = 1024, c = new Float32Array(n);
-    for (var i = 0; i < n; i++) {
-      var x = i * 2 / n - 1;
-      c[i] = (1 + amount) * x / (1 + amount * Math.abs(x));
-    }
-    return c;
-  },
-  _chan: function (drive, lpHz, hpHz, level, oversample, presHz, presDb) {
-    var c = this.ctx;
-    var inp = c.createGain(); inp.gain.value = 1;
-    var sh = c.createWaveShaper();
-    sh.curve = this._curve(drive);
-    sh.oversample = oversample || '2x';
-    var lp = c.createBiquadFilter(); lp.type = 'lowpass';
-    lp.frequency.value = lpHz; lp.Q.value = 0.9;
-    // guitars get high-passed hard so the bass owns the bottom end
-    var hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = hpHz; hp.Q.value = 0.7;
-    var out = c.createGain(); out.gain.value = level;
-    inp.connect(sh); sh.connect(lp); lp.connect(hp);
-    if (presHz) {
-      var pk = c.createBiquadFilter(); pk.type = 'peaking';
-      pk.frequency.value = presHz; pk.Q.value = 1.1; pk.gain.value = presDb;
-      hp.connect(pk); pk.connect(out);
-    } else hp.connect(out);
-    out.connect(this.mBus);
-    return { inp: inp, out: out, lp: lp };
-  },
-  initMusic: function () {
-    var c = this.ctx;
-    var comp = c.createDynamicsCompressor();
-    comp.threshold.value = -18; comp.knee.value = 24;
-    comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.16;
-    var rumble = c.createBiquadFilter();
-    rumble.type = 'highpass'; rumble.frequency.value = 34; rumble.Q.value = 0.6;
-    comp.connect(rumble); rumble.connect(this.musicGain);
-    this.mBus = comp;
-
-    this.chGtr  = this._chan(64, 4600, 195, 0.40, '2x', 2900, 7);
-    this.chLead = this._chan(72, 5200, 330, 0.15, '2x', 3400, 6);
-    this.chBass = this._chan(5,   900,  55, 0.20, 'none');
-    this.drumGain = c.createGain(); this.drumGain.gain.value = 0.62;
-    this.drumGain.connect(this.mBus);
-
-    // ---- pad: clean, wide and slow, with a long tail. This is what carries
-    // the title screen before the band walks in.
-    var padLp = c.createBiquadFilter(); padLp.type = 'lowpass';
-    padLp.frequency.value = 2300; padLp.Q.value = 0.6;
-    var padHp = c.createBiquadFilter(); padHp.type = 'highpass';
-    padHp.frequency.value = 120; padHp.Q.value = 0.6;
-    var padOut = c.createGain(); padOut.gain.value = 0.52;
-    padLp.connect(padHp); padHp.connect(padOut); padOut.connect(this.mBus);
-    this.chPad = { inp: padLp, out: padOut };
-    // long ping-pong-ish tail so the intro has air around it
-    var pd = c.createDelay(1.2); pd.delayTime.value = 0.44;
-    var pfb = c.createGain(); pfb.gain.value = 0.42;
-    var pwet = c.createGain(); pwet.gain.value = 0.30;
-    padOut.connect(pd); pd.connect(pfb); pfb.connect(pd);
-    pd.connect(pwet); pwet.connect(this.mBus);
-
-    // ---- clean guitar: barely driven, for the lone line over the pad
-    this.chCln = this._chan(3, 3600, 240, 0.30, 'none', 2400, 4);
-
-    // a short slap-back on the lead — cheap, and it fills the top end
-    var dl = c.createDelay(0.6); dl.delayTime.value = 0.26;
-    var fb = c.createGain(); fb.gain.value = 0.3;
-    var wet = c.createGain(); wet.gain.value = 0.32;
-    this.chLead.out.connect(dl); dl.connect(fb); fb.connect(dl);
-    dl.connect(wet); wet.connect(this.mBus);
-
-    this.song = null; this.step = 0; this.stepTime = 0.1;
-  },
-
-  // ---- instruments -------------------------------------------------------
-  _osc: function (freq, when, dur, type, peak, dest, det, slideTo) {
-    var c = this.ctx;
-    var o = c.createOscillator(), g = c.createGain();
-    o.type = type; o.frequency.setValueAtTime(freq, when);
-    if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), when + dur);
-    if (det) o.detune.value = det;
-    g.gain.setValueAtTime(0.0001, when);
-    g.gain.linearRampToValueAtTime(peak, when + 0.006);
-    g.gain.setValueAtTime(peak, when + dur * 0.55);
-    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    o.connect(g); g.connect(dest);
-    o.start(when); o.stop(when + dur + 0.02);
-    return o;
-  },
-  gtrChord: function (midi, when, dur, muted, vel) {
-    var f = note(midi), v = (vel || 1) * (muted ? 0.30 : 0.25);
-    var d = muted ? Math.min(dur, this.stepTime * 0.85) : dur;
-    this._osc(f, when, d, 'sawtooth', v, this.chGtr.inp, -7);
-    this._osc(f * 1.4983, when, d, 'sawtooth', v * 0.92, this.chGtr.inp, 7);  // fifth
-    this._osc(f * 2, when, d, 'sawtooth', v * 0.70, this.chGtr.inp, 3);       // octave
-    this._osc(f * 2.9966, when, d, 'square', v * 0.28, this.chGtr.inp, -4);   // octave+fifth bite
-  },
-  // Slow-swelling stacked fifths. Three detuned voices per partial so it
-  // shimmers instead of sitting still.
-  padChord: function (midi, when, dur, vel) {
-    var c = this.ctx, v = 0.235 * (vel || 1);
-    var parts = [[0, 1.0], [7, 0.78], [12, 0.62], [19, 0.34]];
-    var atk = Math.min(0.85, dur * 0.42), rel = Math.min(1.3, dur * 0.75);
-    for (var i = 0; i < parts.length; i++) {
-      for (var d = -1; d <= 1; d++) {
-        var o = c.createOscillator(), g = c.createGain();
-        o.type = 'sawtooth';
-        o.frequency.setValueAtTime(note(midi + parts[i][0]), when);
-        o.detune.value = d * 8 + (i % 2 ? 3 : -3);
-        var pk = v * parts[i][1];
-        g.gain.setValueAtTime(0.0001, when);
-        g.gain.linearRampToValueAtTime(pk, when + atk);
-        g.gain.setValueAtTime(pk, when + dur - rel);
-        g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-        o.connect(g); g.connect(this.chPad.inp);
-        o.start(when); o.stop(when + dur + 0.04);
-      }
-    }
-  },
-  clnNote: function (midi, when, dur, vel) {
-    var f = note(midi), v = 0.30 * (vel || 1);
-    this._osc(f, when, dur, 'triangle', v, this.chCln.inp, -4);
-    this._osc(f, when, dur, 'sawtooth', v * 0.45, this.chCln.inp, 6);
-    this._osc(f * 2, when, dur, 'triangle', v * 0.22, this.chCln.inp, 0);
-  },
-  bassNote: function (midi, when, dur, vel) {
-    this._osc(note(midi), when, dur, 'sawtooth', 0.42 * (vel || 1), this.chBass.inp, 0);
-    this._osc(note(midi), when, dur, 'triangle', 0.30 * (vel || 1), this.chBass.inp, 6);
-  },
-  leadNote: function (midi, when, dur, vel, bendFrom) {
-    var c = this.ctx, f = note(midi);
-    var o = c.createOscillator(), g = c.createGain();
-    o.type = 'sawtooth';
-    if (bendFrom) {
-      o.frequency.setValueAtTime(note(bendFrom), when);
-      o.frequency.exponentialRampToValueAtTime(f, when + Math.min(0.09, dur * 0.4));
-    } else o.frequency.setValueAtTime(f, when);
-    // vibrato on anything held
-    if (dur > 0.22) {
-      var lfo = c.createOscillator(), la = c.createGain();
-      lfo.frequency.value = 5.6; la.gain.value = 11;
-      lfo.connect(la); la.connect(o.detune);
-      lfo.start(when + 0.1); lfo.stop(when + dur + 0.02);
-    }
-    g.gain.setValueAtTime(0.0001, when);
-    g.gain.linearRampToValueAtTime(0.5 * (vel || 1), when + 0.012);
-    g.gain.setValueAtTime(0.42 * (vel || 1), when + dur * 0.6);
-    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    o.connect(g); g.connect(this.chLead.inp);
-    o.start(when); o.stop(when + dur + 0.03);
-  },
-  _noiseAt: function (when, dur, peak, type, freq, q, dest) {
-    var c = this.ctx;
-    var s = c.createBufferSource(); s.buffer = this.noiseBuf;
-    var f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q || 1;
-    var g = c.createGain();
-    g.gain.setValueAtTime(peak, when);
-    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    s.connect(f); f.connect(g); g.connect(dest || this.drumGain);
-    s.start(when); s.stop(when + dur + 0.02);
-  },
-  dKick: function (when, vel) {
-    var c = this.ctx, o = c.createOscillator(), g = c.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(165, when);
-    o.frequency.exponentialRampToValueAtTime(49, when + 0.10);
-    g.gain.setValueAtTime(0.86 * vel, when);
-    g.gain.exponentialRampToValueAtTime(0.001, when + 0.19);
-    o.connect(g); g.connect(this.drumGain);
-    o.start(when); o.stop(when + 0.22);
-    this._noiseAt(when, 0.022, 0.30 * vel, 'highpass', 1800, 1);
-  },
-  dSnare: function (when, vel) {
-    var c = this.ctx, o = c.createOscillator(), g = c.createGain();
-    o.type = 'triangle'; o.frequency.setValueAtTime(196, when);
-    o.frequency.exponentialRampToValueAtTime(120, when + 0.08);
-    g.gain.setValueAtTime(0.42 * vel, when);
-    g.gain.exponentialRampToValueAtTime(0.001, when + 0.11);
-    o.connect(g); g.connect(this.drumGain);
-    o.start(when); o.stop(when + 0.13);
-    this._noiseAt(when, 0.17, 0.74 * vel, 'bandpass', 1900, 0.7);
-    this._noiseAt(when, 0.09, 0.42 * vel, 'highpass', 4200, 0.7);
-  },
-  dHat: function (when, open, vel) {
-    this._noiseAt(when, open ? 0.19 : 0.04, (open ? 0.30 : 0.36) * vel, 'highpass', 6900, 0.8);
-  },
-  dCrash: function (when, vel) {
-    this._noiseAt(when, 1.2, 0.46 * vel, 'highpass', 4600, 0.5);
-    this._noiseAt(when, 0.5, 0.20 * vel, 'bandpass', 3400, 0.4);
-  },
-  dTom: function (when, midi, vel) {
-    var c = this.ctx, o = c.createOscillator(), g = c.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(note(midi) * 2, when);
-    o.frequency.exponentialRampToValueAtTime(note(midi), when + 0.16);
-    g.gain.setValueAtTime(0.6 * vel, when);
-    g.gain.exponentialRampToValueAtTime(0.001, when + 0.2);
-    o.connect(g); g.connect(this.drumGain);
-    o.start(when); o.stop(when + 0.22);
-    this._noiseAt(when, 0.1, 0.14 * vel, 'bandpass', 700, 1);
-  },
-
-  // ---- sequencer ---------------------------------------------------------
-  setSong: function (s) {
-    this.song = s || null;
-    this.step = 0;
-    if (s) {
-      this.stepTime = 60 / s.bpm / 4;
-      this.nextTime = Math.max(this.nextTime, this.ctx.currentTime + 0.05);
-    }
-  },
-  stop: function () { this.song = null; },
-  update: function () {
-    if (!this.started || this.muted || !this.song) return;
-    var t = this.ctx.currentTime;
-    if (this.nextTime < t) this.nextTime = t + 0.02;
-    while (this.nextTime < t + 0.16) {
-      this._step(this.step, this.nextTime);
-      this.step++;
-      this.nextTime += this.stepTime;
-    }
-  },
-  _step: function (gi, when) {
-    var s = this.song, flat = s.flat;
-    var slot = flat[gi % flat.length];
-    var p = s.patterns[slot.p], i = slot.i;
-    var st = this.stepTime;
-
-    function val(track, k) { return track && track[k] !== undefined ? track[k] : 0; }
-
-    // guitar: 0 rest, -1 hold, else MIDI root of a power chord
-    var gn = val(p.gtr, i);
-    if (gn > 0) {
-      var hold = 1;
-      while (i + hold < p.len && p.gtr[i + hold] === -1) hold++;
-      var muted = p.pm ? !!p.pm[i] : true;
-      this.gtrChord(gn, when, st * hold * (muted ? 1 : 1.15), muted, p.gv || 1);
-    }
-    var pd = val(p.pad, i);
-    if (pd > 0) {
-      var ph = 1;
-      while (i + ph < p.len && p.pad[i + ph] === -1) ph++;
-      this.padChord(pd, when, st * ph, p.pv || 1);
-    }
-    var cl = val(p.cln, i);
-    if (cl > 0) {
-      var ch = 1;
-      while (i + ch < p.len && p.cln[i + ch] === -1) ch++;
-      this.clnNote(cl, when, st * ch * 0.98, p.cv || 1);
-    }
-    var bn = val(p.bass, i);
-    if (bn > 0) {
-      var bh = 1;
-      while (i + bh < p.len && p.bass[i + bh] === -1) bh++;
-      this.bassNote(bn, when, st * bh * 0.95, 1);
-    }
-    var ln = val(p.lead, i);
-    if (ln > 0) {
-      var lh = 1;
-      while (i + lh < p.len && p.lead[i + lh] === -1) lh++;
-      this.leadNote(ln, when, st * lh * 0.98, p.lv || 1, p.bend && p.bend[i] ? p.bend[i] : 0);
-    }
-    var k = val(p.kick, i); if (k) this.dKick(when, k > 1 ? 1.1 : 0.92);
-    var sn = val(p.snr, i); if (sn) this.dSnare(when, sn > 1 ? 1.05 : 0.85);
-    var h = val(p.hat, i); if (h) this.dHat(when, false, h > 1 ? 1.15 : 0.7);
-    var oh = val(p.opn, i); if (oh) this.dHat(when, true, 0.9);
-    var cr = val(p.crash, i); if (cr) this.dCrash(when, 1);
-    var tm = val(p.tom, i); if (tm) this.dTom(when, tm, 0.9);
-  }
+  // The procedural rock engine that used to live here — three distortion
+  // channels, a 16th-note tracker sequencer and five hand-written songs —
+  // has been removed. It only ever existed to cover the gap before
+  // sound/*.mp3 finished buffering, and that gap is exactly where you heard
+  // it: a chiptune band opening a game whose score is recorded. The SFX
+  // synth above is a separate graph and is untouched.
+  stop: function () { stopStream(); },
+  update: function () {}       // the frame loop calls this; nothing to drive now
 };
 
-// ===================== SONGS ==============================================
-function note(n) { return 440 * Math.pow(2, (n - 69) / 12); }
-
-// note helpers (MIDI): E1=28 E2=40 E3=52 E4=64
-function cat() {
-  var o = [];
-  for (var i = 0; i < arguments.length; i++) o = o.concat(arguments[i]);
-  return o;
-}
-function gal(n) { return [n, 0, n, n]; }            // gallop: 8th + two 16ths
-function q4(n) { return [n, -1, -1, -1]; }          // held quarter
-function e8(a, b) { return [a, -1, b, -1]; }        // two eighths
-function s16(a, b, c, d) { return [a, b, c, d]; }
-function rep(arr, n) { var o = []; for (var i = 0; i < n; i++) o = o.concat(arr); return o; }
-function rest(n) { var o = []; for (var i = 0; i < n; i++) o.push(0); return o; }
-function w(n, k) { var o = [n]; for (var i = 1; i < k; i++) o.push(-1); return o; }  // held n steps
-// drum shorthand: '-' rest, 'x' hit, 'X' accent
-function D(str) {
-  var a = [], t = str.replace(/[^-xX]/g, '');
-  for (var i = 0; i < t.length; i++) a.push(t[i] === '-' ? 0 : (t[i] === 'X' ? 2 : 1));
-  return a;
-}
-function flatten(order, patterns) {
-  var f = [];
-  for (var i = 0; i < order.length; i++) {
-    var p = patterns[order[i]];
-    for (var j = 0; j < p.len; j++) f.push({ p: order[i], i: j });
-  }
-  return f;
-}
-function song(bpm, order, patterns) {
-  for (var k in patterns) if (!patterns[k].len) patterns[k].len = 32;
-  return { bpm: bpm, order: order, patterns: patterns, flat: flatten(order, patterns) };
-}
-
-var SONGS = {};
-
-// ------------------------------------------- TITLE — "The Sky Still Owes Him"
-// A slow burn: pad alone, then one guitar line answering it, then the kit walks
-// in on a tom ramp and the whole band lands on the hook. Loops from the top.
-SONGS.title = song(132, ['F1', 'F2', 'R', 'A', 'A2', 'B', 'A', 'A2', 'B', 'C', 'X'], {
-  // ---- I. the fanfare: big open chords, a soaring lead, no kit yet --------
-  F1: {
-    pad:  cat(w(40, 16), w(36, 16)), pv: 1,
-    gtr:  cat(w(40, 16), w(36, 16)), pm: rep([0, 0, 0, 0], 8), gv: 0.95,
-    bass: cat(w(28, 16), w(24, 16)),
-    lead: cat(w(76, 10), w(74, 6), w(72, 10), w(71, 6)), lv: 0.9,
-    kick: D('x---------------x---------------'),
-    crash:D('x---------------x---------------')
-  },
-  F2: {
-    pad:  cat(w(45, 16), w(35, 16)), pv: 1,
-    gtr:  cat(w(45, 16), w(35, 8), w(38, 8)), pm: rep([0, 0, 0, 0], 8), gv: 0.95,
-    bass: cat(w(33, 16), w(35, 8), w(26, 8)),
-    lead: cat(w(79, 10), w(78, 6), w(76, 6), w(74, 4), w(71, 6)), lv: 1,
-    kick: D('x---------------x-------x-------'),
-    crash:D('x--------------- ---------------'),
-    tom:  D('---------------- --------x-x-x-x-')
-  },
-
-  // ---- III. the ramp: toms build, guitar starts chugging ------------------
-  R: {
-    pad:  cat(w(47, 32)), pv: 0.8,
-    gtr:  cat(rep([47, 47, 47, 47], 4), rep([47, 47, 47, 47], 4)),
-    pm:   rep([1, 1, 1, 1], 8), gv: 0.7,
-    bass: cat(rep([35, 0, 35, 35], 4), rep([35, 0, 35, 35], 4)),
-    kick: D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    tom:  D('--------x-x-x-x- x-xxx-xxXxXxXxXx'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-')
-  },
-
-  // ---- IV. the hook -------------------------------------------------------
-  A: {
-    pad:  cat(w(40, 16), w(43, 8), w(36, 8)), pv: 0.6,
-    gtr:  cat(gal(40), gal(40), s16(43, 0, 43, 0), q4(41),
-              gal(40), gal(40), s16(36, 0, 36, 0), q4(38)),
-    pm:   rep([1, 1, 1, 1], 8), gv: 1,
-    bass: cat(rep([28, 0, 28, 28], 2), e8(31, 31), e8(29, 29),
-              rep([28, 0, 28, 28], 2), e8(24, 24), e8(26, 26)),
-    lead: cat(w(76, 6), w(74, 2), w(71, 8), w(72, 6), w(74, 2), w(76, 8)), lv: 0.95,
-    kick: D('x--xx---x--xx--- x--xx---x--xx---'),
-    snr:  D('----X-------X--- ----X-------X---'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    crash:D('x--------------- ----------------')
-  },
-  A2: {
-    pad:  cat(w(45, 16), w(35, 16)), pv: 0.6,
-    gtr:  cat(gal(45), gal(45), s16(43, 0, 43, 0), q4(41),
-              gal(40), gal(40), e8(35, 35), s16(38, 0, 40, 0)),
-    pm:   rep([1, 1, 1, 1], 8), gv: 1,
-    bass: cat(rep([33, 0, 33, 33], 2), e8(31, 31), e8(29, 29),
-              rep([28, 0, 28, 28], 2), e8(23, 23), s16(26, 0, 28, 0)),
-    lead: cat(w(79, 6), w(78, 2), w(76, 6), w(74, 2),
-              w(72, 4), w(71, 4), w(69, 4), w(71, 4)), lv: 0.95,
-    kick: D('x--xx---x--xx--- x--xx---x--xx-x-'),
-    snr:  D('----X-------X--- ----X-------X-X-'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-')
-  },
-
-  // ---- V. the lift --------------------------------------------------------
-  B: {
-    pad:  cat(w(48, 8), w(47, 8), w(45, 8), w(43, 8)), pv: 0.75,
-    gtr:  cat(q4(48), q4(48), q4(47), q4(47), q4(45), q4(45), gal(43), s16(43, 0, 41, 0)),
-    pm:   rep([0, 0, 0, 0], 8), gv: 1,
-    bass: cat(e8(36, 36), e8(36, 36), e8(35, 35), e8(35, 35),
-              e8(33, 33), e8(33, 33), rep([31, 0, 31, 31], 1), s16(31, 0, 29, 0)),
-    lead: cat(w(84, 8), w(83, 4), w(81, 4), w(79, 6), w(81, 2), w(83, 8)), lv: 1,
-    kick: D('x---x---x---x--- x---x---x--xx---'),
-    snr:  D('----X-------X--- ----X-------X---'),
-    opn:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    crash:D('x-------x------- x---------------')
-  },
-
-  // ---- VI. breakdown, half time ------------------------------------------
-  C: {
-    pad:  cat(w(40, 32)), pv: 1,
-    gtr:  cat(rep([40, 0, 40, 0], 4), rep([38, 0, 38, 0], 2), rep([36, 0, 36, 0], 2)),
-    pm:   rep([1, 1, 1, 1], 8), gv: 0.8,
-    bass: cat(w(28, 16), w(26, 8), w(24, 8)),
-    kick: D('x-------x------- x-------x-------'),
-    snr:  D('--------X------- --------X-------'),
-    lead: cat(rest(16), w(71, 4), w(72, 4), w(74, 8)), lv: 0.6
-  },
-
-  // ---- VII. turnaround back to the top -----------------------------------
-  X: {
-    pad:  cat(w(47, 32)), pv: 0.9,
-    gtr:  cat(rep([47, 47, 47, 47], 4), q4(45), q4(45), gal(43), s16(43, 43, 41, 41)),
-    pm:   rep([1, 1, 1, 1], 8), gv: 1,
-    bass: cat(rep([35, 0, 35, 35], 4), e8(33, 33), e8(33, 33), e8(31, 31), s16(31, 0, 29, 0)),
-    kick: D('x-x-x-x-x-x-x-x- x---x---x--xx---'),
-    snr:  D('----X-------X--- ----X---X-X-XxXx'),
-    tom:  D('---------------- --------x-x-x-x-'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x---------'),
-    crash:D('x--------------- ----------------')
-  }
-});
-
-// -------------------------------------------- EPISODE I — "Ashen Gallop"
-SONGS.ep1 = song(154, ['I', 'A', 'A', 'B', 'B', 'C', 'A', 'B'], {
-  I: { // intro: drums + bass only, builds
-    bass: cat(rep([28, 0, 28, 28], 4), rep([28, 0, 31, 29], 4)),
-    kick: D('x-xxx-x-x-xxx-x- x-xxx-x-x-xxx-x-'),
-    snr:  D('----x-------x--- ----x-------x-x-'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-xxxx'),
-    crash:D('x--------------- ----------------')
-  },
-  A: { // verse riff: E5 gallop with a Phrygian flat-two lean
-    gtr:  cat(gal(40), gal(40), gal(43), gal(41),
-              gal(40), gal(40), gal(45), s16(43, 0, 41, 0)),
-    pm:   rep([1, 1, 1, 1], 8),
-    bass: cat(rep([28, 0, 28, 28], 2), rep([31, 0, 31, 31], 1), rep([29, 0, 29, 29], 1),
-              rep([28, 0, 28, 28], 2), rep([33, 0, 33, 33], 1), s16(31, 0, 29, 0)),
-    kick: D('x-xxx---x-xxx--- x-xxx---x-xx-x--'),
-    snr:  D('----x-------x--- ----x-------x---'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-xx'),
-    crash:D('x--------------- ----------------')
-  },
-  B: { // chorus: big ringing chords under a soaring lead
-    gtr:  cat(q4(40), q4(43), q4(41), q4(40), q4(45), q4(43), q4(41), q4(38)),
-    pm:   rep([0, 0, 0, 0], 8),
-    bass: cat(e8(28, 35), e8(31, 38), e8(29, 36), e8(28, 35),
-              e8(33, 40), e8(31, 38), e8(29, 36), e8(26, 33)),
-    lead: cat(q4(76), s16(74, -1, 71, -1), q4(72), s16(71, -1, 69, -1),
-              q4(71), s16(69, -1, 67, -1), q4(66), q4(64)),
-    bend: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-           69, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    kick: D('x---x-x-x---x-x- x---x-x-x---x---'),
-    snr:  D('----x-------x--- ----x-------x-xx'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    opn:  D('-------x---------------x--------'),
-    crash:D('x--------------- ----------------')
-  },
-  C: { // breakdown: half-time chug, then a tom fill back into the riff
-    gtr:  cat(rep([40, 0, 0, 0], 2), rep([41, 0, 0, 0], 2),
-              rep([38, 0, 0, 0], 2), s16(40, 0, 40, 0), rest(4)),
-    pm:   rep([1, 1, 1, 1], 8),
-    bass: cat(rep([28, 0, 0, 0], 2), rep([29, 0, 0, 0], 2),
-              rep([26, 0, 0, 0], 2), s16(28, 0, 28, 0), rest(4)),
-    kick: D('x-------x------- x-------x-x-----'),
-    snr:  D('----x-------x--- ----x-----------'),
-    hat:  D('x---x---x---x--- x---x-----------'),
-    tom:  cat(rest(28), [45, 43, 40, 38]),
-    crash:D('x--------------- ----------------')
-  }
-});
-
-// ------------------------------------------ EPISODE II — "Drowned Choir"
-SONGS.ep2 = song(142, ['A', 'A', 'B', 'C', 'B', 'B'], {
-  A: { // verse: ringing arpeggio over a walking bass, A minor
-    gtr:  cat(s16(45, 0, 52, 0), s16(57, 0, 52, 0), s16(43, 0, 50, 0), s16(55, 0, 50, 0),
-              s16(41, 0, 48, 0), s16(53, 0, 48, 0), s16(40, 0, 47, 0), s16(52, 0, 47, 0)),
-    pm:   rep([0, 0, 0, 0], 8),
-    bass: cat(rep([33, 0, 33, 0], 2), rep([31, 0, 31, 0], 2),
-              rep([29, 0, 29, 0], 2), rep([28, 0, 28, 0], 2)),
-    kick: D('x-------x---x--- x-------x---x---'),
-    snr:  D('----x-------x--- ----x-------x---'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    crash:D('x--------------- ----------------'),
-    gv: 0.8
-  },
-  B: { // chorus: full distortion, driving eighths, lead over the top
-    gtr:  cat(rep([45, 0, 45, 0], 2), rep([41, 0, 41, 0], 2),
-              rep([43, 0, 43, 0], 2), rep([40, 0, 40, 40], 2)),
-    pm:   rep([1, 1, 1, 1], 8),
-    bass: cat(rep([33, 0, 33, 33], 2), rep([29, 0, 29, 29], 2),
-              rep([31, 0, 31, 31], 2), rep([28, 0, 28, 28], 2)),
-    lead: cat(q4(69), s16(72, -1, 76, -1), q4(74), s16(72, -1, 69, -1),
-              q4(67), s16(69, -1, 72, -1), q4(71), q4(69)),
-    kick: D('x-x-x---x-x-x--- x-x-x---x-x-x---'),
-    snr:  D('----x-------x--- ----x-------x-x-'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    opn:  D('---------------x---------------x'),
-    crash:D('x--------------- ----------------')
-  },
-  C: { // bridge: minor-key climb, no lead, all momentum
-    gtr:  cat(gal(41), gal(43), gal(45), gal(46),
-              gal(48), gal(46), gal(45), s16(43, 0, 41, 0)),
-    pm:   rep([1, 1, 1, 1], 8),
-    bass: cat(rep([29, 0, 29, 29], 1), rep([31, 0, 31, 31], 1),
-              rep([33, 0, 33, 33], 1), rep([34, 0, 34, 34], 1),
-              rep([36, 0, 36, 36], 1), rep([34, 0, 34, 34], 1),
-              rep([33, 0, 33, 33], 1), s16(31, 0, 29, 0)),
-    kick: D('x-xxx---x-xxx--- x-xxx---x-xxx---'),
-    snr:  D('----x-------x--- ----x-------x---'),
-    hat:  D('xxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxx'),
-    crash:D('x--------------- ----------------')
-  }
-});
-
-// --------------------------------------- EPISODE III — "Citadel of Hours"
-SONGS.ep3 = song(170, ['A', 'A', 'B', 'B', 'C', 'B', 'B'], {
-  A: { // fast tremolo-picked ascent in D minor
-    gtr:  cat(s16(38, 38, 38, 38), s16(41, 41, 41, 41), s16(43, 43, 43, 43), s16(45, 45, 45, 45),
-              s16(46, 46, 46, 46), s16(45, 45, 45, 45), s16(43, 43, 43, 43), s16(41, 41, 40, 38)),
-    pm:   rep([1, 1, 1, 1], 8),
-    bass: cat(rep([26, 0, 26, 0], 2), rep([31, 0, 31, 0], 2),
-              rep([34, 0, 34, 0], 2), rep([29, 0, 26, 0], 2)),
-    kick: D('x---x---x---x--- x---x---x---x---'),
-    snr:  D('----x-------x--- ----x-------x---'),
-    hat:  D('xxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxx'),
-    crash:D('x--------------- ----------------')
-  },
-  B: { // chorus: wide chords, lead screaming above
-    gtr:  cat(q4(38), q4(45), q4(43), q4(41), q4(38), q4(46), q4(45), q4(43)),
-    pm:   rep([0, 0, 0, 0], 8),
-    bass: cat(rep([26, 0, 26, 26], 1), rep([33, 0, 33, 33], 1),
-              rep([31, 0, 31, 31], 1), rep([29, 0, 29, 29], 1),
-              rep([26, 0, 26, 26], 1), rep([34, 0, 34, 34], 1),
-              rep([33, 0, 33, 33], 1), rep([31, 0, 31, 31], 1)),
-    lead: cat(q4(81), s16(79, -1, 77, -1), q4(74), s16(77, -1, 79, -1),
-              q4(81), s16(82, -1, 81, -1), q4(79), q4(74)),
-    bend: cat(rest(16), [83, 0, 0, 0], rest(12)),
-    kick: D('x-x-x---x-x-x--- x-x-x---x-x-x---'),
-    snr:  D('----x-------x--- ----x-------x-xx'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    opn:  D('-------x---------------x--------'),
-    crash:D('x--------------- ----------------')
-  },
-  C: { // bridge: stop-start stabs
-    gtr:  cat(s16(38, 0, 0, 38), s16(0, 38, 0, 0), s16(41, 0, 0, 41), s16(0, 41, 0, 0),
-              s16(43, 0, 0, 43), s16(0, 43, 0, 0), s16(45, 45, 46, 46), s16(48, 48, 50, 50)),
-    pm:   rep([1, 1, 1, 1], 8),
-    bass: cat(s16(26, 0, 0, 26), s16(0, 26, 0, 0), s16(29, 0, 0, 29), s16(0, 29, 0, 0),
-              s16(31, 0, 0, 31), s16(0, 31, 0, 0), s16(33, 33, 34, 34), s16(36, 36, 38, 38)),
-    kick: D('x--x-x---x-x-x-- x--x-x---xxxxxxx'),
-    snr:  D('----x-------x--- ----x-------x---'),
-    hat:  D('--x---x---x---x- --x---x---x---x-'),
-    crash:D('x--------------- ----------------')
-  }
-});
-
-// ------------------------------------------------- BOSS — "The Hour-Sphinx"
-SONGS.boss = song(178, ['I', 'A', 'A', 'B', 'A', 'C', 'B'], {
-  I: { // chromatic siren of an intro
-    gtr:  cat(rep([40, 0, 0, 0], 1), rep([41, 0, 0, 0], 1), rep([42, 0, 0, 0], 1), rep([43, 0, 0, 0], 1),
-              rep([43, 0, 0, 0], 1), rep([42, 0, 0, 0], 1), rep([41, 0, 0, 0], 1), rep([40, 0, 0, 0], 1)),
-    pm:   rep([0, 0, 0, 0], 8),
-    bass: cat(q4(28), q4(29), q4(30), q4(31), q4(31), q4(30), q4(29), q4(28)),
-    kick: D('x-------x------- x-------x-------'),
-    snr:  D('--------x---------------x-------'),
-    hat:  D('x-x-x-x-x-x-x-x- x-x-x-x-x-x-x-x-'),
-    crash:D('x---------------x---------------')
-  },
-  A: { // main riff: chromatic chug, E - F - G - F#
-    gtr:  cat(s16(40, 40, 0, 40), s16(0, 40, 41, 0), s16(40, 40, 0, 40), s16(0, 43, 42, 0),
-              s16(40, 40, 0, 40), s16(0, 40, 41, 0), s16(43, 0, 42, 0), s16(41, 0, 40, 0)),
-    pm:   rep([1, 1, 1, 1], 8),
-    bass: cat(s16(28, 28, 0, 28), s16(0, 28, 29, 0), s16(28, 28, 0, 28), s16(0, 31, 30, 0),
-              s16(28, 28, 0, 28), s16(0, 28, 29, 0), s16(31, 0, 30, 0), s16(29, 0, 28, 0)),
-    kick: D('xx-x--x-xx-x--x- xx-x--x-x-x-x-x-'),
-    snr:  D('----x-------x--- ----x-------x---'),
-    hat:  D('xxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxx'),
-    crash:D('x--------------- ----------------')
-  },
-  B: { // half-time chorus — the Sphinx's theme, heavy and slow-swinging
-    gtr:  cat(rep([40, -1, -1, -1], 2), rep([36, -1, -1, -1], 2),
-              rep([38, -1, -1, -1], 2), rep([41, -1, -1, -1], 2)),
-    pm:   rep([0, 0, 0, 0], 8),
-    bass: cat(rep([28, 0, 28, 0], 2), rep([24, 0, 24, 0], 2),
-              rep([26, 0, 26, 0], 2), rep([29, 0, 29, 0], 2)),
-    lead: cat(q4(76), q4(75), q4(76), s16(79, -1, 76, -1),
-              q4(83), q4(81), q4(79), q4(76)),
-    bend: cat(rest(16), [81, 0, 0, 0], rest(12)),
-    kick: D('x-------x------- x-------x-------'),
-    snr:  D('--------X---------------X-------'),
-    hat:  D('x---x---x---x--- x---x---x---x---'),
-    crash:D('x---------------x---------------')
-  },
-  C: { // solo section: double-kick under a runaway lead
-    gtr:  cat(rep([40, 40, 40, 40], 4), rep([41, 41, 41, 41], 2), rep([43, 43, 43, 43], 2)),
-    pm:   rep([1, 1, 1, 1], 8),
-    bass: cat(rep([28, 28, 28, 28], 4), rep([29, 29, 29, 29], 2), rep([31, 31, 31, 31], 2)),
-    lead: cat(s16(76, 79, 83, 79), s16(76, 79, 83, 86), s16(83, 79, 76, 79), s16(83, 86, 88, 86),
-              s16(84, 81, 77, 81), s16(84, 88, 89, 88), s16(86, 83, 79, 83), s16(86, 88, 91, -1)),
-    kick: D('xxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxx'),
-    snr:  D('----x-------x--- ----x---x---x-x-'),
-    hat:  D('--x---x---x---x- --x---x---x---x-'),
-    crash:D('x--------------- x---------------'),
-    lv: 0.8
-  }
-});
-
 // ------------------------------------------------------- streamed soundtrack
-// Generated tracks live in sound/*.mp3 next to index.html. If they load, they
-// replace the procedural sequencer; if they don't (index.html travelling as a
-// bare single file, or a decode failure), the sequencer plays exactly as
-// before. So the single-file promise still holds — files are an upgrade, not
-// a dependency.
+// Generated tracks live in sound/*.mp3 next to index.html. These ARE the score
+// now — there is no synth fallback behind them. If they fail to load the game
+// runs with SFX only, which is the right silence: the chiptune band that used
+// to fill the gap was worse than nothing under a recorded soundtrack.
 var MUSIC_FILES = {
   title:  'sound/00_title.mp3',
   ep1:    'sound/01_ashen_canyon.mp3',
@@ -1026,6 +438,12 @@ var MUSIC_FILES = {
   ending: 'sound/05_ending.mp3'
 };
 var MUSIC_VOL = 0.48;                 // mastered tracks sit UNDER the synth SFX
+// One level, not two. The old 0.5 existed because the synth band shared this
+// WebAudio graph and SFX at full level buried it. The score is an <audio>
+// element now — it never touches this bus — so there is nothing left to duck
+// for, and 0.5 only meant the effects were quiet for the second before the
+// first mp3 rolled, and quiet forever if it never did.
+var SFX_GAIN = 0.95;
 var streams = {}, streamDead = false, curStream = null, fadeTimer = null;
 
 function streamFor(k) {
@@ -1035,23 +453,14 @@ function streamFor(k) {
     a.loop = true;
     a.preload = 'auto';
     a.volume = 0;
-    a.addEventListener('playing', function () {
-      // only silence the sequencer once audio is genuinely rolling — a
-      // rejected play() must never leave the game mute
-      if (curStream === a) {
-        Audio_.setSong(null);
-        // mastered tracks flatten the little synth SFX; push the SFX bus up
-        // while a stream carries the music
-        if (Audio_.sfxGain) Audio_.sfxGain.gain.setTargetAtTime(0.95, Audio_.ctx.currentTime, 0.15);
-      }
-    });
+    // nothing to do when playback starts any more — the SFX bus no longer
+    // shares a graph with the music, so it does not have to get out of the way
     a.addEventListener('error', function () {
       // one failure condemns the whole set — half-streamed music is worse
       // than none, and the common cause (no sound/ folder) affects all six
       streamDead = true;
       if (curStream) { try { curStream.pause(); } catch (e) {} curStream = null; }
-      if (Audio_.sfxGain) Audio_.sfxGain.gain.setTargetAtTime(0.5, Audio_.ctx.currentTime, 0.1);
-      if (pendingKey) Audio_.setSong(SONGS[pendingKey] || null);
+      // nothing to fall back to; the game runs on sound effects from here
     });
     streams[k] = a;
   }
@@ -1079,17 +488,14 @@ function fadeStreams(next) {
 }
 
 var pendingKey = null;
+function stopStream() {
+  pendingKey = null;
+  if (curStream) fadeStreams(null);
+}
 function playMusic(k) {
   if (!Audio_.started) return;
   pendingKey = k;
-  if (!k) {                                   // explicit stop
-    if (curStream) fadeStreams(null);
-    Audio_.setSong(null);
-    return;
-  }
-  // the sequencer starts (or keeps) playing regardless; the stream's
-  // 'playing' event silences it once real audio is confirmed rolling
-  Audio_.setSong(SONGS[k] || (k === 'ending' ? SONGS.title : null));
+  if (!k) { stopStream(); return; }           // explicit stop
   var st = streamFor(k);
   if (st) {
     fadeStreams(st);
@@ -1117,8 +523,7 @@ function musicState() {
     playing: !!(curStream && !curStream.paused),
     volume: curStream ? +curStream.volume.toFixed(2) : 0,
     dead: streamDead,
-    pending: pendingKey,
-    seq: !!Audio_.song
+    pending: pendingKey
   };
 }
 
@@ -1134,7 +539,7 @@ window.__PF = {
   trackShadow: trackShadow, setShadows: setShadows, toggleShadows: toggleShadows,
   setSunDir: setSunDir,
   shadowsOn: function () { return SHADOWS_ON; },
-  Audio_: Audio_, playMusic: playMusic, musicState: musicState, note: note, SONGS: SONGS,
+  Audio_: Audio_, playMusic: playMusic, musicState: musicState,
   hudCanvas: hudCanvas, hx: hx, glCanvas: glCanvas,
   el: { flash: elFlash, card: elCard, toast: elToast, pause: elPause, skip: elSkip, quip: elQuip,
         title: elTitle, over: elOver, win: elWin, loading: elLoading,

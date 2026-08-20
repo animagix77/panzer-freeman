@@ -90,21 +90,18 @@ each bolt onto its target. Each bolt drags an additively-blended ribbon trail wh
 anchors are laid down *by distance travelled*, so the streak is the same length at
 30fps or 144.
 
-**A title theme that walks the band in.** "The Sky Still Owes Him" opens as a
-fanfare — whole-note power chords over a swelling pad with a lead soaring on top —
-then a tom ramp drops it into the gallop riff at 10.9s. The build is in the note
-density, not the volume: it's big from the first bar and just gets *faster*. It
-carries straight through the opening cinematic and hands off to the stage music the
-moment gameplay starts.
+**A recorded score, six cues deep.** One track per episode plus a title and a boss
+theme, streamed from [`sound/`](sound/) and cross-faded on episode change. There is
+no synth fallback behind them: the game either plays its score or runs on sound
+effects alone. It used to open with a procedural chiptune band covering the gap
+while the first mp3 buffered, which meant the one thing you always heard was the
+one thing that wasn't the soundtrack.
 
-**A synthesized rock band.** Five original tracks, no samples. Notes sum into shared
-distortion channels *before* the waveshaper so power chords intermodulate the way a
-real amp does; the signal path is waveshaper → cab lowpass → highpass → presence bell
-→ bus compressor. Guitars are high-passed out of the bass's way. Multi-pattern
-arrangements with intros, choruses, breakdowns and tom fills.
+The prompt pack the tracks were generated from — keys, tempo and section plans
+measured against the game itself — is in [`ost/ELEVENLABS_PROMPTS.md`](ost/ELEVENLABS_PROMPTS.md).
 
-Renders of all five are in [`ost/`](ost/) — they're the game's own synth, bounced
-through an `OfflineAudioContext`, so they're literally what you hear.
+Sound effects are still synthesized live in WebAudio, sample-free, and sit on their
+own bus that ducks up when no music is playing.
 
 ## Building
 
@@ -119,7 +116,7 @@ node build.js        # concatenates src/ into index.html
 
 | File | Contents |
 |---|---|
-| `p1_core.js` | renderer, retro shader patch, sky, the whole audio engine and songs |
+| `p1_core.js` | renderer, retro shader patch, sky, SFX synth and the streamed score |
 | `p2_models.js` | procedural dragon + rider + enemies + boss, and the flight model |
 | `p3_world.js` | terrain chunking, prop fields, episode definitions |
 | `p4_game.js` | player, projectiles, ribbons, impacts, enemies, boss AI |
@@ -140,15 +137,10 @@ node tools/check-flaprate.js  # real wingbeats per second of game time in each s
 node tools/check-tail.js      # confirms the tail trails the turn instead of steering it
 node tools/model-viewer.js    # isolated turntable renders of the dragon
 node tools/check-lasers.js    # lock painting and volley behaviour
-node tools/check-music.js     # live sequencer tempo and per-stage track switching
-node tools/render-ost.js      # bounce the songs to WAV via OfflineAudioContext
-node tools/analyze-mix.js *.wav   # spectral balance + onset rate of the mixes
+node tools/check-music.js     # per-stage track switching, and that no synth music remains
+node tools/check-fixes.js     # regression probes for previously shipped defects
 node tools/check-perf.js      # draw calls, triangles, sim cost under worst case
 ```
-
-`analyze-mix.js` is how the soundtrack got mixed without listening to it — the first
-pass had guitars at 5% of the spectrum against 100% sub, which the band-energy readout
-made obvious.
 
 ## Notes
 
