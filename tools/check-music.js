@@ -42,11 +42,27 @@ function ok(name, pass, detail) {
      JSON.stringify(gone));
   ok('SFX synth survives the cut', gone.sfx);
 
-  // first gesture arms audio and starts the title track
+  // ---- the title theme starts on its own, with no gesture ----------------
+  // This browser is launched with autoplay allowed, which is the case the
+  // feature exists for. The blocked case is covered below: what must never
+  // happen is the game sitting silent on the controls plate with nothing
+  // waiting to start it.
+  await page.waitForTimeout(2600);
+  const auto = await st();
+  ok('title cue autoplays, no gesture',
+     auto.stream === '00_title.mp3' && auto.playing && !auto.hooked, JSON.stringify(auto));
+  const onTitle = await page.evaluate(() => ({
+    state: window.__PF.Game.state,
+    plate: document.getElementById('title').classList.contains('on')
+  }));
+  ok('and does so on the controls plate', onTitle.state === 'title' && onTitle.plate,
+     JSON.stringify(onTitle));
+
   await page.mouse.move(600, 400); await page.mouse.down(); await page.mouse.up();
-  await page.waitForTimeout(1800);
+  await page.waitForTimeout(1000);
   const title = await st();
-  ok('title cue', title.stream === '00_title.mp3' && title.playing, JSON.stringify(title));
+  ok('a gesture does not restart it', title.stream === '00_title.mp3' && title.playing,
+     JSON.stringify(title));
 
   await page.click('#startBtn');
   await page.waitForTimeout(600);
@@ -84,8 +100,41 @@ function ok(name, pass, detail) {
   const dead = await st();
   ok('death stops the music', !dead.playing && !dead.pending, JSON.stringify(dead));
 
+  await b.close();
+
+  // ---- the blocked case, which is what most real browsers will do ---------
+  // A fresh profile with autoplay gated: the title theme must be armed and
+  // waiting, not forgotten, and the first gesture must start it AND resume the
+  // AudioContext — a suspended context would leave the SFX mute even once the
+  // music was allowed through.
+  const b2 = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium',
+    args: ['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--no-sandbox',
+           '--autoplay-policy=document-user-activation-required'] });
+  const p2 = await b2.newPage({ viewport: { width: 800, height: 500 } });
+  p2.on('pageerror', e => errs.push(e.message));
+  await p2.goto('file://' + path.join(__dirname, '..', 'index.html'));
+  await p2.waitForTimeout(4000);
+  const blocked = await p2.evaluate(() => ({
+    m: window.__PF.musicState(),
+    ctx: window.__PF.Audio_.ctx ? window.__PF.Audio_.ctx.state : null
+  }));
+  ok('blocked: armed and waiting',
+     blocked.m.pending === 'title' && !blocked.m.playing && blocked.m.hooked === true,
+     JSON.stringify(blocked));
+
+  await p2.mouse.move(400, 250); await p2.mouse.down(); await p2.mouse.up();
+  await p2.waitForTimeout(2500);
+  const freed = await p2.evaluate(() => ({
+    m: window.__PF.musicState(),
+    ctx: window.__PF.Audio_.ctx ? window.__PF.Audio_.ctx.state : null
+  }));
+  ok('blocked: first gesture frees it',
+     freed.m.stream === '00_title.mp3' && freed.m.playing &&
+     freed.m.hooked === false && freed.ctx === 'running',
+     JSON.stringify(freed));
+  await b2.close();
+
   console.log('\nERRORS', errs.length ? errs.slice(0, 4).join('\n') : 'none');
   console.log(fails ? '\n' + fails + ' CHECK(S) FAILED' : '\nall checks passed');
-  await b.close();
   process.exit(fails || errs.length ? 1 : 0);
 })();

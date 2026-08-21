@@ -576,8 +576,11 @@ function resetGame() {
 }
 
 function startGame() {
-  A.init();
-  P.playMusic('title');   // in case the gesture that armed audio was this click
+  // This click may well be the first gesture the autoplay policy accepts, so
+  // arm here too: if the title theme was refused at boot it starts now, and if
+  // it is already rolling playMusic() on the same key is a no-op.
+  P.armAudio();
+  P.playMusic('title');
   resetGame();
   Game.state = 'intro';
   Game.cinematic = true;
@@ -639,16 +642,8 @@ P.onEnd = function (won) {
   if (won) P.playMusic('ending'); else { P.playMusic(null); A.stop(); }
 };
 
-// browsers won't start audio without a gesture — take the first one we get
-var audioArmed = false;
-function armAudio() {
-  if (audioArmed) return;
-  audioArmed = true;
-  A.init();
-  if (Game.state === 'title') P.playMusic('title');
-}
-window.addEventListener('pointerdown', armAudio, { passive: true });
-window.addEventListener('keydown', armAudio);
+// Arming and the autoplay retry both live in p1_core now — it owns the stream,
+// so it is the only place that knows whether a track actually started.
 
 document.getElementById('startBtn').addEventListener('click', startGame);
 document.getElementById('againBtn').addEventListener('click', startGame);
@@ -855,6 +850,13 @@ var BOOT = [
 (function runBoot(i) {
   if (i >= BOOT.length) {
     LD.done();
+    // Start the title theme the moment the controls plate is up, rather than
+    // waiting for the player to touch something. Most browsers will refuse
+    // this — autoplay needs a gesture — and that refusal is exactly what
+    // P.armAudio()'s standing gesture hook is for, so the worst case is the
+    // behaviour we had before: music on the first click or keypress.
+    P.armAudio();          // builds the AudioContext; nothing pending yet
+    P.playMusic('title');  // speculative — hooks the gesture retry if refused
     requestAnimationFrame(frame);
     return;
   }

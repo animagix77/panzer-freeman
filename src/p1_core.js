@@ -492,25 +492,48 @@ function stopStream() {
   pendingKey = null;
   if (curStream) fadeStreams(null);
 }
+// Autoplay policy is a permission we ask for and may not get, so the retry is
+// a standing listener rather than a one-shot: every browser rule that unblocks
+// audio is triggered by a user gesture, and the FIRST gesture is not always one
+// the policy accepts (a passive pointermove on iOS, a modifier keydown). It
+// unhooks itself the moment a track is genuinely rolling.
+var gestureHook = false;
+function hookGesture() {
+  if (gestureHook) return;
+  gestureHook = true;
+  window.addEventListener('pointerdown', armAudio, { passive: true });
+  window.addEventListener('keydown', armAudio);
+  window.addEventListener('touchstart', armAudio, { passive: true });
+}
+function unhookGesture() {
+  if (!gestureHook) return;
+  gestureHook = false;
+  window.removeEventListener('pointerdown', armAudio);
+  window.removeEventListener('keydown', armAudio);
+  window.removeEventListener('touchstart', armAudio);
+}
+// Called on boot (a speculative try) and on every gesture until it takes.
+function armAudio() {
+  Audio_.init();
+  // An AudioContext built without a gesture starts suspended, which would
+  // leave the SFX silent even once the music is allowed through.
+  if (Audio_.ctx && Audio_.ctx.state === 'suspended' && Audio_.ctx.resume) {
+    try { Audio_.ctx.resume(); } catch (e) {}
+  }
+  if (pendingKey) playMusic(pendingKey);
+}
 function playMusic(k) {
   if (!Audio_.started) return;
   pendingKey = k;
   if (!k) { stopStream(); return; }           // explicit stop
   var st = streamFor(k);
-  if (st) {
-    fadeStreams(st);
-    var p = st.play();
-    if (p && p.catch) p.catch(function () {
-      // autoplay-gated (Safari): retry on the next real input
-      var retry = function () {
-        if (pendingKey === k && !streamDead) {
-          var q = st.play();
-          if (q && q.catch) q.catch(function () {});
-        }
-      };
-      window.addEventListener('pointerdown', retry, { once: true });
-      window.addEventListener('keydown', retry, { once: true });
-    });
+  if (!st) return;
+  fadeStreams(st);
+  var p = st.play();
+  if (p && p.then) {
+    p.then(function () { unhookGesture(); }, function () { hookGesture(); });
+  } else {
+    hookGesture();                            // no promise: assume the worst
   }
 }
 function setStreamMuted(m) {
@@ -523,7 +546,8 @@ function musicState() {
     playing: !!(curStream && !curStream.paused),
     volume: curStream ? +curStream.volume.toFixed(2) : 0,
     dead: streamDead,
-    pending: pendingKey
+    pending: pendingKey,
+    hooked: gestureHook          // true = waiting on a gesture to unblock audio
   };
 }
 
@@ -539,7 +563,7 @@ window.__PF = {
   trackShadow: trackShadow, setShadows: setShadows, toggleShadows: toggleShadows,
   setSunDir: setSunDir,
   shadowsOn: function () { return SHADOWS_ON; },
-  Audio_: Audio_, playMusic: playMusic, musicState: musicState,
+  Audio_: Audio_, playMusic: playMusic, musicState: musicState, armAudio: armAudio,
   hudCanvas: hudCanvas, hx: hx, glCanvas: glCanvas,
   el: { flash: elFlash, card: elCard, toast: elToast, pause: elPause, skip: elSkip, quip: elQuip,
         title: elTitle, over: elOver, win: elWin, loading: elLoading,
