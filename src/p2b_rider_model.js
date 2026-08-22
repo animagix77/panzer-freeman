@@ -218,11 +218,16 @@ P.riderModel = {
     t('RightUpLeg', -1.28, -0.16, -0.62);
     t('LeftLeg', 1.40);
     t('RightLeg', 1.40);
-    // arms down out of the T and forward to the reins / cannon
-    t('LeftArm', 0.10, 0, 1.28);
-    t('RightArm', 0.10, 0, -1.28);
-    t('LeftForeArm', 0, 0.95, 0.30);
-    t('RightForeArm', 0, -0.95, 0.30);
+    // Arms down out of the T and onto the grips. The forearm bends on X — Y is
+    // that bone's twist axis and moves the hand not at all, which is why the
+    // old pose left both arms straight out in front of him holding nothing.
+    // These angles were solved numerically against a grip target rather than
+    // eyeballed: shoulders are mirrored, the elbows are not quite, because the
+    // model's own bind pose is not perfectly symmetric.
+    t('LeftArm', 0.22, 0, 1.213);
+    t('RightArm', 0.22, 0, -1.213);
+    t('LeftForeArm', 0.978, 0, 0);
+    t('RightForeArm', 0.856, 0, 0);
   }
 };
 

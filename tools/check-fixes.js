@@ -207,6 +207,53 @@ function ok(name, pass, detail) {
   ok('prewarmed enemy rigs — no geometry built on spawn',
      Object.keys(warm).every(k => warm[k] === 0), JSON.stringify(warm));
 
+  // ---- 9. the rider is actually holding the harness ---------------------
+  // A rigid grip bolted to the saddle would be fine at 89 and wrong everywhere
+  // else: de-aging straightens his spine and lifts the hand nearly a fifth of a
+  // unit, and the saddle bounce moves it every frame. So the check is not "is
+  // there a grip" but "does the grip stay in the hand while the hand moves".
+  await page.evaluate(() => { const P = window.__PF; P.Game.state = 'playing'; });
+  await page.waitForTimeout(600);
+  const grip = [];
+  for (const age of [89, 60, 24]) {
+    await page.evaluate((a) => window.__PF.dragon.setAge(a), age);
+    await page.waitForTimeout(500);
+    grip.push(await page.evaluate((a) => {
+      const P = window.__PF, T = window.THREE, D = P.dragon, RM = P.riderModel;
+      D.root.updateMatrixWorld(true);
+      const inB = new T.Matrix4().copy(D.body.matrixWorld).invert();
+      const w = (o) => { const v = new T.Vector3(); o.getWorldPosition(v); return v.applyMatrix4(inB); };
+      const gs = []; D.harness.children.forEach(c => { if (c.type === 'Group') gs.push(c); });
+      const hands = [w(RM.bones.LeftHand), w(RM.bones.RightHand)];
+      return { age: a, handY: +hands[0].y.toFixed(3),
+               gaps: gs.map((g, i) => +w(g).distanceTo(hands[i]).toFixed(3)) };
+    }, age));
+  }
+  const allGaps = grip.flatMap(g => g.gaps);
+  const spread = Math.max(...allGaps) - Math.min(...allGaps);
+  const handTravel = Math.abs(grip[2].handY - grip[0].handY);
+  ok('grips stay in the hands across the age range',
+     allGaps.every(v => v > 0.04 && v < 0.13) && spread < 0.02 && handTravel > 0.12,
+     JSON.stringify({ handTravel: +handTravel.toFixed(3), spread: +spread.toFixed(4), grip }));
+
+  // the elbow has to be bent, or he is reaching rather than holding
+  const elbow = await page.evaluate(() => {
+    const P = window.__PF, T = window.THREE, RM = P.riderModel;
+    P.dragon.root.updateMatrixWorld(true);
+    const out = {};
+    for (const side of ['Left', 'Right']) {
+      const a = new T.Vector3(), e = new T.Vector3(), h = new T.Vector3();
+      RM.bones[side + 'Arm'].getWorldPosition(a);
+      RM.bones[side + 'ForeArm'].getWorldPosition(e);
+      RM.bones[side + 'Hand'].getWorldPosition(h);
+      const v1 = a.sub(e).normalize(), v2 = h.sub(e).normalize();
+      out[side] = +(Math.acos(Math.max(-1, Math.min(1, v1.dot(v2)))) * 180 / Math.PI).toFixed(1);
+    }
+    return out;
+  });
+  ok('elbows are bent, not locked out',
+     elbow.Left < 165 && elbow.Right < 165, JSON.stringify(elbow));
+
   console.log('\nERRORS ' + (errors.length ? errors.slice(0, 8).join('\n') : 'none'));
   console.log(fails ? '\n' + fails + ' CHECK(S) FAILED' : '\nall checks passed');
   await browser.close();

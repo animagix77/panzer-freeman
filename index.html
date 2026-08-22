@@ -2070,6 +2070,177 @@ function buildDragon() {
   var cantle = plate([[-0.44, -0.10], [0.44, -0.10], [0.34, 0.24], [-0.34, 0.24]], 0.10, M(0x4a2f1e));
   cantle.position.set(0, 0.98, -0.10); cantle.rotation.x = -0.22; body.add(cantle);
 
+  // ------------------------------------------------------------- harness
+  // The rider used to hold nothing: his arms reached forward into empty air,
+  // because the pose rolled the forearm (Y is that bone's twist axis and moves
+  // the hand not at all) instead of bending the elbow on X.
+  //
+  // Nothing here is rigid. A bar bolted to the saddle would separate from the
+  // hand the moment anything moved it — and three things do: the saddle bounce,
+  // the bank lean, and de-aging, which straightens his spine and lifts the whole
+  // shoulder line by more than a hand's width between 89 and 24. So the grip is
+  // placed ON the hand each frame, and the straps that tie it to the collar
+  // ahead and the saddle below are solved to wherever it ended up.
+  var mLeather = M(0x4a2f1e), mBrass = M(0x8a6a34, { shine: 44, spec: 0x554427 });
+  var harness = new THREE.Group(); body.add(harness);
+
+  // girth strap: a band round the barrel, so the saddle is buckled to something
+  var girth = mesh(tor(1.06, 0.055, 4, 16), mLeather);
+  girth.position.set(0, 0.30, 0.28);
+  girth.scale.set(1.0, 0.80, 1.0);       // the body is wider than it is deep
+  harness.add(girth);
+  var buckle = mesh(box(0.15, 0.19, 0.08), mBrass);
+  buckle.position.set(1.02, 0.34, 0.28); harness.add(buckle);
+  var buckle2 = buckle.clone(); buckle2.position.x = -1.02; harness.add(buckle2);
+
+  // collar round the neck, with a ring each side for the reins
+  var collar = mesh(tor(0.60, 0.048, 4, 14), mLeather);
+  collar.position.set(0, 0, 0.40);
+  necks[1].add(collar);
+  var reinAnchor = [], saddleAnchor = [];
+  for (var ai = 0; ai < 2; ai++) {
+    var sg = ai ? -1 : 1;
+    var an = new THREE.Object3D();
+    an.position.set(sg * 0.54, -0.16, 0.40);
+    necks[1].add(an);
+    reinAnchor.push(an);
+    var ring = mesh(tor(0.070, 0.020, 4, 8), mBrass);
+    ring.position.copy(an.position);
+    ring.rotation.y = Math.PI * 0.5;
+    necks[1].add(ring);
+    // where the check strap ties down, on the saddle's front arch
+    var sa = new THREE.Object3D();
+    sa.position.set(sg * 0.30, 0.96, 1.02);
+    harness.add(sa);
+    saddleAnchor.push(sa);
+    var cleat = mesh(box(0.10, 0.07, 0.12), mBrass);
+    cleat.position.copy(sa.position); harness.add(cleat);
+  }
+
+  // the bar each hand closes over — moved onto the hand every frame
+  var grips = [];
+  for (var gi = 0; gi < 2; gi++) {
+    var g = new THREE.Group();
+    var bar = mesh(cyl(0.046, 0.046, 0.30, 6), mBrass);
+    bar.rotation.z = Math.PI * 0.5;      // lie along the group's local X
+    g.add(bar);
+    var capA = mesh(oct(0.055), mBrass); capA.position.x =  0.16; g.add(capA);
+    var capB = mesh(oct(0.055), mBrass); capB.position.x = -0.16; g.add(capB);
+    harness.add(g);
+    grips.push(g);
+  }
+  // Fallback so the harness still reads if the baked rider never loaded; the
+  // real targets are wired in by the rider block below.
+  var gripSource = null;   // { fore: Bone, hand: Bone } per side, or null
+
+  // ---- straps, re-solved per frame ---------------------------------------
+  // Two crossed strips per strap. One strip alone is invisible edge-on, and
+  // edge-on is exactly the chase camera's view of a rein running away down the
+  // neck — the first pass drew hairlines that vanished at the only angle that
+  // mattered.
+  var RN = 9, REIN_W = 0.030;
+  function makeStrap(w) {
+    var strips = [];
+    for (var sIdx = 0; sIdx < 2; sIdx++) {
+      var rg = new THREE.BufferGeometry();
+      var rpos = new Float32Array((RN + 1) * 2 * 3);
+      rg.setAttribute('position', new THREE.BufferAttribute(rpos, 3));
+      var ridx = [];
+      for (var q = 0; q < RN; q++) {
+        var v0 = q * 2;
+        ridx.push(v0, v0 + 1, v0 + 2, v0 + 1, v0 + 3, v0 + 2);
+      }
+      rg.setIndex(ridx);
+      var rm = mesh(rg, M(0x4a2f1e, { side: THREE.DoubleSide }));
+      rm.frustumCulled = false;
+      harness.add(rm);
+      strips.push({ mesh: rm, pos: rpos });
+    }
+    return { strips: strips, w: w };
+  }
+  var straps = [];
+  for (var si = 0; si < 2; si++) {
+    straps.push({ rein: makeStrap(REIN_W), check: makeStrap(REIN_W * 0.78),
+                  anchor: reinAnchor[si], tie: saddleAnchor[si], grip: grips[si] });
+  }
+
+  var _rA = new V3(), _rB = new V3(), _rC = new V3(), _rP = new V3(), _rPrev = new V3();
+  var _rDir = new V3(), _rU = new V3(), _rV = new V3(), _rUp = new V3(0, 1, 0);
+  var _rInv = new THREE.Matrix4(), _gF = new V3(), _gH = new V3();
+  var _gQ = new THREE.Quaternion(), _gAx = new V3(), _xAxis = new V3(1, 0, 0);
+
+  function solveStrap(S, a, b, slack) {
+    _rA.copy(a); _rB.copy(b);
+    _rC.copy(_rA).add(_rB).multiplyScalar(0.5);
+    _rC.y -= _rA.distanceTo(_rB) * slack;
+    var s0 = S.strips[0].pos, s1 = S.strips[1].pos;
+    for (var k = 0; k <= RN; k++) {
+      var u = k / RN, iu = 1 - u;
+      _rP.set(
+        iu * iu * _rB.x + 2 * iu * u * _rC.x + u * u * _rA.x,
+        iu * iu * _rB.y + 2 * iu * u * _rC.y + u * u * _rA.y,
+        iu * iu * _rB.z + 2 * iu * u * _rC.z + u * u * _rA.z
+      );
+      // frame the cross-section on the strap's own direction, so the strips
+      // stay perpendicular to it however the neck has bent
+      if (k === 0) _rDir.copy(_rC).sub(_rP);
+      else _rDir.copy(_rP).sub(_rPrev);
+      if (_rDir.lengthSq() < 1e-9) _rDir.set(0, 0, 1);
+      _rDir.normalize();
+      _rU.crossVectors(_rDir, _rUp);
+      if (_rU.lengthSq() < 1e-6) _rU.set(1, 0, 0);
+      _rU.normalize().multiplyScalar(S.w);
+      _rV.crossVectors(_rDir, _rU).normalize().multiplyScalar(S.w);
+      var o = k * 6;
+      s0[o]     = _rP.x - _rU.x; s0[o + 1] = _rP.y - _rU.y; s0[o + 2] = _rP.z - _rU.z;
+      s0[o + 3] = _rP.x + _rU.x; s0[o + 4] = _rP.y + _rU.y; s0[o + 5] = _rP.z + _rU.z;
+      s1[o]     = _rP.x - _rV.x; s1[o + 1] = _rP.y - _rV.y; s1[o + 2] = _rP.z - _rV.z;
+      s1[o + 3] = _rP.x + _rV.x; s1[o + 4] = _rP.y + _rV.y; s1[o + 5] = _rP.z + _rV.z;
+      _rPrev.copy(_rP);
+    }
+    S.strips[0].mesh.geometry.getAttribute('position').needsUpdate = true;
+    S.strips[1].mesh.geometry.getAttribute('position').needsUpdate = true;
+  }
+
+  // How far past the wrist bone the palm sits. The bone is the wrist joint, so
+  // a bar placed on it lands behind the hand and the fingers close on nothing.
+  var PALM = 0.085;
+  function solveHarness(slack) {
+    // updateWorldMatrix(true, ...) — refresh the ANCESTORS, not just this node.
+    // getWorldPosition() below walks up and refreshes as it goes, so inverting
+    // a stale parent matrix here mixed this frame's world positions with last
+    // frame's transform. At flight speed one frame is about three units of z,
+    // which is exactly where the grips ended up: out on the neck.
+    harness.updateWorldMatrix(true, false);
+    _rInv.copy(harness.matrixWorld).invert();
+    for (var i = 0; i < straps.length; i++) {
+      var S = straps[i], G = S.grip;
+      if (gripSource) {
+        var src = gripSource[i];
+        src.fore.getWorldPosition(_gF); _gF.applyMatrix4(_rInv);
+        src.hand.getWorldPosition(_gH); _gH.applyMatrix4(_rInv);
+        _gAx.copy(_gH).sub(_gF);
+        if (_gAx.lengthSq() < 1e-9) _gAx.set(0, -1, 0);
+        _gAx.normalize();
+        G.position.copy(_gH).addScaledVector(_gAx, PALM);
+        // stand the bar across the forearm, so the palm wraps it rather than
+        // the fingers pointing along it
+        _rU.crossVectors(_gAx, _rUp);
+        if (_rU.lengthSq() < 1e-6) _rU.set(1, 0, 0);
+        _rU.normalize();
+        // the bar mesh already lies along the group's local +X, so the group
+        // only has to carry +X onto the cross-forearm direction
+        _gQ.setFromUnitVectors(_xAxis, _rU);
+        G.quaternion.copy(_gQ);
+      }
+      G.updateMatrixWorld();
+      G.getWorldPosition(_rB); _rB.applyMatrix4(_rInv);
+      solveStrap(S.rein, S.anchor.getWorldPosition(_rA).applyMatrix4(_rInv), _rB, slack);
+      solveStrap(S.check, S.tie.getWorldPosition(_rA).applyMatrix4(_rInv), _rB, 0.04);
+    }
+  }
+  solveHarness(0.14);
+
   // ---------------------------------------------------------- age morphing
   var cSkinOld = new THREE.Color(SKIN_OLD), cSkinYoung = new THREE.Color(SKIN_YOUNG);
   var cHairOld = new THREE.Color(0xdedacd), cHairYoung = new THREE.Color(0x201a15);
@@ -2150,6 +2321,7 @@ function buildDragon() {
 
   var api = {
     root: root, body: body, rider: rider, head: head, gun: gun, muzzle: muzzle,
+    harness: harness,
     headR: headR, face: F, setAge: setAge, wings: [wL, wR], tail: tailSegs,
     muzzleT: 0, onBeat: null,
     getEffort: function () { return effort; },
@@ -2378,6 +2550,12 @@ function buildDragon() {
     if (api.muzzleT > 0) { api.muzzleT -= dt; muzzle.visible = true;
       muzzle.scale.setScalar(0.6 + Math.random() * 0.9); muzzle.rotation.z += dt * 20; }
     else muzzle.visible = false;
+
+    // Reins last: the neck has just moved and the grips ride the saddle, so
+    // both ends are only final now. They pull taut as the dragon reaches
+    // forward in a dive and go slack when it rears up on a climb, which is the
+    // whole reason for solving them rather than modelling a fixed strap.
+    solveHarness(clamp(0.15 + vyN * 0.10 - gLoad * 0.05, 0.03, 0.30));
   };
 
   // ------------------------------------------------- swap in the modelled rider
@@ -2441,16 +2619,42 @@ function buildDragon() {
 
     api.riderMesh = RM.mesh;
     api.riderBones = RM.bones;
+    // Both hands are on the grips now, so the cannon cannot be a held weapon.
+    // It was parented to the procedural right forearm — a bone that is hidden
+    // and no longer tracks the model's arm, so from the side it hung in mid-air
+    // between the rider and the collar. Re-mount it on the rider's hip: still
+    // under `rider`, which the aim code yaws and pitches, so it still follows
+    // the reticle.
+    if (gun.parent) gun.parent.remove(gun);
+    rider.add(gun);
+    gun.position.set(-0.46, -0.04, 0.34);
+    gun.rotation.set(0.03, -0.05, 0.10);
+    gun.scale.setScalar(0.92);
+
+    // Hand the harness the bones it should hang the grips off. Index 0 is the
+    // rig's LEFT, matching grips[0] / straps[0], which sit at +X.
+    if (RM.bones.LeftHand && RM.bones.RightHand) {
+      gripSource = [
+        { fore: RM.bones.LeftForeArm,  hand: RM.bones.LeftHand },
+        { fore: RM.bones.RightForeArm, hand: RM.bones.RightHand }
+      ];
+    }
 
     // Forward the aim look onto the model's head bone, then snap headR onto
     // wherever that bone actually ended up. headR is what the intro camera
     // targets, and setting it once at build time left it aiming at where the
     // head was BEFORE the riding pose moved it — so the camera framed the top
     // of the skull instead of the face.
+    // NB the signature is (dt, t, st). This wrapper used to name its arguments
+    // (st, dt, t) — the forwarding still worked, because it passed them on in
+    // the order it received them, but every named use inside was reading the
+    // wrong value: `st.strafeX` was looking for a field on a number, so the
+    // rider's bank lean silently resolved to 0 and never fired, and the damp
+    // below was handed elapsed time instead of a frame delta.
     var _upd = api.update;
     var riderBaseY = 0;
-    api.update = function (st, dt, t) {
-      _upd(st, dt, t);
+    api.update = function (dt, t, st) {
+      _upd(dt, t, st);
       // saddle dynamics: the rider is a passenger with mass, not a bolt-on.
       // He lags the wingbeat bounce, sinks under g, leans into the bank and
       // braces forward when the dragon pulls hard.
@@ -2976,11 +3180,16 @@ P.riderModel = {
     t('RightUpLeg', -1.28, -0.16, -0.62);
     t('LeftLeg', 1.40);
     t('RightLeg', 1.40);
-    // arms down out of the T and forward to the reins / cannon
-    t('LeftArm', 0.10, 0, 1.28);
-    t('RightArm', 0.10, 0, -1.28);
-    t('LeftForeArm', 0, 0.95, 0.30);
-    t('RightForeArm', 0, -0.95, 0.30);
+    // Arms down out of the T and onto the grips. The forearm bends on X — Y is
+    // that bone's twist axis and moves the hand not at all, which is why the
+    // old pose left both arms straight out in front of him holding nothing.
+    // These angles were solved numerically against a grip target rather than
+    // eyeballed: shoulders are mirrored, the elbows are not quite, because the
+    // model's own bind pose is not perfectly symmetric.
+    t('LeftArm', 0.22, 0, 1.213);
+    t('RightArm', 0.22, 0, -1.213);
+    t('LeftForeArm', 0.978, 0, 0);
+    t('RightForeArm', 0.856, 0, 0);
   }
 };
 
