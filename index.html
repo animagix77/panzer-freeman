@@ -215,6 +215,29 @@
     #ldBar { transition:none; }
   }
   .noselect { cursor:none; }
+  #briefing {
+    position:absolute; top:112px; left:50%; transform:translateX(-50%);
+    z-index:15; width:min(520px, calc(100% - 36px)); padding:16px 20px;
+    background:rgba(8,4,18,.9); border-left:3px solid #ffd25e;
+    box-shadow:0 8px 30px rgba(0,0,0,.2); cursor:auto;
+  }
+  #briefing[hidden] { display:none; }
+  #briefingStep { color:#8fd9ff; font-size:10px; letter-spacing:.18em; }
+  #briefingTitle { margin:8px 0; color:#ffd25e; font-size:20px; letter-spacing:.02em; }
+  #briefingText { color:#f3e2bb; font-size:13px; line-height:1.65; }
+  #skipBriefing { margin-top:10px; border:0; background:none; color:#c6b8d4; font-family:inherit; font-size:11px; cursor:pointer; }
+  #skipBriefing:hover, #skipBriefing:focus-visible { color:#fff; text-decoration:underline; }
+  .guide-choice { display:block; margin-top:20px; color:#e9dcc0; font-size:13px; cursor:pointer; }
+  .guide-choice input { accent-color:#ffd25e; margin-right:8px; }
+  .extra-controls { margin-top:18px; color:#c6b8d4; font-size:12px; cursor:pointer; }
+  .extra-controls .keys { margin-top:14px; }
+  #title { overflow-y:auto; }
+  #title .plate { margin:auto; }
+  @media (max-height:600px) {
+    #briefing { top:90px; padding:10px 16px; }
+    #briefingTitle { font-size:16px; margin:5px 0; }
+    #briefingText { font-size:12px; }
+  }
 </style>
 </head>
 <body>
@@ -228,6 +251,12 @@
 
   <div id="card"><div class="ep"></div><div class="nm"></div><div class="sub"></div></div>
   <div id="toast"></div>
+  <aside id="briefing" hidden aria-label="Flight briefing">
+    <div id="briefingStep"></div>
+    <h3 id="briefingTitle"></h3>
+    <p id="briefingText"></p>
+    <button id="skipBriefing" type="button">Skip briefing · Enter</button>
+  </aside>
   <div id="skiphint">PRESS ANY KEY TO SKIP</div>
   <div id="quip"></div>
   <div id="pausebox"><div>— PAUSED —</div></div>
@@ -241,14 +270,19 @@
         Eighty-nine years old, and the sky still owes him something.<br>
         The old rider and his dragon fly east toward the Fountain — a machine buried
         by a dead empire that runs time backward for anyone who can reach it.<br>
-        Every drone torn out of the air peels a year away. Every hit puts one back on.
+        Every enemy defeated gives him time back. Every hit makes him older.
       </p>
       <div class="keys">
         <div><span class="kbd">A</span><span class="kbd">D</span><span class="d">bank left / right</span></div>
-        <div><span class="kbd">W</span><span class="kbd">S</span><span class="d">dive / climb</span></div>
-        <div><span class="kbd">MOUSE</span><span class="d">aim reticle</span></div>
         <div><span class="kbd">HOLD LMB</span><span class="d">paint lock-ons</span></div>
         <div><span class="kbd">RELEASE</span><span class="d">fire laser volley</span></div>
+      </div>
+      <label class="guide-choice"><input id="guidedOpening" type="checkbox" checked>Guide my first minute</label>
+      <details class="extra-controls">
+        <summary>All controls &amp; display options</summary>
+        <div class="keys">
+        <div><span class="kbd">W</span><span class="kbd">S</span><span class="d">dive / climb</span></div>
+        <div><span class="kbd">MOUSE</span><span class="d">aim reticle</span></div>
         <div><span class="kbd">RMB</span><span class="d">rapid gun</span></div>
         <div><span class="kbd">Q</span><span class="kbd">E</span><span class="d">rotate view 90&deg;</span></div>
         <div><span class="kbd">P</span><span class="d">pause</span></div>
@@ -258,6 +292,7 @@
         <div><span class="kbd">G</span><span class="d">cast shadows</span></div>
         <div><span class="kbd">F3</span><span class="d">performance</span></div>
       </div>
+      <p style="font-size:12px;color:#a9dfe9">Shift: boost · X: air brake · Space + direction: evasive roll<br>Wing power refills when resting. Flank carriers to strike their exposed cores.</p></details>
       <button class="btn" id="startBtn">Begin the Descent</button>
       <div class="tiny">A LOW-POLY TRIBUTE TO PANZER DRAGOON (SEGA SATURN, 1995)</div>
     </div>
@@ -933,6 +968,110 @@ window.__PF = {
   HUD: (window.HUD = { w: window.innerWidth, h: window.innerHeight })
 };
 
+})();
+
+
+/* Layered, original sound effects, rendered once into reusable PCM buffers. */
+(function () {
+'use strict';
+var P = window.__PF, A = P.Audio_, oldInit = A.init;
+var durations = { laser: .48, gun: .14, impact: .35, blast: 1.15, hit: .65,
+  lock: .13, orb: .65, view: .22, warn: .4, boost: .8, roll: .45 };
+// Low-passed noise, swept FM energy, body resonance and a shaped transient.
+// Every variant has a zero-ended envelope; no raw square/saw oscillators.
+function render(name, rate, variant) {
+  var length = Math.ceil(durations[name] * rate), out = new Float32Array(length);
+  var seed = 8713 + variant * 971, low = 0, phase = 0, peak = 0;
+  function noise() { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 2147483648 - 1; }
+  for (var i = 0; i < length; i++) {
+    var t = i / rate, u = i / (length - 1), n = noise();
+    low += (n - low) * (1 - Math.exp(-2 * Math.PI * (name === 'blast' ? 330 : 1600) / rate));
+    var v = 0, pitch = 1 + variant * .023;
+    if (name === 'laser') {
+      phase += 2 * Math.PI * (170 + 1250 * Math.exp(-t * 14)) * pitch / rate;
+      v = .48 * Math.sin(phase + 2.2 * Math.sin(phase * 1.49) * Math.exp(-t * 13)) * Math.exp(-t * 9)
+        + .26 * (n - low) * Math.exp(-t * 52) + .22 * low * Math.exp(-t * 11);
+    } else if (name === 'blast' || name === 'hit' || name === 'impact' || name === 'gun') {
+      var big = name === 'blast', gun = name === 'gun';
+      phase += 2 * Math.PI * (big ? 34 + 90 * Math.exp(-t * 15) : gun ? 100 + 350 * Math.exp(-t * 65) : 90 + 620 * Math.exp(-t * 32)) / rate;
+      v = (big ? .9 : .5) * Math.sin(phase) * Math.exp(-t * (big ? 5 : 26))
+        + low * (big ? 2.1 : .8) * Math.exp(-t * (big ? 3.9 : 17))
+        + n * .36 * Math.exp(-t * (gun ? 110 : 60));
+      if (big) v += .15 * n * Math.pow(Math.max(0, Math.sin(t * 113)), 16) * Math.exp(-t * 5);
+    } else if (name === 'boost' || name === 'roll' || name === 'view') {
+      var env = Math.sin(Math.PI * Math.pow(u, .65));
+      phase += 2 * Math.PI * (90 + 240 * u) / rate;
+      v = (.7 * low + .13 * Math.sin(phase)) * env * (name === 'view' ? .4 : .8);
+    } else {
+      var freqs = name === 'orb' ? [523.25, 659.25, 783.99, 1046.5] : name === 'warn' ? [220, 277.18] : [1046.5, 1568];
+      for (var k = 0; k < freqs.length; k++) {
+        var age = t - (name === 'orb' ? k * .065 : 0);
+        if (age >= 0) v += .18 * (Math.sin(2 * Math.PI * freqs[k] * age) + .18 * Math.sin(2 * Math.PI * freqs[k] * 3.01 * age)) * Math.exp(-age * (name === 'orb' ? 8 : 23));
+      }
+    }
+    var envEnd = Math.min(1, t / .002) * Math.min(1, (durations[name] - t) / .025);
+    out[i] = Math.tanh(v * 1.2) * envEnd; peak = Math.max(peak, Math.abs(out[i]));
+  }
+  if (peak > .9) for (i = 0; i < length; i++) out[i] *= .9 / peak;
+  out[0] = out[length - 1] = 0;
+  return out;
+}
+A.renderEffect = render;
+A.init = function (override) {
+  if (this.started && !override && this.bank) return;
+  oldInit.call(this, override); if (!this.started) return;
+  var ctx = this.ctx; this.bank = {}; this.voices = []; this.lastEffect = {};
+  Object.keys(durations).forEach(function (name) {
+    A.bank[name] = [0, 1, 2].map(function (v) {
+      var data = render(name, ctx.sampleRate, v), b = ctx.createBuffer(1, data.length, ctx.sampleRate);
+      b.getChannelData(0).set(data); return b;
+    });
+  });
+  this.sfxGain.disconnect();
+  var compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -16; compressor.knee.value = 16; compressor.ratio.value = 4;
+  compressor.attack.value = .004; compressor.release.value = .16;
+  this.sfxGain.connect(compressor); compressor.connect(this.master);
+  var reverb = ctx.createConvolver(), impulse = ctx.createBuffer(2, Math.ceil(ctx.sampleRate * .7), ctx.sampleRate);
+  for (var ch = 0; ch < 2; ch++) {
+    var d = impulse.getChannelData(ch), lp = 0;
+    for (var i = 0; i < d.length; i++) { lp += ((Math.random() * 2 - 1) - lp) * .3; d[i] = lp * Math.pow(1 - i / d.length, 3); }
+  }
+  reverb.buffer = impulse;
+  var wet = ctx.createGain(), hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 280; wet.gain.value = .13;
+  this.sfxGain.connect(hp); hp.connect(reverb); reverb.connect(wet); wet.connect(compressor);
+};
+A.effect = function (name, volume, pos) {
+  if (!this.started || this.muted || !this.bank) return;
+  var ctx = this.ctx, now = ctx.currentTime;
+  var interval = name === 'gun' ? .045 : name === 'blast' ? .07 : .035;
+  if (now - (this.lastEffect[name] === undefined ? -100 : this.lastEffect[name]) < interval) return;
+  this.lastEffect[name] = now;
+  if (this.voices.length >= 28) return;
+  var src = ctx.createBufferSource(), gain = ctx.createGain(), pan = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+  src.buffer = this.bank[name][Math.floor(Math.random() * 3)]; src.playbackRate.value = .97 + Math.random() * .06;
+  var distance = pos && P.Player ? pos.distanceTo(P.Player.pos) : 0;
+  gain.gain.value = volume / (1 + distance / 220);
+  if (pan.pan) {
+    var side = pos && P.Player ? (pos.x - P.Player.pos.x) * -Math.cos(P.Player.camYaw) + (pos.z - P.Player.pos.z) * Math.sin(P.Player.camYaw) : 0;
+    pan.pan.value = Math.max(-.8, Math.min(.8, side / 100));
+  }
+  src.connect(gain); gain.connect(pan); pan.connect(this.sfxGain);
+  var voices = this.voices; voices.push(src);
+  src.onended = function () { var i = voices.indexOf(src); if (i >= 0) voices.splice(i, 1); src.disconnect(); gain.disconnect(); pan.disconnect(); };
+  src.start();
+};
+A.sLaser = function () { this.effect('laser', .48); };
+A.sGun = function () { this.effect('gun', .32); };
+A.sZap = function (pos) { this.effect('impact', .52, pos); };
+A.sBoom = function (big, pos) { this.effect(big ? 'blast' : 'impact', big ? .85 : .45, pos); };
+A.sHit = function () { this.effect('hit', .7); };
+A.sLock = function () { this.effect('lock', .33); };
+A.sOrb = function () { this.effect('orb', .5); };
+A.sView = function () { this.effect('view', .35); };
+A.sWarn = function () { this.effect('warn', .45); };
+A.sBoost = function () { this.effect('boost', .55); };
+A.sRoll = function () { this.effect('roll', .6); };
 })();
 
 
@@ -2278,7 +2417,7 @@ function buildDragon() {
   // The wingbeat is driven by how hard the dragon is working: climbing costs
   // effort (fast, deep, powered beats), diving costs none (wings lock out and
   // it glides). A damped spring turns each downstroke into a real lift bob.
-  var cycT = 0, periodJit = 0, beatFired = false;
+  var cycT = 0, periodJit = 0, beatFired = false, flapDur = 0.38;
   // wing joint state: e/r are elbow and wrist angles, eV/rV their velocities,
   // bil the current membrane load. WK is stiffness, WC damping — tuned so the
   // wingtip settles in roughly one beat without ringing.
@@ -2292,7 +2431,7 @@ function buildDragon() {
   ];
   var wPrev = 0, wingV = 0;
   var effort = 0.25, bob = 0, bobV = 0, surge = 0, surgeV = 0;
-  var pitchAim = 0, lastW = 0;
+  var pitchAim = 0, turn = 0, strokePitch = 0;
   // maneuver dynamics: pitch and roll are sprung (they overshoot and settle
   // instead of easing), and gLoad is the low-passed vertical acceleration —
   // the "pull" you feel hauling out of a dive.
@@ -2330,7 +2469,24 @@ function buildDragon() {
     getSurge: function () { return surge; }
   };
 
+  api.resetMotion = function () {
+    cycT = periodJit = 0; beatFired = false; flapDur = 0.38;
+    wPrev = wingV = bob = bobV = surge = surgeV = 0;
+    pitchAim = pitchAimV = rollV = turn = strokePitch = gLoad = prevVyG = 0;
+    effort = 0.24;
+    body.position.set(0, 0, 0); body.rotation.set(0, 0, 0);
+    rider.rotation.set(0, 0, 0);
+    tY.fill(0); tVY.fill(0); tX.fill(0); tVX.fill(0);
+    prevRootYaw = root.rotation.y;
+    prevBodyYaw = prevBodyPitch = prevBodyRoll = 0;
+    for (var wi = 0; wi < wJ.length; wi++) {
+      for (var key in wJ[wi]) wJ[wi][key] = 0;
+    }
+    for (var j = 0; j < tailSegs.length; j++) tailSegs[j].rotation.set(0, 0, 0);
+  };
+
   api.update = function (dt, t, st) {
+    turn = damp(turn, st.strafeX || 0, 6, dt);
     var vy = st.vy || 0;
     var vyN = clamp(vy / 44, -1, 1);              // -1 diving .. +1 climbing
     var boost = st.boost || 0;
@@ -2349,10 +2505,12 @@ function buildDragon() {
     // so at low effort the dragon holds a glide and flaps only occasionally.
     var rate = 0.12 + 2.6 * Math.pow(effort, 1.35);   // beats/sec
     var period = 1 / rate + periodJit;
-    var flapDur = Math.min(period * 0.95, 0.34 + effort * 0.10);
     cycT += dt;
-    if (cycT >= period) {
-      cycT -= period; if (cycT < 0 || cycT > period) cycT = 0;
+    // Finish the current stroke before choosing a new duration. Recomputing
+    // its phase from effort every frame made the wings jump on climb/dive.
+    if (cycT >= Math.max(period, flapDur)) {
+      cycT -= Math.max(period, flapDur);
+      flapDur = Math.max(0.28, Math.min(period * 0.95, 0.34 + effort * 0.10));
       beatFired = false;
       // idle flaps shouldn't be metronomic
       periodJit = effort < 0.4 ? rand(0, 1.4) : 0;
@@ -2383,7 +2541,7 @@ function buildDragon() {
     var rest = 0.20 - eN * 0.16;                  // gliding wings sit flatter
     var sweep = (1 - eN) * 0.17;                  // and sweep back
     var flutter = (1 - eN) * 0.014;               // airflow judder in a glide
-    var bank = (st.strafeX || 0) * 0.16;          // outer wing extends in a turn
+    var bank = turn * 0.07;
 
     // stroke velocity, signed: negative on the downstroke (wing driving down)
     var wV = (w - wPrev) / Math.max(dt, 1e-4); wPrev = w;
@@ -2392,7 +2550,7 @@ function buildDragon() {
     // Real flapping folds on the upstroke: flexing the elbow and wrist cuts
     // wing area so the recovery stroke costs less than the power stroke.
     // ph<0.5 is the downstroke here, so fold tracks the back half.
-    var upStroke = clamp((ph - 0.5) / 0.5, 0, 1) * (ph < 1 ? 1 : 0);
+    var upStroke = ph > 0.5 && ph < 1 ? Math.sin((ph - 0.5) * TAU) : 0;
     var fold = upStroke * (0.55 + eN * 0.35);
     // dive: wings rake back into a tuck the steeper he drops; the sweep is the
     // silhouette of a stooping raptor, not a parachute
@@ -2411,18 +2569,18 @@ function buildDragon() {
       // (looking +Z) shows on screen-RIGHT — so the sign here is the reverse
       // of what the variable names suggest. strafeX>0 = turning screen-right
       // = fold the -X wing.
-      var tuck = Math.max(0, (st.strafeX || 0) * sgn);
-      var extend = Math.max(0, (st.strafeX || 0) * -sgn) * 0.20;
+      var tuck = Math.max(0, turn * sgn);
+      var extend = Math.max(0, turn * -sgn) * 0.20;
 
       // --- driven shoulder
       var flutterN = Math.sin(t * (wi ? 21.7 : 21.0)) * flutter;
       W.rotation.z = sgn * (rest + w * amp) + bank + sgn * flutterN;
       W.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06 + climbN * 0.09;
-      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * (sweepT + tuck * 0.30);
+      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * (sweepT + tuck * 0.12);
 
       // --- sprung elbow and wrist.  a'' = -k(a - target) - c*a'
-      var eT = -fold * 0.95 + wingV * 0.028 - tuck * 0.85 + extend * 0.35 - diveN * 0.40;
-      var rT = -fold * 1.25 - wingV * 0.045 - tuck * 0.80 + extend * 0.25 - diveN * 0.50;
+      var eT = -fold * 0.65 + wingV * 0.018 - tuck * 0.30 + extend * 0.35 - diveN * 0.30;
+      var rT = -fold * 0.80 - wingV * 0.025 - tuck * 0.25 + extend * 0.25 - diveN * 0.35;
       J.eV += ((eT - J.e) * WK - J.eV * WC) * dt;  J.e += J.eV * dt;
       J.rV += ((rT - J.r) * WK * 0.82 - J.rV * WC * 0.9) * dt;  J.r += J.rV * dt;
       J.e = clamp(J.e, -1.35, 0.30);
@@ -2440,12 +2598,12 @@ function buildDragon() {
       J.z  = clamp(J.z, -0.42, 0.42);
       J.rz = clamp(J.rz, -0.60, 0.60);
 
-      // tuck lands on the yaw hinges directly as well as through the sprung
-      // fold — the spring alone caps out too shallow to read on screen
-      W.userData.elbow.rotation.y = sgn * (J.e * 0.72 - tuck * 0.55);
+      // All folding goes through the joints' springs, with enough remaining
+      // span to carry the dragon through the turn.
+      W.userData.elbow.rotation.y = sgn * J.e * 0.72;
       W.userData.elbow.rotation.x = J.e * 0.34;
       W.userData.elbow.rotation.z = sgn * J.z;
-      W.userData.wrist.rotation.y = sgn * (J.r * 0.85 - tuck * 0.60);
+      W.userData.wrist.rotation.y = sgn * J.r * 0.85;
       W.userData.wrist.rotation.x = J.r * 0.30;
       W.userData.wrist.rotation.z = sgn * J.rz;
 
@@ -2456,7 +2614,7 @@ function buildDragon() {
       var vRel = 0.55 + eN * 0.85;                       // forward airspeed proxy
       var aoa  = -wingV * 0.16 - vyN * 0.25;             // angle of attack
       var load = clamp(vRel * vRel * aoa + gLoad * 0.55, -1.8, 1.8);
-      J.bil += (load * 0.30 - J.bil) * Math.min(1, dt * 14);
+      J.bil = damp(J.bil, load * 0.22, 14, dt);
       W.userData.solve(J.bil, fold);
     }
     // ---- body ------------------------------------------------------------
@@ -2466,7 +2624,7 @@ function buildDragon() {
     body.position.z = surge;
     // roll is a spring, not an ease — it overshoots a few degrees and settles,
     // which is what a real roll input does
-    var rollT = (st.strafeX || 0) * 0.34 + w * eN * 0.022;   // each power stroke rocks him
+    var rollT = turn * 0.42 + w * eN * 0.016;
     rollV += ((rollT - body.rotation.z) * 26 - rollV * 7.5) * dt;
     body.rotation.z += rollV * dt;
     // nose up on the climb, nose down in the dive
@@ -2486,14 +2644,15 @@ function buildDragon() {
     pitchAimV += ((pitchT - pitchAim) * 20 - pitchAimV * 6.5) * dt;
     pitchAim += pitchAimV * dt;
     pitchAim = clamp(pitchAim, -0.62, 0.55);
-    body.rotation.x = pitchAim + (stroking ? -0.03 : 0.014);
+    strokePitch = damp(strokePitch, stroking ? -0.025 : 0.01, 8, dt);
+    body.rotation.x = pitchAim + strokePitch;
     // no body yaw: the camera pans the turn, the dragon holds its line
     body.rotation.y = damp(body.rotation.y, 0, 5, dt);
 
     // ---- neck: reaches forward in a dive, rears up on a climb ------------
     for (var i = 0; i < necks.length; i++) {
       var lag = i * 0.5;
-      necks[i].rotation.y = Math.sin(t * 1.4 - lag) * 0.06 - (st.strafeX || 0) * 0.09;
+      necks[i].rotation.y = Math.sin(t * 1.4 - lag) * 0.04 - turn * 0.055;
       necks[i].rotation.x = Math.sin(t * 1.9 - i * 0.4) * 0.035 - 0.03
                           - vyN * 0.05 - w * 0.02 * eN
                           + gLoad * 0.045 * (i + 1);
@@ -2501,7 +2660,7 @@ function buildDragon() {
     head.rotation.x = Math.sin(t * 1.2) * 0.05 - vyN * 0.10;
     // the head looks INTO the turn before the body comes around — the tell
     // every animal gives before it changes direction
-    head.rotation.y = damp(head.rotation.y, -(st.strafeX || 0) * 0.30, 4.5, dt);
+    head.rotation.y = damp(head.rotation.y, -turn * 0.16, 5, dt);
 
     // ---- tail: lagging chain + organic waver ------------------------------
     // How much the dragon rotated this frame. The tail doesn't get told about
@@ -2512,21 +2671,21 @@ function buildDragon() {
     var dRoll  = body.rotation.z - prevBodyRoll;             prevBodyRoll = body.rotation.z;
 
     // rotation handed down the chain, plus drag from sideways/vertical travel
-    var wY = clamp(dRoot * 0.5 + dYaw, -0.2, 0.2) + (st.strafeX || 0) * dt * 2.4;
-    var wX = clamp(dPitch, -0.2, 0.2) + vyN * dt * 1.4 - bobV * dt * 0.05;
-    var K = 44, D = 6.5, INER = 0.88;
+    var wY = clamp(dRoot + dYaw, -0.2, 0.2) + turn * dt * 0.35;
+    var wX = clamp(dPitch, -0.2, 0.2) + vyN * dt * 0.45 - bobV * dt * 0.05;
+    var K = 48, D = 8, INER = 0.75;
 
     for (var j = 0; j < TN; j++) {
+      var oy = tY[j], ox = tX[j];
       // inertia: hold world heading while the parent swings away
       tY[j] -= wY * INER;
       tX[j] -= wX * INER;
-      var oy = tY[j], ox = tX[j];
       // spring back into line with the parent
       tVY[j] += (-tY[j]) * K * dt;  tVY[j] *= Math.exp(-D * dt);
       tVX[j] += (-tX[j]) * K * dt;  tVX[j] *= Math.exp(-D * dt);
       tY[j] += tVY[j] * dt;  tX[j] += tVX[j] * dt;
-      tY[j] = clamp(tY[j], -0.34, 0.34);
-      tX[j] = clamp(tX[j], -0.30, 0.30);
+      tY[j] = clamp(tY[j], -0.22, 0.22);
+      tX[j] = clamp(tX[j], -0.20, 0.20);
       // a slow waver from two incommensurate frequencies, so it never repeats
       var wav1 = Math.sin(t * 1.31 + j * 0.74) * 0.55 + Math.sin(t * 0.57 + j * 1.27) * 0.45;
       var wav2 = Math.sin(t * 0.97 + j * 1.11) * 0.60 + Math.sin(t * 1.73 + j * 0.41) * 0.40;
@@ -2534,7 +2693,8 @@ function buildDragon() {
       tailSegs[j].rotation.y = tY[j] + wav1 * amp;
       tailSegs[j].rotation.x = tX[j] + wav2 * amp * 0.7 + 0.014;  // hangs a little
       tailSegs[j].rotation.z = -dRoll * 0.5 * (1 - j / TN);       // lags the roll too
-      // this joint's own swing is what the next one feels
+      // Include the inertial counter-rotation in the inherited delta. Omitting
+      // it applied the body's full turn at every joint and curled the whole tail.
       wY += tY[j] - oy;
       wX += tX[j] - ox;
     }
@@ -2543,7 +2703,7 @@ function buildDragon() {
     armR.rotation.x = damp(armR.rotation.x, -0.35 + st.aimY * 0.5, 9, dt);
     armR.rotation.z = damp(armR.rotation.z, -st.aimX * 0.55, 9, dt);
     rider.rotation.y = damp(rider.rotation.y, st.aimX * 0.35, 8, dt);
-    rider.rotation.x = damp(rider.rotation.x, -pitchAim * 0.55, 7, dt);   // stays upright
+    rider.rotation.x = damp(rider.rotation.x, -pitchAim * 0.55 + gLoad * 0.07, 7, dt);
     headR.rotation.y = st.aimX * 0.4;
     headR.rotation.x = -st.aimY * 0.3 + Math.sin(t * 0.8) * 0.02;
 
@@ -2661,8 +2821,7 @@ function buildDragon() {
       if (riderBaseY) {
         rider.position.y = riderBaseY - clamp(bobV, -3, 3) * 0.035 - gLoad * 0.11;
       }
-      rider.rotation.z = damp(rider.rotation.z, (st.strafeX || 0) * 0.11, 6, dt);
-      rider.rotation.x += gLoad * 0.07;                         // brace on the pull
+      rider.rotation.z = damp(rider.rotation.z, turn * 0.08, 6, dt);
       // gaze stabilisation: eyes hold the horizon while the body pitches
       RM.turn('Head', headR.rotation.x * 0.5 + RM.headLift - pitchAim * 0.45,
               headR.rotation.y * 0.8, 0);
@@ -2935,15 +3094,60 @@ function buildTower(col, col2) {
   var lamp = mesh(oct(1.4), G(0xffd25e)); lamp.position.y = h + 13; g.add(lamp);
   return g;
 }
+// Shared procedural mist texture: soft atmosphere instead of opaque rock clouds.
+var mistData = new Uint8Array(64 * 64 * 4);
+for (var mi = 0; mi < 4096; mi++) {
+  var mx = (mi % 64 - 31.5) / 31.5, my = (Math.floor(mi / 64) - 31.5) / 31.5;
+  var ma = Math.pow(Math.max(0, 1 - mx * mx - my * my), 2.6);
+  mistData[mi * 4] = mistData[mi * 4 + 1] = mistData[mi * 4 + 2] = 255;
+  mistData[mi * 4 + 3] = Math.round(ma * 255);
+}
+var mistTexture = new THREE.DataTexture(mistData, 64, 64, THREE.RGBAFormat);
+mistTexture.magFilter = mistTexture.minFilter = THREE.LinearFilter; mistTexture.needsUpdate = true;
 function buildCloud(col) {
   var g = new THREE.Group();
-  for (var i = 0; i < 5; i++) {
-    var m = mesh(ico(rand(8, 18), 0), M(col, { shine: 0 }));
-    m.position.set(rand(-24, 24), rand(-4, 4), rand(-18, 18));
-    m.scale.set(rand(1, 2), rand(0.4, 0.7), rand(1, 2));
-    m.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
-    g.add(m);
+  var mat = new THREE.SpriteMaterial({ map: mistTexture, color: col, transparent: true, opacity: 0.38, depthWrite: false });
+  for (var i = 0; i < 4; i++) {
+    var puff = new THREE.Sprite(mat); puff.position.set(rand(-24, 24), rand(-4, 4), rand(-16, 16));
+    puff.scale.set(rand(55, 95), rand(18, 32), 1); g.add(puff);
   }
+  return g;
+}
+function buildKeep() {
+  var g = new THREE.Group();
+  function block(w, h, d, x, y, z, col) {
+    var q = mesh(box(w, h, d), M(col, { shine: 8 })); q.position.set(x, y, z); g.add(q);
+  }
+  // Deep foundations bury into the mountain even where the slope changes.
+  block(62, 80, 68, 0, -35, 0, 0x494354);
+  block(54, 18, 60, 0, 10, 0, 0x777087);
+  block(44, 3, 54, 0, 20, 0, 0xc1b3bf);
+  [-18, 18].forEach(function (z) {
+    var tower = buildTower(0x77738f, 0xb5a269); tower.position.set(-12, 19, z); tower.scale.setScalar(0.65); g.add(tower);
+  });
+  // A buttressed bridge joins the two towers, with glowing recessed windows.
+  block(12, 5, 42, -12, 34, 0, 0xa59aaa);
+  for (var j = -2; j <= 2; j++) {
+    block(3, 7, 3, 27.1, 13, j * 9, 0x393544);
+    var lamp = mesh(box(0.2, 4, 1.4), G(0xffd39c)); lamp.position.set(28.7, 13, j * 9); g.add(lamp);
+  }
+  return g;
+}
+function buildFoundry() {
+  var g = new THREE.Group();
+  var base = mesh(box(60, 85, 62), M(0x424049, { shine: 18 })); base.position.y = -25; g.add(base);
+  for (var i = 0; i < 3; i++) {
+    var stack = mesh(cyl(5, 8, 65 + i * 10, 8), M(0x62515a, { shine: 16 }));
+    stack.position.set(-14 + i * 14, 40, 0); g.add(stack);
+    var mouth = mesh(tor(5.2, 0.8, 5, 12), G(0xff9144)); mouth.rotation.x = Math.PI / 2;
+    mouth.position.set(stack.position.x, 72.5 + i * 5, 0); g.add(mouth);
+    var smokeMat = new THREE.SpriteMaterial({ map: mistTexture, color: 0x615966, transparent: true, opacity: .55, depthWrite: false });
+    for (var j = 0; j < 3; j++) {
+      var smoke = new THREE.Sprite(smokeMat); smoke.position.set(stack.position.x + j * 5, 85 + i * 5 + j * 20, 0);
+      smoke.scale.set(22 + j * 16, 34 + j * 13, 1); g.add(smoke);
+    }
+  }
+  var vent = mesh(box(0.3, 10, 42), G(0xff642b)); vent.position.set(30.2, 8, 0); g.add(vent);
   return g;
 }
 
@@ -2953,7 +3157,7 @@ P.models = {
   buildDragon: buildDragon, buildOrb: buildOrb, buildBoss: buildBoss,
   ENEMY_DEFS: ENEMY_DEFS,
   buildRock: buildRock, buildSpire: buildSpire, buildRuin: buildRuin,
-  buildIsland: buildIsland, buildTower: buildTower, buildCloud: buildCloud
+  buildKeep: buildKeep, buildFoundry: buildFoundry, buildIsland: buildIsland, buildTower: buildTower, buildCloud: buildCloud
 };
 
 })();
@@ -3209,19 +3413,32 @@ var scene = P.scene, m = P.models;
 // ----------------------------------------------------------- height fields
 function hCanyon(x, z) {
   var ax = Math.abs(x);
-  var t = Math.max(0, (ax - 74) / 70);
+  var t = Math.max(0, (ax - 105) / 70);
   var wall = 86 * (1 - Math.exp(-t * 1.35));
   var dune = Math.sin(x * 0.031) * 3.6 + Math.sin(z * 0.023 + x * 0.009) * 5.4
            + Math.sin(x * 0.081 + z * 0.047) * 2.4 + Math.sin(z * 0.107) * 1.5
            + Math.sin(x * 0.19 + z * 0.14) * 0.9;
-  var mesaMask = clamp((ax - 40) / 30, 0, 1);
+  var mesaMask = clamp((ax - 95) / 30, 0, 1);
   var mesa = Math.max(0, Math.sin(z * 0.0061 + x * 0.0017) - 0.44) * 62 * mesaMask;
-  return wall + dune + mesa;
+  // A long central mesa makes two real passages through the second half.
+  var fork = clamp((z - 3900) / 500, 0, 1) * clamp((6100 - z) / 500, 0, 1);
+  var ridge = 74 * Math.exp(-Math.pow(x / 24, 4)) * fork;
+  return wall + dune + mesa + ridge;
 }
 function hSea(x, z) {
   return Math.sin(x * 0.055) * 2.6 + Math.sin(z * 0.047 + 1.3) * 3.1
        + Math.sin((x + z) * 0.021) * 3.6 + Math.sin(x * 0.121 + z * 0.093) * 1.5
        + Math.sin(x * 0.24 + z * 0.19) * 0.8 - 5;
+}
+
+function hCitadel(x, z) {
+  // Continuous mountain shoulders support the fortress on either side of a ravine.
+  var shoulder = Math.max(0, Math.abs(x) - 78);
+  var rough = Math.min(1, shoulder / 55) * (Math.sin(z * .019 + x * .022) * 16 + Math.abs(Math.sin(z * .009 - x * .031)) * 35);
+  return -28 + Math.min(130, shoulder * 0.85) + Math.sin(z * 0.012) * 5 + rough;
+}
+function hFoundry(x, z) {
+  return -12 + Math.max(0, Math.abs(x) - 90) * 0.42 + Math.sin(z * 0.02) * 3;
 }
 
 // ------------------------------------------------------------------ terrain
@@ -3374,7 +3591,7 @@ var EPISODES = [
   {
     id: 'ep1', label: 'EPISODE I', name: 'THE ASHEN CANYON',
     sub: 'Where the empire buried its machines, the sand still hums.',
-    music: 'ep1', length: 5400, railY: 22, speed: 56,
+    music: 'ep1', length: 7400, railY: 22, speed: 56,
     weather: { ember: 0.85, wind: 0.35 },   // the buried machines still burn
     sky: { lo: 0xffb257, mid: 0xd15a56, hi: 0x33195e, sun: 0xffd08a, sunDir: [0.18, 0.06, 1], sunSize: 0.0034, bands: 24, shaft: 0.46 },
     fog: { col: 0xc4785c, near: 110, far: 640 },
@@ -3387,7 +3604,7 @@ var EPISODES = [
       make: function () { return Math.random() < 0.55 ? m.buildSpire(rand(26, 62), 0x9c6742) : m.buildRock(1.1, 0xb3844f); },
       place: function (o, z) {
         var side = Math.random() < 0.5 ? -1 : 1;
-        var x = side * rand(58, 200);
+        var x = side * rand(112, 220);
         o.position.set(x, hCanyon(x, z) - 4, z);
         o.rotation.y = rand(0, TAU);
         o.scale.setScalar(rand(0.75, 1.5));
@@ -3407,7 +3624,7 @@ var EPISODES = [
   {
     id: 'ep2', label: 'EPISODE II', name: 'THE DROWNED CHOIR',
     sub: 'A city sang here once. Now only the water keeps the tune.',
-    music: 'ep2', length: 5400, railY: 20, speed: 60,
+    music: 'ep2', length: 6400, railY: 20, speed: 60,
     weather: { rain: 1.0, wind: 0.7 },      // the drowned city, still drowning
     sky: { lo: 0x8fe0e6, mid: 0x2f7fa8, hi: 0x0e2140, sun: 0xdff4ff, sunDir: [-0.35, 0.22, 1], sunSize: 0.0022, bands: 22 },
     fog: { col: 0x3f90ad, near: 100, far: 620 },
@@ -3420,7 +3637,7 @@ var EPISODES = [
       make: function () { return m.buildRuin(0x9aa7ac); },
       place: function (o, z) {
         var side = Math.random() < 0.5 ? -1 : 1;
-        var x = side * rand(34, 190);
+        var x = side * rand(95, 210);
         o.position.set(x, -8, z);
         o.rotation.set(rand(-0.14, 0.14), rand(0, TAU), rand(-0.14, 0.14));
         o.scale.setScalar(rand(0.85, 1.8));
@@ -3438,26 +3655,45 @@ var EPISODES = [
     density: 1.0
   },
   {
-    id: 'ep3', label: 'EPISODE III', name: 'THE CITADEL OF HOURS',
-    sub: 'Above the last cloud, the Fountain keeps its own weather.',
-    music: 'ep3', length: 5200, railY: 46, speed: 64,
+    id: 'foundry', label: 'EPISODE III', name: 'THE EMBER FOUNDRY',
+    sub: 'The empire feeds its furnaces with borrowed time. Break the supply line.',
+    music: 'ep1', length: 6100, railY: 28, speed: 62,
+    weather: { ember: 1.2, wind: 0.8 },
+    sky: { lo: 0xff9a48, mid: 0x652d40, hi: 0x130f25, sun: 0xffb46c, sunDir: [0.2, 0.1, 1], sunSize: 0.003, bands: 24, shaft: 0.3 },
+    fog: { col: 0x653b40, near: 140, far: 740 },
+    light: { amb: 0x59414e, ambI: 1.05, key: 0xffb76c, keyI: 1.3, kd: [0.3, 0.6, 1], rim: 0x68bbdc, rimI: 0.6 },
+    terrain: { h: hFoundry, colLo: C(0x372e35), colHi: C(0x866151), colBase: -12, colRange: 80 },
+    props: {
+      count: 16, gap: 130, ahead: 850,
+      make: function () { return m.buildFoundry(); },
+      place: function (o, z) {
+        var x = (Math.round(z / 130) % 2 ? -1 : 1) * 120;
+        o.position.set(x, hFoundry(x, z), z); o.rotation.y = x < 0 ? 0 : Math.PI;
+      }
+    },
+    props2: {
+      count: 8, gap: 240, ahead: 800,
+      make: function () { return m.buildCloud(0x78616d); },
+      place: function (o, z) { o.position.set(Math.sin(z) * 180, 130, z); o.scale.setScalar(1.8); }
+    },
+    enemyMix: [['carrier', 4], ['turret', 3], ['chaser', 2], ['wasp', 2]], density: 1.1
+  },
+  {
+    id: 'ep3', label: 'EPISODE IV', name: 'THE CITADEL OF HOURS',
+    sub: 'The mountain holds the city. The city holds the stolen years.',
+    music: 'ep3', length: 7000, railY: 46, speed: 64,
     weather: { snow: 1.0, wind: 0.5 },      // above the last cloud
     sky: { lo: 0xffa8d4, mid: 0x7a4fc0, hi: 0x120833, sun: 0xffd9f0, sunDir: [0.5, 0.3, -1], sunSize: 0.0030, bands: 20 },
     fog: { col: 0x6a45a0, near: 110, far: 660 },
     light: { amb: 0x4a3070, ambI: 1.1, key: 0xffc7ea, keyI: 1.0, kd: [0.5, 0.5, -1], rim: 0x62e0ff, rimI: 0.55 },
-    terrain: null,
+    terrain: { h: hCitadel, colLo: C(0x322e48), colHi: C(0xaaa0bc), colBase: -28, colRange: 110 },
     props: {
-      count: 22, gap: 92, ahead: 760,
-      make: function () {
-        var r = Math.random();
-        if (r < 0.4) return m.buildTower(0x6b5f9c, 0xc8a23f);
-        return m.buildIsland(rand(0.8, 2.4), 0x7b6aa8, 0x453a63);
-      },
+      count: 14, gap: 150, ahead: 850,
+      make: function () { return m.buildKeep(); },
       place: function (o, z) {
-        var side = Math.random() < 0.5 ? -1 : 1;
-        var x = side * rand(40, 200);
-        o.position.set(x, rand(-42, 30), z);
-        o.rotation.y = rand(0, TAU);
+        var x = (Math.round(z / 150) % 2 ? -1 : 1) * 128;
+        o.position.set(x, hCitadel(x, z), z);
+        o.rotation.y = x < 0 ? 0 : Math.PI;
       }
     },
     props2: {
@@ -3479,14 +3715,14 @@ var EPISODES = [
     sky: { lo: 0xff7a4a, mid: 0x52205e, hi: 0x08030f, sun: 0xff9f5f, sunDir: [0.15, -0.06, 1], sunSize: 0.0042, bands: 18 },
     fog: { col: 0x3a1140, near: 120, far: 700 },
     light: { amb: 0x5c3358, ambI: 1.25, key: 0xffc190, keyI: 1.25, kd: [0.25, 0.45, -1], rim: 0x9a5fff, rimI: 0.7 },
-    terrain: null,
+    terrain: { h: hCitadel, colLo: C(0x251e30), colHi: C(0x72536e), colBase: -28, colRange: 110 },
     props: {
-      count: 12, gap: 150, ahead: 700,
-      make: function () { return m.buildIsland(rand(1.2, 3), 0x59406f, 0x2c1f3d); },
+      count: 10, gap: 180, ahead: 850,
+      make: function () { return m.buildKeep(); },
       place: function (o, z) {
-        var side = Math.random() < 0.5 ? -1 : 1;
-        o.position.set(side * rand(45, 150), rand(-70, 20), z);
-        o.rotation.y = rand(0, TAU);
+        var x = (Math.round(z / 180) % 2 ? -1 : 1) * 150;
+        o.position.set(x, hCitadel(x, z), z);
+        o.rotation.y = x < 0 ? 0 : Math.PI;
       }
     },
     props2: {
@@ -3504,7 +3740,7 @@ var EPISODES = [
 
 P.world = {
   Terrain: Terrain, PropField: PropField, EPISODES: EPISODES,
-  hCanyon: hCanyon, hSea: hSea, disposeTree: disposeTree
+  hCanyon: hCanyon, hSea: hSea, hCitadel: hCitadel, disposeTree: disposeTree
 };
 
 })();
@@ -3931,6 +4167,7 @@ var impactPool = new Pool(function () {
 }, 24);
 var impacts = [];
 function spawnImpact(pos, armColor, size) {
+  if (P.fx) P.fx.burst(pos, size || 1, armColor || 0x7fe8ff, true);
   var g = impactPool.get();
   g.position.copy(pos);
   g.rotation.set(rand(0, TAU), rand(0, TAU), rand(0, TAU));
@@ -3967,6 +4204,7 @@ var SHARD_MATS = {
 };
 
 function boom(pos, size, colorSet, count) {
+  if (P.fx && size >= 1) P.fx.burst(pos, size, 0xff944c, false);
   var n = count || Math.round(10 + size * 5);
   for (var i = 0; i < n; i++) {
     if (shards.length > 200) break;
@@ -4043,7 +4281,10 @@ function spawnEnemy(type, opts) {
     type: type, def: def, g: g, hp: def.hp * (opts.hpMul || 1), bs: bs,
     pos: new V3(), vel: new V3(), t: 0, fireT: rand(0.6, 2.0),
     alive: true, locked: 0, phase: rand(0, TAU), hold: rand(26, 64),
-    lane: rand(-1, 1), amp: rand(6, 18), flashT: 0, tag: opts.tag || null
+    lane: rand(-1, 1), amp: rand(6, 18), flashT: 0, tag: opts.tag || null,
+    openingOffset: opts.openingOffset || null,
+    formation: opts.formation || null, holdFor: opts.holdFor || 0,
+    deAge: opts.deAge === undefined ? def.deAge : opts.deAge
   };
   var pz = Game.railZ, ry = Player.railY;
 
@@ -4091,10 +4332,10 @@ function killEnemy(e, byPlayer) {
     e.spinA = rand(7, 12) * (Math.random() < 0.5 ? -1 : 1);
     e.fallV = rand(2, 7);
     spawnImpact(e.pos, 0xffa050, 1.3);
-    A.sBoom(false);
+    A.sBoom(false, e.pos);
   } else {
     boom(e.pos, e.def.radius * 1.4, enemyCols(e));
-    A.sBoom(e.def.radius > 2.3);
+    A.sBoom(e.def.radius > 2.3, e.pos);
   }
   if (byPlayer) {
     Game.kills++;
@@ -4107,11 +4348,13 @@ function killEnemy(e, byPlayer) {
     if (Game.combo > Game.bestCombo) Game.bestCombo = Game.combo;
     var mult = 1 + Math.min(Game.combo, 20) * 0.06;
     Game.score += Math.round(e.def.score * mult);
-    deAge(e.def.deAge * (1 + Math.min(Game.combo, 15) * 0.03));
+    deAge(e.deAge * (e.tag === 'opening-target' ? 1 : 2 + Math.min(Game.combo, 15) * 0.06));
+    if (P.opening) P.opening.onKill(e);
+    if (P.campaign) P.campaign.onKill(e);
     killQuip();
   }
   if (e.def.drops) for (var i = 0; i < e.def.drops; i++) spawnOrb(e.pos, true);
-  else if (Math.random() < 0.055) spawnOrb(e.pos, false);
+  else if (e.tag !== 'opening-target' && Math.random() < 0.055) spawnOrb(e.pos, false);
   dropLocks(e);
   if (!e.dying) {
     freeEnemyMesh(e.type, e.g);
@@ -4120,6 +4363,8 @@ function killEnemy(e, byPlayer) {
 }
 
 function hurtEnemy(e, dmg) {
+  // Carriers expose their cooling core to lateral or elevated attacks.
+  if (e.type === 'carrier' && (Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18)) dmg *= 2;
   e.hp -= dmg;
   e.flashT = 0.09;
   if (e.hp <= 0) killEnemy(e, true);
@@ -4207,7 +4452,7 @@ function addAge(y) {
   applyVigour();
 }
 function damagePlayer(amount, hard) {
-  if (Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
+  if ((Player.rollT > 0.14 && Player.rollT < 0.58) || Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
   addAge(amount);
   Game.invulnT = hard ? 1.5 : 1.15;
   Game.hurtT = 0.55;
@@ -4217,7 +4462,8 @@ function damagePlayer(amount, hard) {
   Game.heat = 0;
   refreshWeapons();
   A.sHit();
-  flashScreen(0.55, '#ff3b2a');
+  flashScreen(0.18, '#ff3b2a');
+  if (P.opening) P.opening.onHit();
   if (Math.random() < 0.5) sayQuip(pick([
     'That one cost him. They always cost him.',
     'He felt every year of it arrive at once.',
@@ -4259,6 +4505,7 @@ function fireLasers() {
   for (var i = 0; i < n; i++) {
     var tgt = Locks.list[i];
     var l = laserPool.get();
+    if (P.fx) P.fx.attachLaser(l);
     l.position.copy(origin);
     if (tgt.def) _fTp.copy(tgt.pos); else tgt.group.getWorldPosition(_fTp);
     var d = new V3().subVectors(_fTp, origin).normalize();
@@ -4281,6 +4528,8 @@ function fireLasers() {
     Game.shots++;
   }
   dragon.muzzleT = 0.18;
+  A.sLaser();
+  if (P.fx) P.fx.burst(origin, 0.8, 0x69dfff, true);
   Locks.list.length = 0;
 }
 
@@ -4577,10 +4826,13 @@ P.endGame = endGame;
 // ================================================================== UPDATES
 function updatePlayer(dt) {
   var ep = P.world.EPISODES[Game.epIndex];
-  var speed = ep.speed;
+  if (P.flight) P.flight.update(dt);
+  var speed = ep.speed * (Player.speedFactor || 1);
+  var corridor = ep.flightWidth || 72, ceiling = 58;
   // trading altitude for airspeed: a climb bleeds speed, a dive gains it
   var vyPrev = clamp(Player.vy / 44, -1, 1);
-  Game.railZ += speed * (1 - vyPrev * 0.15) * dt;
+  var forwardSpeed = speed * (1 - vyPrev * 0.15);
+  Game.railZ += forwardSpeed * dt;
 
   // ---- view rotation
   Player.camYaw += P.angDelta(Player.camYaw, Player.camYawTarget) * dampF(7.5, dt);
@@ -4594,17 +4846,27 @@ function updatePlayer(dt) {
   var yaw = Player.camYaw;
   // the camera looks along +Z, so screen-right is world -X (not +X)
   var rx = -Math.cos(yaw), rz = Math.sin(yaw);
-  var accel = 128;
-  Player.vx = damp(Player.vx, ix * rx * accel * 0.42, 7, dt);
-  Player.vz = damp(Player.vz, ix * rz * accel * 0.42, 7, dt);
-  Player.vy = damp(Player.vy, iy * accel * 0.36, 7, dt);
+  if (Player.rollT > 0) ix = Player.rollDir;
+  var accel = Player.rollT > 0 ? 185 : 128;
+  // Ease into the edge of the flight corridor instead of sliding at full
+  // speed into an invisible wall while the rig keeps showing a hard turn.
+  function corridorSpeed(want, pos, lo, hi) {
+    return clamp(want, -Math.max(0, pos - lo) * 4, Math.max(0, hi - pos) * 4);
+  }
+  Player.vx = damp(Player.vx, corridorSpeed(ix * rx * accel * 0.42, Player.x, -corridor, corridor), 7, dt);
+  Player.vz = damp(Player.vz, corridorSpeed(ix * rz * accel * 0.42, Player.zOff, -26, 26), 7, dt);
+  Player.vy = damp(Player.vy, corridorSpeed(iy * accel * 0.36, Player.y, -16, ceiling), 7, dt);
+  var oldX = Player.x, oldY = Player.y, oldZ = Player.zOff;
   Player.x += Player.vx * dt;
   Player.zOff += Player.vz * dt;
   Player.y += Player.vy * dt;
 
-  Player.x = clamp(Player.x, -30, 30);
-  Player.zOff = clamp(Player.zOff, -14, 14);
-  Player.y = clamp(Player.y, -16, 26);
+  Player.x = clamp(Player.x, -corridor, corridor);
+  Player.zOff = clamp(Player.zOff, -26, 26);
+  Player.y = clamp(Player.y, -16, ceiling);
+  if ((Player.x === -corridor && Player.vx < 0) || (Player.x === corridor && Player.vx > 0)) Player.vx = 0;
+  if ((Player.zOff === -26 && Player.vz < 0) || (Player.zOff === 26 && Player.vz > 0)) Player.vz = 0;
+  if ((Player.y === -16 && Player.vy < 0) || (Player.y === ceiling && Player.vy > 0)) Player.vy = 0;
 
   Player.railY = damp(Player.railY, ep.railY, 1.4, dt);
   Player.pos.set(Player.x, Player.railY + Player.y, Game.railZ + Player.zOff);
@@ -4624,18 +4886,26 @@ function updatePlayer(dt) {
   Player.aimY = damp(Player.aimY, cine ? 0 : Input.ndy, 10, dt);
 
   // ---- dragon transform
-  // The dragon faces the RAIL he is actually flying, always. The camera yaw
-  // (Q/E orbit, steering lean) is the camera's business alone — welding the
-  // root to it made him fly sideways whenever the view rotated.
-  Player.lean = damp(Player.lean || 0, ix, 3.2, dt);
+  // Pose from actual travel in the dragon's +Z frame, independent of the
+  // viewing direction. Filter contact corrections before they reach the rig.
+  var invDt = 1 / Math.max(dt, 1e-4);
+  Player.motionX = damp(Player.motionX || 0, (Player.x - oldX) * invDt, 10, dt);
+  Player.motionY = damp(Player.motionY || 0, (Player.y - oldY) * invDt, 8, dt);
+  Player.motionZ = damp(Player.motionZ || 0, (Player.zOff - oldZ) * invDt, 10, dt);
+  var screenStrafe = (Player.motionX * rx + Player.motionZ * rz) / (accel * 0.42);
+  Player.lean = damp(Player.lean || 0, screenStrafe, 5, dt);
   dragon.root.position.copy(Player.pos);
-  dragon.root.rotation.y = Player.lean * 0.22;   // gentle nose-lean into the dodge
+  var heading = Math.atan2(Player.motionX, Math.max(20, forwardSpeed + Player.motionZ));
+  dragon.root.rotation.y = damp(dragon.root.rotation.y, heading * 0.72, 6, dt);
   dragon.update(dt, Game.time, {
-    strafeX: clamp(Player.vx * -Math.cos(yaw) * 0.02 + Player.vz * Math.sin(yaw) * 0.02, -1, 1),
-    strafeY: clamp(Player.vy * 0.02, -1, 1),
-    vy: Player.vy,
-    aimX: Player.aimX, aimY: Player.aimY, boost: 0
+    strafeX: clamp(-Player.motionX / (accel * 0.42), -1, 1),
+    strafeY: clamp(Player.motionY / 44, -1, 1),
+    vy: Player.motionY,
+    aimX: Player.aimX, aimY: Player.aimY, boost: Player.boosting ? 1 : 0
   });
+
+  var rollProgress = Player.rollT > 0 ? 1 - Player.rollT / 0.65 : 0;
+  dragon.root.rotation.z = Player.rollT > 0 ? -Player.rollDir * TAU * (rollProgress * rollProgress * (3 - 2 * rollProgress)) : 0;
 
   // blink while invulnerable
   if (Game.invulnT > 0) {
@@ -4656,7 +4926,7 @@ function updatePlayer(dt) {
   camPos.addScaledVector(fwd, dragon.getSurge() * 0.5);
   // lateral lag: the boom hangs behind the sideways motion
   var rX = -Math.cos(yaw), rZ = Math.sin(yaw);           // screen-right
-  var latV = Player.vx * rX + Player.vz * rZ;             // signed strafe speed
+  var latV = Player.motionX * rX + Player.motionZ * rZ;
   camPos.x += rX * -latV * 0.05;
   camPos.z += rZ * -latV * 0.05;
   camPos.x += Math.sin(Game.time * 0.7) * 0.25;
@@ -4671,14 +4941,14 @@ function updatePlayer(dt) {
   look.x += Math.sin(lookYaw) * 34;
   look.z += Math.cos(lookYaw) * 34;
   look.y += 6.0 - Player.aimY * 4.0;
-  look.x += Input.ndx * 4.4 * -Math.cos(camYawV);
-  look.z += Input.ndx * 4.4 * Math.sin(camYawV);
+  look.x += Player.aimX * 4.4 * -Math.cos(camYawV);
+  look.z += Player.aimX * 4.4 * Math.sin(camYawV);
   camera.lookAt(look);
   camera.rotateZ(-lean * 0.035);         // a whisper of roll, not a tilt-a-whirl
   // speed reads through the lens: diving widens the field, and each wingbeat
   // surge breathes it slightly
   var fovT = 56 + Math.max(0, -Player.vy / 44) * 7 + Math.abs(lean) * 1.5
-           + Math.max(0, dragon.getSurge()) * 6;
+           + Math.max(0, dragon.getSurge()) * 6 + (Player.boosting ? 10 : 0);
   camera.fov = damp(camera.fov, fovT, 4.5, dt);
   camera.updateProjectionMatrix();
 
@@ -4718,22 +4988,23 @@ function updateProjectiles(dt) {
       p.v.lerp(P.tmpA, dampF(k, dt));
     }
     p.v.setLength(spd);
+    var previousLaserPos = p.m.position.clone();
     p.m.position.addScaledVector(p.v, dt);
     p.m.lookAt(P.tmpB.copy(p.m.position).add(p.v));
     ribbonAdvance(p.rib, p.m.position.x, p.m.position.y, p.m.position.z, 3.4);
-    ribbonBuild(p.rib, 0.4, 0xcfeeff, 0x1030d8, 0.9);
+    ribbonBuild(p.rib, 0.85, 0xffffff, 0x166dff, 1.25);
     p.life -= dt;
     var hit = false;
-    if (tp && p.m.position.distanceTo(tp) < (p.target.def ? p.target.def.radius + 1.6 : 7.0)) {
+    if (tp && segPointD2(previousLaserPos, p.m.position, tp) < Math.pow(p.target.def ? p.target.def.radius + 1.6 : 7.0, 2)) {
       if (p.target.def) hurtEnemy(p.target, p.dmg);
       else bossCoreHit(p.target, 4.5);
       spawnImpact(p.m.position, 0x7fe8ff, 1.15);
       boom(p.m.position, 0.7, [SHARD_MATS.cyan, SHARD_MATS.white], 4);
-      A.sZap();
+      A.sZap(p.m.position);
       hit = true; Game.hits++;
     }
     if (hit || p.life <= 0) {
-      releaseTrail(p.rib, 0.4, 0xcfeeff, 0x1030d8);
+      releaseTrail(p.rib, 0.85, 0xffffff, 0x166dff);
       p.rib = null;
       laserPool.put(p.m); lasers.splice(i, 1);
     }
@@ -4874,7 +5145,9 @@ function enemyShoot(e, speed, dmg, spread) {
   var d = P.tmpA.copy(Player.pos).sub(e.pos).normalize();
   d.x += rand(-spread, spread); d.y += rand(-spread, spread); d.z += rand(-spread, spread);
   d.normalize();
-  ebullets.push({ m: b, v: d.multiplyScalar(speed), life: 6, dmg: dmg });
+  var shot = { m: b, v: d.multiplyScalar(speed), life: 6, dmg: dmg };
+  ebullets.push(shot);
+  return shot;
 }
 
 function updateEnemies(dt) {
@@ -4896,10 +5169,18 @@ function updateEnemies(dt) {
       var gh = P.terrain.enabled ? P.terrain.heightAt(e.pos.x, e.pos.z) : -1e9;
       if (e.dying <= 0 || e.pos.y <= gh + 1) {
         boom(e.pos, e.def.radius * 1.5, enemyCols(e));
-        A.sBoom(e.def.radius > 2.3);
+        A.sBoom(e.def.radius > 2.3, e.pos);
         freeEnemyMesh(e.type, e.g);
         enemies.splice(i, 1);
       }
+      continue;
+    }
+
+    // Briefing targets hold a readable formation and never fire or collide.
+    if (e.openingOffset) {
+      e.pos.set(e.openingOffset.x, ry + e.openingOffset.y, Game.railZ + e.openingOffset.z);
+      e.g.position.copy(e.pos);
+      e.g.lookAt(Player.pos);
       continue;
     }
 
@@ -4907,7 +5188,10 @@ function updateEnemies(dt) {
     var dist = toP.length();
     var prevX = e.pos.x;
 
-    switch (e.type) {
+    if (e.formation && e.t < e.holdFor) {
+      e.pos.set(e.formation.x, ry + e.formation.y + Math.sin(e.t) * 2, Game.railZ + e.formation.z);
+      e.g.lookAt(Player.pos);
+    } else switch (e.type) {
       case 'wasp': {
         var want = P.tmpB.copy(Player.pos);
         want.x += Math.sin(e.t * 0.9 + e.phase) * e.amp;
@@ -5011,6 +5295,7 @@ function updateEnemies(dt) {
 var spawnT = 0;
 function updateSpawner(dt) {
   if (Game.state !== 'playing' || Game.ending) return;
+  if (P.opening && P.opening.active) return;
   var ep = P.world.EPISODES[Game.epIndex];
   spawnT -= dt;
   if (spawnT > 0) return;
@@ -5042,6 +5327,20 @@ P.entities = {
   updateBoss: updateBoss, bossStart: bossStart, Boss: Boss,
   fireGun: fireGun, fireLasers: fireLasers, boom: boom, SHARD_MATS: SHARD_MATS,
   spawnOrb: spawnOrb, spawnImpact: spawnImpact, impacts: impacts,
+  enemyShoot: enemyShoot,
+  dismissEnemy: function (e) {
+    var i = enemies.indexOf(e);
+    if (i < 0) return;
+    e.alive = false;
+    dropLocks(e);
+    freeEnemyMesh(e.type, e.g);
+    enemies.splice(i, 1);
+  },
+  dismissShot: function (shot) {
+    var i = ebullets.indexOf(shot);
+    if (i < 0) return;
+    ebPool.put(shot.m); ebullets.splice(i, 1);
+  },
   prewarm: prewarmEnemies,
   poolStats: function () {
     return { laser: laserPool.grown, ribbon: ribbonPool.grown, gun: gunPool.grown,
@@ -5084,6 +5383,335 @@ P.entities = {
 
 })();
 if (window.__PFLOAD) __PFLOAD.set(0.55, 'TUNING THE ORGAN');
+
+
+/* An authored first minute. All clocks use simulation time, including pause. */
+(function () {
+var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
+var panel = document.getElementById('briefing');
+var heading = document.getElementById('briefingTitle');
+var body = document.getElementById('briefingText');
+var step = document.getElementById('briefingStep');
+var state = P.opening = {
+  active: false, phase: 'off', t: 0, elapsed: 0, kills: 0, startAge: 89,
+  targets: [], shot: null, hit: false, wave: false
+};
+function copy(title, text, label) {
+  if (heading.textContent !== title) heading.textContent = title;
+  if (body.textContent !== text) body.textContent = text;
+  if (step.textContent !== label) step.textContent = label;
+  panel.hidden = false;
+}
+function phase(name) { state.phase = name; state.t = 0; }
+function clearTargets() {
+  state.targets.forEach(function (e) { E.dismissEnemy(e); });
+  state.targets.length = 0;
+  if (state.shot) E.dismissShot(state.shot);
+  state.shot = null;
+}
+state.reset = function () {
+  clearTargets();
+  state.active = false; state.phase = 'off'; state.t = state.elapsed = state.kills = 0;
+  state.hit = state.wave = false;
+  panel.hidden = true;
+};
+state.start = function () {
+  state.reset();
+  if (!document.getElementById('guidedOpening').checked) return;
+  state.active = true; state.startAge = Game.age;
+  phase('arrival');
+};
+state.skip = function () {
+  if (!state.active) return;
+  state.reset();
+  P.toast('THE SKY IS YOURS');
+};
+document.getElementById('skipBriefing').addEventListener('click', function (e) {
+  e.stopPropagation(); state.skip();
+});
+state.onKill = function (e) {
+  if (state.active && e.tag === 'opening-target') state.kills++;
+};
+state.onHit = function () {
+  if (state.active && state.phase === 'dodge') state.hit = true;
+};
+function practice() {
+  phase('volley');
+  for (var i = -1; i <= 1; i++) {
+    var offset = new P.V3(i * 19, 12, 95);
+    var e = E.spawnEnemy('wasp', {
+      tag: 'opening-target', hpMul: 0.5, deAge: 1,
+      openingOffset: offset,
+      pos: new P.V3(offset.x, Player.railY + offset.y, Game.railZ + offset.z)
+    });
+    state.targets.push(e);
+  }
+}
+function warn() {
+  phase('warning');
+  // Hold the source ahead; only the single explicitly timed shot can fire.
+  var offset = new P.V3(Player.x, Player.y, 260);
+  state.targets.push(E.spawnEnemy('ray', {
+    tag: 'opening-sentry', openingOffset: offset,
+    pos: new P.V3(offset.x, Player.railY + offset.y, Game.railZ + offset.z)
+  }));
+  copy('Watch the sentry', 'One shot is coming. When it fires, bank with A or D.', '02 / EVADE');
+}
+function encounter() {
+  phase('encounter');
+  copy('The canyon wakes', 'A carrier and its escort. Sweep the formation, then release your volley.', '03 / PUT IT TOGETHER');
+  E.spawnEnemy('carrier', {
+    pos: new P.V3(0, Player.railY + 17, Game.railZ + 160),
+    formation: new P.V3(0, 17, 160), holdFor: 12
+  });
+  for (var i = -1; i <= 1; i += 2) {
+    var e = E.spawnEnemy('wasp', {
+      pos: new P.V3(i * 24, Player.railY + 10, Game.railZ + 105),
+      formation: new P.V3(i * 24, 10, 105), holdFor: 10
+    });
+    e.fireT = 4; e.phase = i < 0 ? 0 : Math.PI;
+  }
+}
+state.update = function (dt) {
+  if (!state.active || Game.state !== 'playing') return;
+  if (Game.epIndex !== 0 || Game.ending) { state.reset(); return; }
+  state.t += dt; state.elapsed += dt;
+  if (state.phase === 'arrival') {
+    if (state.t >= 4) practice();
+  } else if (state.phase === 'volley') {
+    var unique = state.targets.filter(function (e) { return P.Locks.list.indexOf(e) >= 0; }).length;
+    var forward = ((Player.viewIndex % 4) + 4) % 4 === 0;
+    if (!forward) {
+      copy('Face the formation', 'Use Q or E to return to FORWARD on the radar.', '01 / LOCK & RELEASE');
+    } else if (P.Input.lmb && unique) {
+      copy('Release to fire', unique + ' target' + (unique === 1 ? '' : 's') + ' locked. Sweep across the others or release now.', '01 / LOCK & RELEASE');
+    } else {
+      copy('Take your years back', 'Hold the left mouse button and sweep across the three gold targets. Release to fire.', '01 / LOCK & RELEASE · ' + state.kills + ' / 3');
+    }
+    var inFlight = E.lasers.some(function (laser) { return laser.target.alive && state.targets.indexOf(laser.target) >= 0; });
+    if (state.kills >= 3 || (state.t >= 20 && !inFlight) || state.t >= 23) {
+      clearTargets(); phase('reward');
+      var years = state.startAge - Game.age;
+      copy(years > 0 ? years.toFixed(0) + (years === 1 ? ' YEAR RETURNED' : ' YEARS RETURNED') : 'Keep the volley in mind',
+        years > 0 ? 'Age ' + state.startAge.toFixed(0) + ' → ' + Game.age.toFixed(0) + '. Defeating enemies makes you younger; hits make you older.'
+                  : 'Hold to lock. Release to fire. You can keep practicing in the next formation.',
+        '01 / ' + (years > 0 ? 'TIME RECLAIMED' : 'ONWARD'));
+      if (years > 0) P.flashScreen(0.12, '#8fffc4');
+    }
+  } else if (state.phase === 'reward') {
+    if (state.t >= 4) warn();
+  } else if (state.phase === 'warning') {
+    if (state.t >= 3) {
+      var sentry = state.targets[0];
+      // A player who destroys the sentry has already dealt with the threat.
+      if (!sentry.alive) {
+        clearTargets(); phase('evaded');
+        copy('Threat removed', 'That works too. A or D will carry you clear of incoming fire.', '02 / CLEAR');
+      } else {
+        state.shot = E.enemyShoot(sentry, 65, 1, 0);
+        state.startX = Player.x; state.hit = false;
+        phase('dodge');
+        copy('Bank now — A or D', 'Move out of the shot’s path. The shot will not follow your turn.', '02 / EVADE');
+      }
+    }
+  } else if (state.phase === 'dodge') {
+    // Resolve after the projectile crosses the player, not when a key is tapped.
+    if (state.t >= 3.5) {
+      var dodged = !state.hit && Math.abs(Player.x - state.startX) > 4;
+      clearTargets(); phase('evaded');
+      copy(dodged ? 'Clean escape' : state.hit ? 'A year lost. Keep flying.' : 'The shot is past',
+        dodged ? 'Keep moving between volleys. You can aim while you bank.' : 'A or D banks the dragon. Move after a shot is fired to leave its path.', '02 / ONWARD');
+    }
+  } else if (state.phase === 'evaded') {
+    if (state.t >= 3) {
+      phase('breath');
+      copy('Something larger is ahead', 'Ready your next volley.', 'THE ASHEN CANYON');
+    }
+  } else if (state.phase === 'breath') {
+    if (state.t >= 3) encounter();
+  } else if (state.phase === 'encounter') {
+    if (state.t >= 7) panel.hidden = true;
+    if (state.t >= 10 && !state.wave) {
+      state.wave = true;
+      for (var i = -1; i <= 1; i += 2) {
+        var ray = E.spawnEnemy('ray', { pos: new P.V3(i * 85, Player.railY + 13, Game.railZ + 270) });
+        ray.vel.x = -i * 22; ray.fireT = 3;
+      }
+      P.toast('CROSSING PATROL');
+    }
+    if (state.elapsed >= 60) {
+      state.reset();
+      P.toast('THE SKY IS YOURS');
+    }
+  }
+};
+})();
+
+
+/* Bounded combat glow pool. Three reusable lights; no postprocess render pass. */
+(function () {
+'use strict';
+var P = window.__PF, scene = P.scene;
+var data = new Uint8Array(64 * 64 * 4);
+for (var i = 0; i < 4096; i++) {
+  var x = (i % 64 - 31.5) / 31.5, y = (Math.floor(i / 64) - 31.5) / 31.5;
+  var r = Math.sqrt(x * x + y * y);
+  data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = 255;
+  data[i * 4 + 3] = Math.round(255 * Math.pow(Math.max(0, 1 - r), 2.3));
+}
+var tex = new THREE.DataTexture(data, 64, 64, THREE.RGBAFormat);
+tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.needsUpdate = true;
+function sprite(col) {
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: col, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+}
+var pool = [], cursor = 0, lights = [], lightCursor = 0;
+var ringGeo = new THREE.TorusGeometry(1, .035, 4, 40);
+for (i = 0; i < 40; i++) {
+  var g = new THREE.Group(), halo = sprite(0xff974a), core = sprite(0xffffff);
+  var ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffb878, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  g.add(halo, core, ring); g.visible = false; scene.add(g);
+  pool.push({ g: g, halo: halo, core: core, ring: ring, age: 0, life: 0, size: 1 });
+}
+for (i = 0; i < 3; i++) { var light = new THREE.PointLight(0xff9944, 0, 95, 2); scene.add(light); lights.push({ light: light, age: 1 }); }
+function burst(pos, size, col, small) {
+  var b = pool[cursor++ % pool.length];
+  b.g.position.copy(pos); b.g.visible = true; b.g.scale.setScalar(1);
+  b.size = size; b.age = 0; b.life = small ? .23 : .85;
+  b.halo.material.color.setHex(col); b.ring.material.color.setHex(col);
+  b.ring.quaternion.copy(P.camera.quaternion); b.ring.visible = !small;
+  b.halo.material.opacity = .9; b.core.material.opacity = 1; b.ring.material.opacity = .65;
+  b.halo.scale.setScalar(size * 8); b.core.scale.setScalar(size * 3);
+  b.ring.scale.setScalar(.2);
+  if (!small) {
+    var l = lights[lightCursor++ % lights.length]; l.age = 0;
+    l.light.position.copy(pos); l.light.color.setHex(col); l.light.intensity = Math.min(5, size * 1.3);
+    l.strength = l.light.intensity;
+  }
+}
+P.fx = {
+  burst: burst,
+  attachLaser: function (mesh) {
+    if (mesh.userData.energyHalo) return;
+    var halo = sprite(0x49afff); halo.scale.set(7, 7, 7); mesh.add(halo); mesh.userData.energyHalo = halo;
+  },
+  update: function (dt) {
+    pool.forEach(function (b) {
+      if (!b.g.visible) return;
+      b.age += dt; var u = Math.min(1, b.age / b.life);
+      b.g.visible = u < 1;
+      b.halo.scale.setScalar(b.size * (8 + u * 18));
+      b.core.scale.setScalar(b.size * (3 + u * 5));
+      b.halo.material.opacity = Math.pow(1 - u, 2) * .85;
+      b.core.material.opacity = Math.pow(1 - u, 6);
+      b.ring.scale.setScalar(b.size * (.6 + u * 9)); b.ring.material.opacity = Math.pow(1 - u, 2) * .65;
+    });
+    lights.forEach(function (l) { l.age += dt; l.light.intensity = (l.strength || 0) * Math.pow(Math.max(0, 1 - l.age / .32), 2); });
+  },
+  reset: function () { pool.forEach(function (b) { b.g.visible = false; }); lights.forEach(function (l) { l.age = 1; l.light.intensity = 0; }); },
+  stats: function () { return { capacity: pool.length, active: pool.filter(function (b) { return b.g.visible; }).length, lights: lights.length }; }
+};
+})();
+
+
+/* Flight maneuvers and authored encounters layered over the ambient patrols. */
+(function () {
+'use strict';
+var P = window.__PF, Player = P.Player, Game = P.Game, E = P.entities, A = P.Audio_;
+P.flight = {
+  reset: function () {
+    Player.energy = 100; Player.rollT = 0; Player.rollCD = 0; Player.rollDir = 1;
+    Player.speedFactor = 1; Player.boosting = Player.braking = Player.exhausted = false;
+  },
+  roll: function () {
+    if (Game.state !== 'playing' || Game.cinematic || Player.energy < 28 || Player.rollCD > 0) return false;
+    Player.energy -= 28; Player.rollT = .65; Player.rollCD = 1.4;
+    Player.rollDir = P.Input.keys.a || P.Input.keys.arrowleft ? -1 : 1;
+    A.sRoll(); return true;
+  },
+  update: function (dt) {
+    if (Player.energy === undefined) this.reset();
+    Player.rollT = Math.max(0, Player.rollT - dt); Player.rollCD = Math.max(0, Player.rollCD - dt);
+    var keys = P.Input.keys, wasBoosting = Player.boosting;
+    Player.braking = !Game.cinematic && !!keys.x;
+    if (Player.energy <= .1) Player.exhausted = true;
+    if (Player.energy >= 24) Player.exhausted = false;
+    Player.boosting = !Game.cinematic && !!keys.shift && !Player.braking && !Player.exhausted && Player.energy > 0 && Player.rollT === 0;
+    Player.energy = P.clamp(Player.energy + (Player.boosting ? -34 : Player.rollT > 0 ? 0 : 19) * dt, 0, 100);
+    Player.speedFactor = P.damp(Player.speedFactor, Player.braking ? .55 : Player.boosting ? 1.65 : 1, 5, dt);
+    if (Player.boosting && !wasBoosting) A.sBoost();
+  }
+};
+P.flight.reset();
+var rings = [], geo = new THREE.TorusGeometry(10, .25, 5, 48);
+for (var i = 0; i < 6; i++) {
+  var ring = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x7befff, transparent: true, opacity: .8,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  ring.visible = false; P.scene.add(ring); rings.push(ring);
+}
+var episode = null, events = {}, routeDone = false, count = 0, previousZ = 0;
+function once(id, distance, fn) {
+  if (!events[id] && Game.railZ - Game.epStartZ >= distance) { events[id] = true; fn(); }
+}
+function formation(type, x, y, z, tag) {
+  var e = E.spawnEnemy(type, { pos: new P.V3(x, Player.railY + y, Game.railZ + z), formation: new P.V3(x, y, z), holdFor: 16, tag: tag });
+  e.fireT = 4; return e;
+}
+P.campaign = {
+  enter: function (ep) {
+    episode = ep.id; events = {}; routeDone = false; count = 0; previousZ = Player.pos.z;
+    rings.forEach(function (r) { r.visible = false; r.userData.collected = false; });
+    if (episode === 'ep1') rings.forEach(function (r, i) {
+      r.position.set(i % 2 ? 54 : -54, 30, 4700 + Math.floor(i / 2) * 220); r.visible = true;
+    });
+  },
+  onKill: function (e) {
+    if (e.tag === 'foundry-convoy' && episode === 'foundry') {
+      count++;
+      if (count === 3) { Game.score += 2000; P.deAge(3); P.toast('SUPPLY LINE BROKEN · +3 YEARS · +2000'); A.sOrb(); }
+      else P.toast('CONVOY ' + count + ' / 3');
+    }
+  },
+  update: function (dt) {
+    if (Game.state !== 'playing' || !episode) return;
+    if (episode === 'ep1') {
+      once('fork', 3500, function () { P.toast('SPLIT CANYON AHEAD · FOLLOW THE BLUE RINGS'); });
+      rings.forEach(function (r) {
+        if (!r.visible) return;
+        r.rotation.z += dt * .25;
+        // Test the swept crossing, so a boost cannot skip a narrow gate.
+        if (previousZ <= r.position.z && Player.pos.z >= r.position.z) {
+          if (Math.hypot(Player.x - r.position.x, Player.pos.y - r.position.y) < 13) {
+            r.userData.collected = true; Game.score += 350; Player.energy = Math.min(100, Player.energy + 25);
+            A.sOrb(); P.fx.burst(r.position, 2, 0x69eaff, true);
+            if (!routeDone) { routeDone = true; P.toast(Player.x < 0 ? 'EAST PASS · INTERCEPTOR PATROL' : 'WEST PASS · ARMOURED PATROL');
+              formation(Player.x < 0 ? 'ray' : 'carrier', Player.x, 14, 230); }
+          }
+          r.visible = false;
+        }
+      });
+      once('maneuvers', 5700, function () { P.toast('SHIFT BOOST · X AIR BRAKE · SPACE EVASIVE ROLL'); });
+    } else if (episode === 'ep2') {
+      once('crossfire', 1400, function () {
+        P.toast('CROSSING SQUADRON · KEEP MOVING');
+        [-1, 1].forEach(function (side) { for (var i = 0; i < 3; i++) formation('ray', side * (48 + i * 8), 10 + i * 6, 220 + i * 35); });
+      });
+      once('ambush', 3800, function () { P.toast('INTERCEPTORS ASTERN · Q / E TO LOOK BACK'); formation('chaser', -24, 8, -85); formation('chaser', 24, 8, -110); });
+    } else if (episode === 'foundry') {
+      once('convoy', 700, function () {
+        P.toast('BREAK THE CONVOY · FLANK CARRIERS FOR DOUBLE DAMAGE');
+        [-36, 0, 36].forEach(function (x, i) { formation('carrier', x, 8, 210 + i * 50, 'foundry-convoy'); });
+      });
+      once('guard', 3300, function () { P.toast('FOUNDRY DEFENCE WING'); for (var i = 0; i < 5; i++) formation('wasp', (i - 2) * 25, 18, 190 + i * 18); });
+    } else if (episode === 'ep3') {
+      once('gate', 900, function () { P.toast('THE MOUNTAIN GATE · CLIMB TO FLANK THE GUARD'); formation('carrier', -24, 0, 230); formation('carrier', 24, 0, 280); });
+      once('last', 4400, function () { P.toast('THE LAST DEFENCE'); for (var i = 0; i < 4; i++) formation('wasp', (i - 1.5) * 30, 15, 190 + i * 20); });
+    }
+    previousZ = Player.pos.z;
+  }
+};
+})();
 
 
 /* =========================================================================
@@ -5187,10 +5815,11 @@ function enterEpisode(i, instant, silent, keepMusic) {
   props2.configure(ep.props2, Game.railZ - 200);
   if (!silent) showCard(ep);
   if (!keepMusic) P.playMusic(ep.music);
-  if (ep.id === 'boss') {
-    setTimeout(function () { if (Game.state === 'playing') E.bossStart(); }, 2600);
-  }
+  Game.bossDelay = ep.id === 'boss' ? 2.6 : 0;
+  if (P.campaign) P.campaign.enter(ep);
 }
+
+P.enterEpisode = enterEpisode; // Used by the development scene preview.
 
 // --------------------------------------------------------------- projection
 var _pv = new V3(), _cv = new V3();
@@ -5247,7 +5876,7 @@ function updateLocks(dt) {
     var best = null, bestD = R * R;
     for (var i = 0; i < list.length; i++) {
       var t = list[i];
-      var cap = t.def ? 3 : 8;
+      var cap = t.tag === 'opening-target' ? 1 : t.def ? 3 : 8;
       if (countLocks(t) >= cap) continue;
       var pp = project(targetPos(t));
       if (!pp.front || pp.depth > 460) continue;
@@ -5288,6 +5917,18 @@ function drawHUD(dt) {
   if (Game.state !== 'playing') return;
   var S = Math.min(w, h) / 900;
   var pad = 26;
+  // Wing power and maneuver status stay near the lower edge, clear of targets.
+  hx.save();
+  var powerW = Math.min(240, w * 0.38), powerX = (w - powerW) / 2;
+  hx.fillStyle = 'rgba(8,12,25,.78)'; hx.fillRect(powerX - 12, h - 61, powerW + 24, 48);
+  hx.fillStyle = '#263b4d'; hx.fillRect(powerX, h - 36, powerW, 5);
+  hx.fillStyle = Player.boosting ? '#ffcb7e' : '#7defff';
+  hx.fillRect(powerX, h - 36, powerW * (Player.energy === undefined ? 1 : Player.energy / 100), 5);
+  hx.font = '11px monospace'; hx.textAlign = 'center';
+  hx.fillText(Player.boosting ? 'BOOST' : Player.braking ? 'AIR BRAKE' : Player.rollT > 0 ? 'EVASIVE ROLL' : 'WING POWER', w / 2, h - 44);
+  hx.fillStyle = '#c2d4df'; hx.font = '10px monospace';
+  hx.fillText('SHIFT BOOST · X BRAKE · SPACE ROLL', w / 2, h - 18);
+  hx.restore();
 
   // ---------- lock brackets on locked targets
   var i, pp;
@@ -5298,7 +5939,8 @@ function drawHUD(dt) {
     var dup = 0;
     for (var q = 0; q < i; q++) if (Locks.list[q] === t) dup++;
     var sz = clamp(1400 / Math.max(20, pp.depth), 11, 60) + dup * 5;
-    bracket(pp.x, pp.y, sz, '#ff4a6a', 2.5);
+    bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
+    bracket(pp.x, pp.y, sz, '#8fffc4', 2.5);
     hx.strokeStyle = 'rgba(255,74,106,.35)';
     hx.beginPath(); hx.moveTo(Input.mx, Input.my); hx.lineTo(pp.x, pp.y); hx.stroke();
   }
@@ -5312,8 +5954,12 @@ function drawHUD(dt) {
     if (pp.front && pp.x > -40 && pp.x < w + 40 && pp.y > -40 && pp.y < h + 40) {
       if (pp.depth < 380) {
         var s2 = clamp(1200 / Math.max(20, pp.depth), 8, 44);
-        hx.strokeStyle = 'rgba(143,217,255,.42)'; hx.lineWidth = 1.4;
-        hx.strokeRect(pp.x - s2, pp.y - s2, s2 * 2, s2 * 2);
+        var lesson = e.tag === 'opening-target' || e.tag === 'opening-sentry';
+        if (lesson) s2 = Math.max(s2, 20);
+        bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
+        bracket(pp.x, pp.y, s2, lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
+        if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
+        if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
       }
     } else {
       // off-screen: draw an edge arrow at the target's true screen bearing
@@ -5337,7 +5983,7 @@ function drawHUD(dt) {
   // ---------- reticle
   var lockR = Math.min(w, h) * 0.115;
   var nLock = Locks.list.length;
-  var retCol = Input.lmb ? (nLock ? '#ff4a6a' : '#ffd25e') : '#8fd9ff';
+  var retCol = Input.lmb ? (nLock ? '#8fffc4' : '#ffd25e') : '#8fd9ff';
   hx.strokeStyle = 'rgba(255,255,255,.13)'; hx.lineWidth = 1;
   if (Input.lmb) { hx.beginPath(); hx.arc(Input.mx, Input.my, lockR, 0, TAU); hx.stroke(); }
   bracket(Input.mx, Input.my, 20, retCol, 2.5);
@@ -5346,7 +5992,15 @@ function drawHUD(dt) {
   hx.moveTo(Input.mx - 7, Input.my); hx.lineTo(Input.mx + 7, Input.my);
   hx.moveTo(Input.mx, Input.my - 7); hx.lineTo(Input.mx, Input.my + 7);
   hx.stroke();
-  if (nLock) txt(nLock + '/' + Locks.max, Input.mx + 28, Input.my - 24, 15, '#ff4a6a');
+  if (nLock) txt(nLock + '/' + Locks.max + ' · RELEASE', Input.mx + 28, Input.my - 24, 15, '#8fffc4');
+
+  if (P.opening.phase === 'dodge' && P.opening.shot && E.ebullets.indexOf(P.opening.shot) >= 0) {
+    pp = project(P.opening.shot.m.position);
+    if (pp.front) {
+      bracket(pp.x, pp.y, 18, '#ff835e', 3);
+      txt('INCOMING', pp.x, pp.y - 26, 12, '#ffe9b0', 'center');
+    }
+  }
 
   // ---------- age gauge (top-left)
   var gx = pad, gy = pad + 6, gw = Math.min(360, w * 0.32), gh = 20;
@@ -5396,7 +6050,7 @@ function drawHUD(dt) {
     for (i = 0; i < Boss.built.cores.length; i++) {
       totalHp += Math.max(0, Boss.built.cores[i].hp); maxHp += Boss.built.cores[i].maxHp;
     }
-    var bw = Math.min(620, w * 0.6), bx = w / 2 - bw / 2, by = h - pad - 34;
+    var bw = Math.min(620, w * 0.6), bx = w / 2 - bw / 2, by = h - pad - 84;
     txt('CHRONOS · HOUR-SPHINX', w / 2, by - 8, 14, '#ff8a5a', 'center');
     hx.fillStyle = 'rgba(0,0,0,.6)'; hx.fillRect(bx, by, bw, 16);
     hx.fillStyle = '#ff5a3a'; hx.fillRect(bx + 2, by + 2, (bw - 4) * (totalHp / maxHp), 12);
@@ -5482,6 +6136,8 @@ window.addEventListener('keydown', function (e) {
   if (Input.keys[k]) return;
   Input.keys[k] = true;
   if (Game.state === 'playing') {
+    if (k === 'enter') P.opening.skip();
+    if (k === ' ' && P.flight) P.flight.roll();
     if (k === 'q') { Player.viewIndex--; Player.camYawTarget = Player.viewIndex * Math.PI / 2; A.sView(); }
     if (k === 'e') { Player.viewIndex++; Player.camYawTarget = Player.viewIndex * Math.PI / 2; A.sView(); }
   }
@@ -5520,6 +6176,7 @@ function updMouse(e) {
 }
 window.addEventListener('mousemove', updMouse);
 window.addEventListener('mousedown', function (e) {
+  if (e.target.closest && e.target.closest('button, input, summary')) return;
   if (Game.state === 'intro') { skipIntro(); return; }
   if (Game.state !== 'playing') return;
   updMouse(e);
@@ -5637,6 +6294,7 @@ function endIntro() {
   P.hudCanvas.style.display = 'block';
   P.el.skip.classList.remove('on');
   showCard(EPISODES[0]);
+  P.opening.start();
 }
 P.setIntroT = function (frac) { introT = INTRO_LEN * frac; };
 P.getIntroT = function () { return introT; };
@@ -5647,7 +6305,11 @@ function skipIntro() {
 
 // ================================================================= GAME FLOW
 function resetGame() {
+  P.opening.reset();
+  if (P.flight) P.flight.reset();
+  if (P.fx) P.fx.reset();
   E.reset();
+  Input.keys = {}; Input.lmb = Input.rmb = false;
   Game.time = 0; Game.railZ = 0; Game.epProgress = 0;
   Game.age = 89; Game.startAge = 89; Game.score = 0; Game.kills = 0;
   Game.shots = 0; Game.hits = 0; Game.combo = 0; Game.bestCombo = 0; Game.comboT = 0;
@@ -5655,6 +6317,10 @@ function resetGame() {
   Game.cinematic = false;
   Player.x = 0; Player.y = 0; Player.zOff = 0;
   Player.vx = Player.vy = Player.vz = 0;
+  Player.motionX = Player.motionY = Player.motionZ = Player.lean = 0;
+  Player.aimX = Player.aimY = 0;
+  P.dragon.root.rotation.set(0, 0, 0);
+  P.dragon.resetMotion();
   Player.viewIndex = 0; Player.camYaw = 0; Player.camYawTarget = 0;
   Player.railY = EPISODES[0].railY;
   P.dragon.setAge(89);
@@ -5690,6 +6356,7 @@ function rankFor(age) {
 }
 
 P.onEnd = function (won) {
+  P.opening.reset();
   var acc = Game.shots ? Math.round(Game.hits / Game.shots * 100) : 0;
   var finalAge = won ? clamp(Game.age - 4, 24, 100) : Game.age;
   if (won) { Game.age = finalAge; P.dragon.setAge(finalAge); }
@@ -5755,10 +6422,17 @@ function frame(now) {
     if (Game.comboT > 0) { Game.comboT -= dt; if (Game.comboT <= 0) Game.combo = 0; }
 
     E.updatePlayer(dt);
+    P.opening.update(dt);
+    if (P.campaign) P.campaign.update(dt);
+    if (Game.bossDelay > 0) {
+      Game.bossDelay -= dt;
+      if (Game.bossDelay <= 0) E.bossStart();
+    }
     E.updateSpawner(dt);
     E.updateEnemies(dt);
     E.updateBoss(dt);
     E.updateProjectiles(dt);
+    if (P.fx) P.fx.update(dt);
     updateLocks(dt);
 
     terrain.update(Game.railZ);
@@ -5809,6 +6483,8 @@ function frame(now) {
     Player.pos.y = damp(Player.pos.y, Player.railY + 5, 0.45, dt);
     P.dragon.root.position.copy(Player.pos);
     P.dragon.root.rotation.y = damp(P.dragon.root.rotation.y, 0, 1.0, dt);
+    P.dragon.root.rotation.z += P.angDelta(P.dragon.root.rotation.z, 0) * (1 - Math.exp(-4 * dt));
+    if (P.fx) P.fx.update(dt);
     P.dragon.update(dt, Game.time, { strafeX: 0, strafeY: 0,
       vy: Math.sin(Game.time * 0.45) * 7, aimX: 0, aimY: 0, boost: 0 });
     var oy = Math.sin(Game.time * 0.16) * 0.5;

@@ -22,9 +22,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build and verify before publishing
+        run: npm run check:release
+      - name: Prepare playable site
+        run: |
+          mkdir -p _site/sound
+          cp index.html _site/index.html
+          cp sound/*.mp3 _site/sound/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
       - id: deployment
         uses: actions/deploy-pages@v4

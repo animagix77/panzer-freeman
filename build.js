@@ -3,12 +3,16 @@ const path = require('path');
 const src = path.join(__dirname, 'src');
 const parts = [
   'p1_core.js',
+  'p1b_audio.js',
   'gen/rider_model.js',   // baked from model/*.glb by tools/bake-glb.js
   'p2_models.js',
   'p2b_rider_model.js',
   'p3_world.js',
   'p3b_weather.js',
   'p4_game.js',
+  'p4b_opening.js',
+  'p4c_effects.js',
+  'p4d_campaign.js',
   'p5_hud_loop.js'
 ];
 const js = parts.map(f => fs.readFileSync(path.join(src, f), 'utf8')).join('\n\n');

@@ -9,19 +9,32 @@ var scene = P.scene, m = P.models;
 // ----------------------------------------------------------- height fields
 function hCanyon(x, z) {
   var ax = Math.abs(x);
-  var t = Math.max(0, (ax - 74) / 70);
+  var t = Math.max(0, (ax - 105) / 70);
   var wall = 86 * (1 - Math.exp(-t * 1.35));
   var dune = Math.sin(x * 0.031) * 3.6 + Math.sin(z * 0.023 + x * 0.009) * 5.4
            + Math.sin(x * 0.081 + z * 0.047) * 2.4 + Math.sin(z * 0.107) * 1.5
            + Math.sin(x * 0.19 + z * 0.14) * 0.9;
-  var mesaMask = clamp((ax - 40) / 30, 0, 1);
+  var mesaMask = clamp((ax - 95) / 30, 0, 1);
   var mesa = Math.max(0, Math.sin(z * 0.0061 + x * 0.0017) - 0.44) * 62 * mesaMask;
-  return wall + dune + mesa;
+  // A long central mesa makes two real passages through the second half.
+  var fork = clamp((z - 3900) / 500, 0, 1) * clamp((6100 - z) / 500, 0, 1);
+  var ridge = 74 * Math.exp(-Math.pow(x / 24, 4)) * fork;
+  return wall + dune + mesa + ridge;
 }
 function hSea(x, z) {
   return Math.sin(x * 0.055) * 2.6 + Math.sin(z * 0.047 + 1.3) * 3.1
        + Math.sin((x + z) * 0.021) * 3.6 + Math.sin(x * 0.121 + z * 0.093) * 1.5
        + Math.sin(x * 0.24 + z * 0.19) * 0.8 - 5;
+}
+
+function hCitadel(x, z) {
+  // Continuous mountain shoulders support the fortress on either side of a ravine.
+  var shoulder = Math.max(0, Math.abs(x) - 78);
+  var rough = Math.min(1, shoulder / 55) * (Math.sin(z * .019 + x * .022) * 16 + Math.abs(Math.sin(z * .009 - x * .031)) * 35);
+  return -28 + Math.min(130, shoulder * 0.85) + Math.sin(z * 0.012) * 5 + rough;
+}
+function hFoundry(x, z) {
+  return -12 + Math.max(0, Math.abs(x) - 90) * 0.42 + Math.sin(z * 0.02) * 3;
 }
 
 // ------------------------------------------------------------------ terrain
@@ -174,7 +187,7 @@ var EPISODES = [
   {
     id: 'ep1', label: 'EPISODE I', name: 'THE ASHEN CANYON',
     sub: 'Where the empire buried its machines, the sand still hums.',
-    music: 'ep1', length: 5400, railY: 22, speed: 56,
+    music: 'ep1', length: 7400, railY: 22, speed: 56,
     weather: { ember: 0.85, wind: 0.35 },   // the buried machines still burn
     sky: { lo: 0xffb257, mid: 0xd15a56, hi: 0x33195e, sun: 0xffd08a, sunDir: [0.18, 0.06, 1], sunSize: 0.0034, bands: 24, shaft: 0.46 },
     fog: { col: 0xc4785c, near: 110, far: 640 },
@@ -187,7 +200,7 @@ var EPISODES = [
       make: function () { return Math.random() < 0.55 ? m.buildSpire(rand(26, 62), 0x9c6742) : m.buildRock(1.1, 0xb3844f); },
       place: function (o, z) {
         var side = Math.random() < 0.5 ? -1 : 1;
-        var x = side * rand(58, 200);
+        var x = side * rand(112, 220);
         o.position.set(x, hCanyon(x, z) - 4, z);
         o.rotation.y = rand(0, TAU);
         o.scale.setScalar(rand(0.75, 1.5));
@@ -207,7 +220,7 @@ var EPISODES = [
   {
     id: 'ep2', label: 'EPISODE II', name: 'THE DROWNED CHOIR',
     sub: 'A city sang here once. Now only the water keeps the tune.',
-    music: 'ep2', length: 5400, railY: 20, speed: 60,
+    music: 'ep2', length: 6400, railY: 20, speed: 60,
     weather: { rain: 1.0, wind: 0.7 },      // the drowned city, still drowning
     sky: { lo: 0x8fe0e6, mid: 0x2f7fa8, hi: 0x0e2140, sun: 0xdff4ff, sunDir: [-0.35, 0.22, 1], sunSize: 0.0022, bands: 22 },
     fog: { col: 0x3f90ad, near: 100, far: 620 },
@@ -220,7 +233,7 @@ var EPISODES = [
       make: function () { return m.buildRuin(0x9aa7ac); },
       place: function (o, z) {
         var side = Math.random() < 0.5 ? -1 : 1;
-        var x = side * rand(34, 190);
+        var x = side * rand(95, 210);
         o.position.set(x, -8, z);
         o.rotation.set(rand(-0.14, 0.14), rand(0, TAU), rand(-0.14, 0.14));
         o.scale.setScalar(rand(0.85, 1.8));
@@ -238,26 +251,45 @@ var EPISODES = [
     density: 1.0
   },
   {
-    id: 'ep3', label: 'EPISODE III', name: 'THE CITADEL OF HOURS',
-    sub: 'Above the last cloud, the Fountain keeps its own weather.',
-    music: 'ep3', length: 5200, railY: 46, speed: 64,
+    id: 'foundry', label: 'EPISODE III', name: 'THE EMBER FOUNDRY',
+    sub: 'The empire feeds its furnaces with borrowed time. Break the supply line.',
+    music: 'ep1', length: 6100, railY: 28, speed: 62,
+    weather: { ember: 1.2, wind: 0.8 },
+    sky: { lo: 0xff9a48, mid: 0x652d40, hi: 0x130f25, sun: 0xffb46c, sunDir: [0.2, 0.1, 1], sunSize: 0.003, bands: 24, shaft: 0.3 },
+    fog: { col: 0x653b40, near: 140, far: 740 },
+    light: { amb: 0x59414e, ambI: 1.05, key: 0xffb76c, keyI: 1.3, kd: [0.3, 0.6, 1], rim: 0x68bbdc, rimI: 0.6 },
+    terrain: { h: hFoundry, colLo: C(0x372e35), colHi: C(0x866151), colBase: -12, colRange: 80 },
+    props: {
+      count: 16, gap: 130, ahead: 850,
+      make: function () { return m.buildFoundry(); },
+      place: function (o, z) {
+        var x = (Math.round(z / 130) % 2 ? -1 : 1) * 120;
+        o.position.set(x, hFoundry(x, z), z); o.rotation.y = x < 0 ? 0 : Math.PI;
+      }
+    },
+    props2: {
+      count: 8, gap: 240, ahead: 800,
+      make: function () { return m.buildCloud(0x78616d); },
+      place: function (o, z) { o.position.set(Math.sin(z) * 180, 130, z); o.scale.setScalar(1.8); }
+    },
+    enemyMix: [['carrier', 4], ['turret', 3], ['chaser', 2], ['wasp', 2]], density: 1.1
+  },
+  {
+    id: 'ep3', label: 'EPISODE IV', name: 'THE CITADEL OF HOURS',
+    sub: 'The mountain holds the city. The city holds the stolen years.',
+    music: 'ep3', length: 7000, railY: 46, speed: 64,
     weather: { snow: 1.0, wind: 0.5 },      // above the last cloud
     sky: { lo: 0xffa8d4, mid: 0x7a4fc0, hi: 0x120833, sun: 0xffd9f0, sunDir: [0.5, 0.3, -1], sunSize: 0.0030, bands: 20 },
     fog: { col: 0x6a45a0, near: 110, far: 660 },
     light: { amb: 0x4a3070, ambI: 1.1, key: 0xffc7ea, keyI: 1.0, kd: [0.5, 0.5, -1], rim: 0x62e0ff, rimI: 0.55 },
-    terrain: null,
+    terrain: { h: hCitadel, colLo: C(0x322e48), colHi: C(0xaaa0bc), colBase: -28, colRange: 110 },
     props: {
-      count: 22, gap: 92, ahead: 760,
-      make: function () {
-        var r = Math.random();
-        if (r < 0.4) return m.buildTower(0x6b5f9c, 0xc8a23f);
-        return m.buildIsland(rand(0.8, 2.4), 0x7b6aa8, 0x453a63);
-      },
+      count: 14, gap: 150, ahead: 850,
+      make: function () { return m.buildKeep(); },
       place: function (o, z) {
-        var side = Math.random() < 0.5 ? -1 : 1;
-        var x = side * rand(40, 200);
-        o.position.set(x, rand(-42, 30), z);
-        o.rotation.y = rand(0, TAU);
+        var x = (Math.round(z / 150) % 2 ? -1 : 1) * 128;
+        o.position.set(x, hCitadel(x, z), z);
+        o.rotation.y = x < 0 ? 0 : Math.PI;
       }
     },
     props2: {
@@ -279,14 +311,14 @@ var EPISODES = [
     sky: { lo: 0xff7a4a, mid: 0x52205e, hi: 0x08030f, sun: 0xff9f5f, sunDir: [0.15, -0.06, 1], sunSize: 0.0042, bands: 18 },
     fog: { col: 0x3a1140, near: 120, far: 700 },
     light: { amb: 0x5c3358, ambI: 1.25, key: 0xffc190, keyI: 1.25, kd: [0.25, 0.45, -1], rim: 0x9a5fff, rimI: 0.7 },
-    terrain: null,
+    terrain: { h: hCitadel, colLo: C(0x251e30), colHi: C(0x72536e), colBase: -28, colRange: 110 },
     props: {
-      count: 12, gap: 150, ahead: 700,
-      make: function () { return m.buildIsland(rand(1.2, 3), 0x59406f, 0x2c1f3d); },
+      count: 10, gap: 180, ahead: 850,
+      make: function () { return m.buildKeep(); },
       place: function (o, z) {
-        var side = Math.random() < 0.5 ? -1 : 1;
-        o.position.set(side * rand(45, 150), rand(-70, 20), z);
-        o.rotation.y = rand(0, TAU);
+        var x = (Math.round(z / 180) % 2 ? -1 : 1) * 150;
+        o.position.set(x, hCitadel(x, z), z);
+        o.rotation.y = x < 0 ? 0 : Math.PI;
       }
     },
     props2: {
@@ -304,7 +336,7 @@ var EPISODES = [
 
 P.world = {
   Terrain: Terrain, PropField: PropField, EPISODES: EPISODES,
-  hCanyon: hCanyon, hSea: hSea, disposeTree: disposeTree
+  hCanyon: hCanyon, hSea: hSea, hCitadel: hCitadel, disposeTree: disposeTree
 };
 
 })();

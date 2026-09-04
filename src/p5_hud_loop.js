@@ -99,10 +99,11 @@ function enterEpisode(i, instant, silent, keepMusic) {
   props2.configure(ep.props2, Game.railZ - 200);
   if (!silent) showCard(ep);
   if (!keepMusic) P.playMusic(ep.music);
-  if (ep.id === 'boss') {
-    setTimeout(function () { if (Game.state === 'playing') E.bossStart(); }, 2600);
-  }
+  Game.bossDelay = ep.id === 'boss' ? 2.6 : 0;
+  if (P.campaign) P.campaign.enter(ep);
 }
+
+P.enterEpisode = enterEpisode; // Used by the development scene preview.
 
 // --------------------------------------------------------------- projection
 var _pv = new V3(), _cv = new V3();
@@ -159,7 +160,7 @@ function updateLocks(dt) {
     var best = null, bestD = R * R;
     for (var i = 0; i < list.length; i++) {
       var t = list[i];
-      var cap = t.def ? 3 : 8;
+      var cap = t.tag === 'opening-target' ? 1 : t.def ? 3 : 8;
       if (countLocks(t) >= cap) continue;
       var pp = project(targetPos(t));
       if (!pp.front || pp.depth > 460) continue;
@@ -200,6 +201,18 @@ function drawHUD(dt) {
   if (Game.state !== 'playing') return;
   var S = Math.min(w, h) / 900;
   var pad = 26;
+  // Wing power and maneuver status stay near the lower edge, clear of targets.
+  hx.save();
+  var powerW = Math.min(240, w * 0.38), powerX = (w - powerW) / 2;
+  hx.fillStyle = 'rgba(8,12,25,.78)'; hx.fillRect(powerX - 12, h - 61, powerW + 24, 48);
+  hx.fillStyle = '#263b4d'; hx.fillRect(powerX, h - 36, powerW, 5);
+  hx.fillStyle = Player.boosting ? '#ffcb7e' : '#7defff';
+  hx.fillRect(powerX, h - 36, powerW * (Player.energy === undefined ? 1 : Player.energy / 100), 5);
+  hx.font = '11px monospace'; hx.textAlign = 'center';
+  hx.fillText(Player.boosting ? 'BOOST' : Player.braking ? 'AIR BRAKE' : Player.rollT > 0 ? 'EVASIVE ROLL' : 'WING POWER', w / 2, h - 44);
+  hx.fillStyle = '#c2d4df'; hx.font = '10px monospace';
+  hx.fillText('SHIFT BOOST · X BRAKE · SPACE ROLL', w / 2, h - 18);
+  hx.restore();
 
   // ---------- lock brackets on locked targets
   var i, pp;
@@ -210,7 +223,8 @@ function drawHUD(dt) {
     var dup = 0;
     for (var q = 0; q < i; q++) if (Locks.list[q] === t) dup++;
     var sz = clamp(1400 / Math.max(20, pp.depth), 11, 60) + dup * 5;
-    bracket(pp.x, pp.y, sz, '#ff4a6a', 2.5);
+    bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
+    bracket(pp.x, pp.y, sz, '#8fffc4', 2.5);
     hx.strokeStyle = 'rgba(255,74,106,.35)';
     hx.beginPath(); hx.moveTo(Input.mx, Input.my); hx.lineTo(pp.x, pp.y); hx.stroke();
   }
@@ -224,8 +238,12 @@ function drawHUD(dt) {
     if (pp.front && pp.x > -40 && pp.x < w + 40 && pp.y > -40 && pp.y < h + 40) {
       if (pp.depth < 380) {
         var s2 = clamp(1200 / Math.max(20, pp.depth), 8, 44);
-        hx.strokeStyle = 'rgba(143,217,255,.42)'; hx.lineWidth = 1.4;
-        hx.strokeRect(pp.x - s2, pp.y - s2, s2 * 2, s2 * 2);
+        var lesson = e.tag === 'opening-target' || e.tag === 'opening-sentry';
+        if (lesson) s2 = Math.max(s2, 20);
+        bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
+        bracket(pp.x, pp.y, s2, lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
+        if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
+        if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
       }
     } else {
       // off-screen: draw an edge arrow at the target's true screen bearing
@@ -249,7 +267,7 @@ function drawHUD(dt) {
   // ---------- reticle
   var lockR = Math.min(w, h) * 0.115;
   var nLock = Locks.list.length;
-  var retCol = Input.lmb ? (nLock ? '#ff4a6a' : '#ffd25e') : '#8fd9ff';
+  var retCol = Input.lmb ? (nLock ? '#8fffc4' : '#ffd25e') : '#8fd9ff';
   hx.strokeStyle = 'rgba(255,255,255,.13)'; hx.lineWidth = 1;
   if (Input.lmb) { hx.beginPath(); hx.arc(Input.mx, Input.my, lockR, 0, TAU); hx.stroke(); }
   bracket(Input.mx, Input.my, 20, retCol, 2.5);
@@ -258,7 +276,15 @@ function drawHUD(dt) {
   hx.moveTo(Input.mx - 7, Input.my); hx.lineTo(Input.mx + 7, Input.my);
   hx.moveTo(Input.mx, Input.my - 7); hx.lineTo(Input.mx, Input.my + 7);
   hx.stroke();
-  if (nLock) txt(nLock + '/' + Locks.max, Input.mx + 28, Input.my - 24, 15, '#ff4a6a');
+  if (nLock) txt(nLock + '/' + Locks.max + ' · RELEASE', Input.mx + 28, Input.my - 24, 15, '#8fffc4');
+
+  if (P.opening.phase === 'dodge' && P.opening.shot && E.ebullets.indexOf(P.opening.shot) >= 0) {
+    pp = project(P.opening.shot.m.position);
+    if (pp.front) {
+      bracket(pp.x, pp.y, 18, '#ff835e', 3);
+      txt('INCOMING', pp.x, pp.y - 26, 12, '#ffe9b0', 'center');
+    }
+  }
 
   // ---------- age gauge (top-left)
   var gx = pad, gy = pad + 6, gw = Math.min(360, w * 0.32), gh = 20;
@@ -308,7 +334,7 @@ function drawHUD(dt) {
     for (i = 0; i < Boss.built.cores.length; i++) {
       totalHp += Math.max(0, Boss.built.cores[i].hp); maxHp += Boss.built.cores[i].maxHp;
     }
-    var bw = Math.min(620, w * 0.6), bx = w / 2 - bw / 2, by = h - pad - 34;
+    var bw = Math.min(620, w * 0.6), bx = w / 2 - bw / 2, by = h - pad - 84;
     txt('CHRONOS · HOUR-SPHINX', w / 2, by - 8, 14, '#ff8a5a', 'center');
     hx.fillStyle = 'rgba(0,0,0,.6)'; hx.fillRect(bx, by, bw, 16);
     hx.fillStyle = '#ff5a3a'; hx.fillRect(bx + 2, by + 2, (bw - 4) * (totalHp / maxHp), 12);
@@ -394,6 +420,8 @@ window.addEventListener('keydown', function (e) {
   if (Input.keys[k]) return;
   Input.keys[k] = true;
   if (Game.state === 'playing') {
+    if (k === 'enter') P.opening.skip();
+    if (k === ' ' && P.flight) P.flight.roll();
     if (k === 'q') { Player.viewIndex--; Player.camYawTarget = Player.viewIndex * Math.PI / 2; A.sView(); }
     if (k === 'e') { Player.viewIndex++; Player.camYawTarget = Player.viewIndex * Math.PI / 2; A.sView(); }
   }
@@ -432,6 +460,7 @@ function updMouse(e) {
 }
 window.addEventListener('mousemove', updMouse);
 window.addEventListener('mousedown', function (e) {
+  if (e.target.closest && e.target.closest('button, input, summary')) return;
   if (Game.state === 'intro') { skipIntro(); return; }
   if (Game.state !== 'playing') return;
   updMouse(e);
@@ -549,6 +578,7 @@ function endIntro() {
   P.hudCanvas.style.display = 'block';
   P.el.skip.classList.remove('on');
   showCard(EPISODES[0]);
+  P.opening.start();
 }
 P.setIntroT = function (frac) { introT = INTRO_LEN * frac; };
 P.getIntroT = function () { return introT; };
@@ -559,7 +589,11 @@ function skipIntro() {
 
 // ================================================================= GAME FLOW
 function resetGame() {
+  P.opening.reset();
+  if (P.flight) P.flight.reset();
+  if (P.fx) P.fx.reset();
   E.reset();
+  Input.keys = {}; Input.lmb = Input.rmb = false;
   Game.time = 0; Game.railZ = 0; Game.epProgress = 0;
   Game.age = 89; Game.startAge = 89; Game.score = 0; Game.kills = 0;
   Game.shots = 0; Game.hits = 0; Game.combo = 0; Game.bestCombo = 0; Game.comboT = 0;
@@ -567,6 +601,10 @@ function resetGame() {
   Game.cinematic = false;
   Player.x = 0; Player.y = 0; Player.zOff = 0;
   Player.vx = Player.vy = Player.vz = 0;
+  Player.motionX = Player.motionY = Player.motionZ = Player.lean = 0;
+  Player.aimX = Player.aimY = 0;
+  P.dragon.root.rotation.set(0, 0, 0);
+  P.dragon.resetMotion();
   Player.viewIndex = 0; Player.camYaw = 0; Player.camYawTarget = 0;
   Player.railY = EPISODES[0].railY;
   P.dragon.setAge(89);
@@ -602,6 +640,7 @@ function rankFor(age) {
 }
 
 P.onEnd = function (won) {
+  P.opening.reset();
   var acc = Game.shots ? Math.round(Game.hits / Game.shots * 100) : 0;
   var finalAge = won ? clamp(Game.age - 4, 24, 100) : Game.age;
   if (won) { Game.age = finalAge; P.dragon.setAge(finalAge); }
@@ -667,10 +706,17 @@ function frame(now) {
     if (Game.comboT > 0) { Game.comboT -= dt; if (Game.comboT <= 0) Game.combo = 0; }
 
     E.updatePlayer(dt);
+    P.opening.update(dt);
+    if (P.campaign) P.campaign.update(dt);
+    if (Game.bossDelay > 0) {
+      Game.bossDelay -= dt;
+      if (Game.bossDelay <= 0) E.bossStart();
+    }
     E.updateSpawner(dt);
     E.updateEnemies(dt);
     E.updateBoss(dt);
     E.updateProjectiles(dt);
+    if (P.fx) P.fx.update(dt);
     updateLocks(dt);
 
     terrain.update(Game.railZ);
@@ -721,6 +767,8 @@ function frame(now) {
     Player.pos.y = damp(Player.pos.y, Player.railY + 5, 0.45, dt);
     P.dragon.root.position.copy(Player.pos);
     P.dragon.root.rotation.y = damp(P.dragon.root.rotation.y, 0, 1.0, dt);
+    P.dragon.root.rotation.z += P.angDelta(P.dragon.root.rotation.z, 0) * (1 - Math.exp(-4 * dt));
+    if (P.fx) P.fx.update(dt);
     P.dragon.update(dt, Game.time, { strafeX: 0, strafeY: 0,
       vy: Math.sin(Game.time * 0.45) * 7, aimX: 0, aimY: 0, boost: 0 });
     var oy = Math.sin(Game.time * 0.16) * 0.5;

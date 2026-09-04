@@ -3,14 +3,26 @@
   "version": "1.0.0",
   "description": "A low-poly Sega-Saturn-flavoured 3D rail shooter in a single HTML file.",
   "scripts": {
+    "check:opening": "node tools/check-opening.js",
+    "check:motion": "node tools/check-motion.js",
     "build": "node build.js",
     "test": "node tools/e2e-play.js && node tools/e2e-endings.js",
     "check:controls": "node tools/check-controls.js",
     "check:flight": "node tools/check-flight.js",
     "check:music": "node tools/check-music.js",
-    "check:fixes": "node tools/check-fixes.js"
+    "check:fixes": "node tools/check-fixes.js",
+    "check:upgrade": "node tools/check-upgrade.js",
+    "check:release": "node build.js && node tools/check-opening.js && node tools/check-upgrade.js && node tools/check-bundle.js"
   },
-  "keywords": ["threejs", "webgl", "rail-shooter", "low-poly", "sega-saturn", "webaudio", "game"],
+  "keywords": [
+    "threejs",
+    "webgl",
+    "rail-shooter",
+    "low-poly",
+    "sega-saturn",
+    "webaudio",
+    "game"
+  ],
   "license": "MIT",
   "devDependencies": {
     "playwright": "^1.49.1",

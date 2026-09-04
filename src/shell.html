@@ -215,6 +215,29 @@
     #ldBar { transition:none; }
   }
   .noselect { cursor:none; }
+  #briefing {
+    position:absolute; top:112px; left:50%; transform:translateX(-50%);
+    z-index:15; width:min(520px, calc(100% - 36px)); padding:16px 20px;
+    background:rgba(8,4,18,.9); border-left:3px solid #ffd25e;
+    box-shadow:0 8px 30px rgba(0,0,0,.2); cursor:auto;
+  }
+  #briefing[hidden] { display:none; }
+  #briefingStep { color:#8fd9ff; font-size:10px; letter-spacing:.18em; }
+  #briefingTitle { margin:8px 0; color:#ffd25e; font-size:20px; letter-spacing:.02em; }
+  #briefingText { color:#f3e2bb; font-size:13px; line-height:1.65; }
+  #skipBriefing { margin-top:10px; border:0; background:none; color:#c6b8d4; font-family:inherit; font-size:11px; cursor:pointer; }
+  #skipBriefing:hover, #skipBriefing:focus-visible { color:#fff; text-decoration:underline; }
+  .guide-choice { display:block; margin-top:20px; color:#e9dcc0; font-size:13px; cursor:pointer; }
+  .guide-choice input { accent-color:#ffd25e; margin-right:8px; }
+  .extra-controls { margin-top:18px; color:#c6b8d4; font-size:12px; cursor:pointer; }
+  .extra-controls .keys { margin-top:14px; }
+  #title { overflow-y:auto; }
+  #title .plate { margin:auto; }
+  @media (max-height:600px) {
+    #briefing { top:90px; padding:10px 16px; }
+    #briefingTitle { font-size:16px; margin:5px 0; }
+    #briefingText { font-size:12px; }
+  }
 </style>
 </head>
 <body>
@@ -228,6 +251,12 @@
 
   <div id="card"><div class="ep"></div><div class="nm"></div><div class="sub"></div></div>
   <div id="toast"></div>
+  <aside id="briefing" hidden aria-label="Flight briefing">
+    <div id="briefingStep"></div>
+    <h3 id="briefingTitle"></h3>
+    <p id="briefingText"></p>
+    <button id="skipBriefing" type="button">Skip briefing · Enter</button>
+  </aside>
   <div id="skiphint">PRESS ANY KEY TO SKIP</div>
   <div id="quip"></div>
   <div id="pausebox"><div>— PAUSED —</div></div>
@@ -241,14 +270,19 @@
         Eighty-nine years old, and the sky still owes him something.<br>
         The old rider and his dragon fly east toward the Fountain — a machine buried
         by a dead empire that runs time backward for anyone who can reach it.<br>
-        Every drone torn out of the air peels a year away. Every hit puts one back on.
+        Every enemy defeated gives him time back. Every hit makes him older.
       </p>
       <div class="keys">
         <div><span class="kbd">A</span><span class="kbd">D</span><span class="d">bank left / right</span></div>
-        <div><span class="kbd">W</span><span class="kbd">S</span><span class="d">dive / climb</span></div>
-        <div><span class="kbd">MOUSE</span><span class="d">aim reticle</span></div>
         <div><span class="kbd">HOLD LMB</span><span class="d">paint lock-ons</span></div>
         <div><span class="kbd">RELEASE</span><span class="d">fire laser volley</span></div>
+      </div>
+      <label class="guide-choice"><input id="guidedOpening" type="checkbox" checked>Guide my first minute</label>
+      <details class="extra-controls">
+        <summary>All controls &amp; display options</summary>
+        <div class="keys">
+        <div><span class="kbd">W</span><span class="kbd">S</span><span class="d">dive / climb</span></div>
+        <div><span class="kbd">MOUSE</span><span class="d">aim reticle</span></div>
         <div><span class="kbd">RMB</span><span class="d">rapid gun</span></div>
         <div><span class="kbd">Q</span><span class="kbd">E</span><span class="d">rotate view 90&deg;</span></div>
         <div><span class="kbd">P</span><span class="d">pause</span></div>
@@ -258,6 +292,7 @@
         <div><span class="kbd">G</span><span class="d">cast shadows</span></div>
         <div><span class="kbd">F3</span><span class="d">performance</span></div>
       </div>
+      <p style="font-size:12px;color:#a9dfe9">Shift: boost · X: air brake · Space + direction: evasive roll<br>Wing power refills when resting. Flank carriers to strike their exposed cores.</p></details>
       <button class="btn" id="startBtn">Begin the Descent</button>
       <div class="tiny">A LOW-POLY TRIBUTE TO PANZER DRAGOON (SEGA SATURN, 1995)</div>
     </div>

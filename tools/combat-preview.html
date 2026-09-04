@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panzer Freeman · Combat & world preview</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#100c19;color:#e0edf0;font:13px system-ui}iframe{width:100%;height:calc(100vh - 84px);border:0;display:block}footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;height:84px}button,select,a{background:#253246;color:#e0edf0;border:1px solid #526176;padding:8px;border-radius:4px}#status{font-size:11px;color:#9cead8}</style>
+<iframe id="game" src="../index.html" title="Game preview"></iframe>
+<footer><select id="scene" aria-label="Preview scene"><option value="0">Split canyon</option><option value="1">Drowned Choir</option><option value="2">Ember Foundry</option><option value="3">Mountain Citadel</option><option value="4">Chronos arena</option></select>
+<button id="volley">Laser volley</button><button id="boom">Explosion</button><button id="boost">Boost</button><button id="roll">Roll</button><button id="pause">Pause</button><button id="sound">Sound samples</button><a href="../index.html">Play</a><span id="status">Loading…</span></footer>
+<script>
+let P,ready=false,boostUntil=0;
+const frame=document.querySelector('iframe'), status=document.getElementById('status');
+window.addEventListener('error',e=>{status.textContent='ERROR: '+e.message;});
+frame.addEventListener('load',()=>frame.contentWindow.addEventListener('error',e=>{status.textContent='ERROR: '+e.message;}));
+function scene(){
+ P.opening.reset();P.entities.reset();P.flight.reset();P.fx.reset();
+ P.Game.state='playing';P.Game.cinematic=false;P.Game.age=60;P.Game.time=0;P.Game.railZ=0;
+ const i=+document.getElementById('scene').value,ep=P.world.EPISODES[i];
+ P.Player.x=i===0?54:0;P.Player.y=0;P.Player.railY=ep.railY;P.Player.zOff=0;P.Player.vx=P.Player.vy=P.Player.vz=0;
+ P.Player.camYaw=P.Player.camYawTarget=P.Player.viewIndex=0;P.dragon.resetMotion();
+ P.enterEpisode(i,true,true,true);P.Game.railZ=i===0?4500:300;P.terrain.update(P.Game.railZ);
+ P.Input.ndx=P.Input.ndy=0;P.Input.keys={};
+ P.el.title.classList.remove('on');P.el.card.classList.remove('on');P.el.skip.classList.remove('on');
+ frame.contentDocument.getElementById('hud').style.display='block';
+ status.textContent='Live production scene · invulnerable preview';
+}
+document.getElementById('scene').onchange=()=>{if(P)scene();};
+document.getElementById('volley').onclick=()=>{if(!P)return;P.armAudio();P.Locks.list.length=0;
+ for(let i=0;i<6;i++){const e=P.entities.spawnEnemy('wasp',{pos:new P.V3(P.Player.x+(i-2.5)*12,P.Player.pos.y+12,P.Game.railZ+130),formation:new P.V3(P.Player.x+(i-2.5)*12,12,130),holdFor:10});e.hp=1;e.fireT=20;P.Locks.list.push(e);}P.entities.fireLasers();};
+document.getElementById('boom').onclick=()=>{if(!P)return;P.armAudio();const pos=P.Player.pos.clone().add(new P.V3(12,5,45));P.entities.boom(pos,5,[P.entities.SHARD_MATS.fire,P.entities.SHARD_MATS.hot]);P.Audio_.sBoom(true,pos);};
+document.getElementById('boost').onclick=()=>{if(P){P.Player.energy=100;boostUntil=performance.now()+1600;P.Input.keys.shift=true;}};
+document.getElementById('roll').onclick=()=>{if(P){P.Player.energy=100;P.flight.roll();}};
+document.getElementById('pause').onclick=e=>{if(P){P.Game.state=P.Game.state==='playing'?'preview-paused':'playing';e.target.textContent=P.Game.state==='playing'?'Pause':'Resume';}};
+document.getElementById('sound').onclick=()=>{if(!P)return;P.armAudio();['laser','impact','blast','boost','orb'].forEach((n,i)=>setTimeout(()=>P.Audio_.effect(n,.7),i*1250));};
+function tick(now){requestAnimationFrame(tick);if(!ready){const w=frame.contentWindow;if(!w.__PF?.campaign||!w.document.getElementById('loading').classList.contains('gone'))return;P=w.__PF;ready=true;scene();}P.Game.age=60;P.Game.invulnT=0;if(boostUntil&&now>boostUntil){P.Input.keys.shift=false;boostUntil=0;}}
+requestAnimationFrame(tick);
+</script></html>

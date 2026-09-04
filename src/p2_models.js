@@ -1323,7 +1323,7 @@ function buildDragon() {
   // The wingbeat is driven by how hard the dragon is working: climbing costs
   // effort (fast, deep, powered beats), diving costs none (wings lock out and
   // it glides). A damped spring turns each downstroke into a real lift bob.
-  var cycT = 0, periodJit = 0, beatFired = false;
+  var cycT = 0, periodJit = 0, beatFired = false, flapDur = 0.38;
   // wing joint state: e/r are elbow and wrist angles, eV/rV their velocities,
   // bil the current membrane load. WK is stiffness, WC damping — tuned so the
   // wingtip settles in roughly one beat without ringing.
@@ -1337,7 +1337,7 @@ function buildDragon() {
   ];
   var wPrev = 0, wingV = 0;
   var effort = 0.25, bob = 0, bobV = 0, surge = 0, surgeV = 0;
-  var pitchAim = 0, lastW = 0;
+  var pitchAim = 0, turn = 0, strokePitch = 0;
   // maneuver dynamics: pitch and roll are sprung (they overshoot and settle
   // instead of easing), and gLoad is the low-passed vertical acceleration —
   // the "pull" you feel hauling out of a dive.
@@ -1375,7 +1375,24 @@ function buildDragon() {
     getSurge: function () { return surge; }
   };
 
+  api.resetMotion = function () {
+    cycT = periodJit = 0; beatFired = false; flapDur = 0.38;
+    wPrev = wingV = bob = bobV = surge = surgeV = 0;
+    pitchAim = pitchAimV = rollV = turn = strokePitch = gLoad = prevVyG = 0;
+    effort = 0.24;
+    body.position.set(0, 0, 0); body.rotation.set(0, 0, 0);
+    rider.rotation.set(0, 0, 0);
+    tY.fill(0); tVY.fill(0); tX.fill(0); tVX.fill(0);
+    prevRootYaw = root.rotation.y;
+    prevBodyYaw = prevBodyPitch = prevBodyRoll = 0;
+    for (var wi = 0; wi < wJ.length; wi++) {
+      for (var key in wJ[wi]) wJ[wi][key] = 0;
+    }
+    for (var j = 0; j < tailSegs.length; j++) tailSegs[j].rotation.set(0, 0, 0);
+  };
+
   api.update = function (dt, t, st) {
+    turn = damp(turn, st.strafeX || 0, 6, dt);
     var vy = st.vy || 0;
     var vyN = clamp(vy / 44, -1, 1);              // -1 diving .. +1 climbing
     var boost = st.boost || 0;
@@ -1394,10 +1411,12 @@ function buildDragon() {
     // so at low effort the dragon holds a glide and flaps only occasionally.
     var rate = 0.12 + 2.6 * Math.pow(effort, 1.35);   // beats/sec
     var period = 1 / rate + periodJit;
-    var flapDur = Math.min(period * 0.95, 0.34 + effort * 0.10);
     cycT += dt;
-    if (cycT >= period) {
-      cycT -= period; if (cycT < 0 || cycT > period) cycT = 0;
+    // Finish the current stroke before choosing a new duration. Recomputing
+    // its phase from effort every frame made the wings jump on climb/dive.
+    if (cycT >= Math.max(period, flapDur)) {
+      cycT -= Math.max(period, flapDur);
+      flapDur = Math.max(0.28, Math.min(period * 0.95, 0.34 + effort * 0.10));
       beatFired = false;
       // idle flaps shouldn't be metronomic
       periodJit = effort < 0.4 ? rand(0, 1.4) : 0;
@@ -1428,7 +1447,7 @@ function buildDragon() {
     var rest = 0.20 - eN * 0.16;                  // gliding wings sit flatter
     var sweep = (1 - eN) * 0.17;                  // and sweep back
     var flutter = (1 - eN) * 0.014;               // airflow judder in a glide
-    var bank = (st.strafeX || 0) * 0.16;          // outer wing extends in a turn
+    var bank = turn * 0.07;
 
     // stroke velocity, signed: negative on the downstroke (wing driving down)
     var wV = (w - wPrev) / Math.max(dt, 1e-4); wPrev = w;
@@ -1437,7 +1456,7 @@ function buildDragon() {
     // Real flapping folds on the upstroke: flexing the elbow and wrist cuts
     // wing area so the recovery stroke costs less than the power stroke.
     // ph<0.5 is the downstroke here, so fold tracks the back half.
-    var upStroke = clamp((ph - 0.5) / 0.5, 0, 1) * (ph < 1 ? 1 : 0);
+    var upStroke = ph > 0.5 && ph < 1 ? Math.sin((ph - 0.5) * TAU) : 0;
     var fold = upStroke * (0.55 + eN * 0.35);
     // dive: wings rake back into a tuck the steeper he drops; the sweep is the
     // silhouette of a stooping raptor, not a parachute
@@ -1456,18 +1475,18 @@ function buildDragon() {
       // (looking +Z) shows on screen-RIGHT — so the sign here is the reverse
       // of what the variable names suggest. strafeX>0 = turning screen-right
       // = fold the -X wing.
-      var tuck = Math.max(0, (st.strafeX || 0) * sgn);
-      var extend = Math.max(0, (st.strafeX || 0) * -sgn) * 0.20;
+      var tuck = Math.max(0, turn * sgn);
+      var extend = Math.max(0, turn * -sgn) * 0.20;
 
       // --- driven shoulder
       var flutterN = Math.sin(t * (wi ? 21.7 : 21.0)) * flutter;
       W.rotation.z = sgn * (rest + w * amp) + bank + sgn * flutterN;
       W.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06 + climbN * 0.09;
-      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * (sweepT + tuck * 0.30);
+      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * (sweepT + tuck * 0.12);
 
       // --- sprung elbow and wrist.  a'' = -k(a - target) - c*a'
-      var eT = -fold * 0.95 + wingV * 0.028 - tuck * 0.85 + extend * 0.35 - diveN * 0.40;
-      var rT = -fold * 1.25 - wingV * 0.045 - tuck * 0.80 + extend * 0.25 - diveN * 0.50;
+      var eT = -fold * 0.65 + wingV * 0.018 - tuck * 0.30 + extend * 0.35 - diveN * 0.30;
+      var rT = -fold * 0.80 - wingV * 0.025 - tuck * 0.25 + extend * 0.25 - diveN * 0.35;
       J.eV += ((eT - J.e) * WK - J.eV * WC) * dt;  J.e += J.eV * dt;
       J.rV += ((rT - J.r) * WK * 0.82 - J.rV * WC * 0.9) * dt;  J.r += J.rV * dt;
       J.e = clamp(J.e, -1.35, 0.30);
@@ -1485,12 +1504,12 @@ function buildDragon() {
       J.z  = clamp(J.z, -0.42, 0.42);
       J.rz = clamp(J.rz, -0.60, 0.60);
 
-      // tuck lands on the yaw hinges directly as well as through the sprung
-      // fold — the spring alone caps out too shallow to read on screen
-      W.userData.elbow.rotation.y = sgn * (J.e * 0.72 - tuck * 0.55);
+      // All folding goes through the joints' springs, with enough remaining
+      // span to carry the dragon through the turn.
+      W.userData.elbow.rotation.y = sgn * J.e * 0.72;
       W.userData.elbow.rotation.x = J.e * 0.34;
       W.userData.elbow.rotation.z = sgn * J.z;
-      W.userData.wrist.rotation.y = sgn * (J.r * 0.85 - tuck * 0.60);
+      W.userData.wrist.rotation.y = sgn * J.r * 0.85;
       W.userData.wrist.rotation.x = J.r * 0.30;
       W.userData.wrist.rotation.z = sgn * J.rz;
 
@@ -1501,7 +1520,7 @@ function buildDragon() {
       var vRel = 0.55 + eN * 0.85;                       // forward airspeed proxy
       var aoa  = -wingV * 0.16 - vyN * 0.25;             // angle of attack
       var load = clamp(vRel * vRel * aoa + gLoad * 0.55, -1.8, 1.8);
-      J.bil += (load * 0.30 - J.bil) * Math.min(1, dt * 14);
+      J.bil = damp(J.bil, load * 0.22, 14, dt);
       W.userData.solve(J.bil, fold);
     }
     // ---- body ------------------------------------------------------------
@@ -1511,7 +1530,7 @@ function buildDragon() {
     body.position.z = surge;
     // roll is a spring, not an ease — it overshoots a few degrees and settles,
     // which is what a real roll input does
-    var rollT = (st.strafeX || 0) * 0.34 + w * eN * 0.022;   // each power stroke rocks him
+    var rollT = turn * 0.42 + w * eN * 0.016;
     rollV += ((rollT - body.rotation.z) * 26 - rollV * 7.5) * dt;
     body.rotation.z += rollV * dt;
     // nose up on the climb, nose down in the dive
@@ -1531,14 +1550,15 @@ function buildDragon() {
     pitchAimV += ((pitchT - pitchAim) * 20 - pitchAimV * 6.5) * dt;
     pitchAim += pitchAimV * dt;
     pitchAim = clamp(pitchAim, -0.62, 0.55);
-    body.rotation.x = pitchAim + (stroking ? -0.03 : 0.014);
+    strokePitch = damp(strokePitch, stroking ? -0.025 : 0.01, 8, dt);
+    body.rotation.x = pitchAim + strokePitch;
     // no body yaw: the camera pans the turn, the dragon holds its line
     body.rotation.y = damp(body.rotation.y, 0, 5, dt);
 
     // ---- neck: reaches forward in a dive, rears up on a climb ------------
     for (var i = 0; i < necks.length; i++) {
       var lag = i * 0.5;
-      necks[i].rotation.y = Math.sin(t * 1.4 - lag) * 0.06 - (st.strafeX || 0) * 0.09;
+      necks[i].rotation.y = Math.sin(t * 1.4 - lag) * 0.04 - turn * 0.055;
       necks[i].rotation.x = Math.sin(t * 1.9 - i * 0.4) * 0.035 - 0.03
                           - vyN * 0.05 - w * 0.02 * eN
                           + gLoad * 0.045 * (i + 1);
@@ -1546,7 +1566,7 @@ function buildDragon() {
     head.rotation.x = Math.sin(t * 1.2) * 0.05 - vyN * 0.10;
     // the head looks INTO the turn before the body comes around — the tell
     // every animal gives before it changes direction
-    head.rotation.y = damp(head.rotation.y, -(st.strafeX || 0) * 0.30, 4.5, dt);
+    head.rotation.y = damp(head.rotation.y, -turn * 0.16, 5, dt);
 
     // ---- tail: lagging chain + organic waver ------------------------------
     // How much the dragon rotated this frame. The tail doesn't get told about
@@ -1557,21 +1577,21 @@ function buildDragon() {
     var dRoll  = body.rotation.z - prevBodyRoll;             prevBodyRoll = body.rotation.z;
 
     // rotation handed down the chain, plus drag from sideways/vertical travel
-    var wY = clamp(dRoot * 0.5 + dYaw, -0.2, 0.2) + (st.strafeX || 0) * dt * 2.4;
-    var wX = clamp(dPitch, -0.2, 0.2) + vyN * dt * 1.4 - bobV * dt * 0.05;
-    var K = 44, D = 6.5, INER = 0.88;
+    var wY = clamp(dRoot + dYaw, -0.2, 0.2) + turn * dt * 0.35;
+    var wX = clamp(dPitch, -0.2, 0.2) + vyN * dt * 0.45 - bobV * dt * 0.05;
+    var K = 48, D = 8, INER = 0.75;
 
     for (var j = 0; j < TN; j++) {
+      var oy = tY[j], ox = tX[j];
       // inertia: hold world heading while the parent swings away
       tY[j] -= wY * INER;
       tX[j] -= wX * INER;
-      var oy = tY[j], ox = tX[j];
       // spring back into line with the parent
       tVY[j] += (-tY[j]) * K * dt;  tVY[j] *= Math.exp(-D * dt);
       tVX[j] += (-tX[j]) * K * dt;  tVX[j] *= Math.exp(-D * dt);
       tY[j] += tVY[j] * dt;  tX[j] += tVX[j] * dt;
-      tY[j] = clamp(tY[j], -0.34, 0.34);
-      tX[j] = clamp(tX[j], -0.30, 0.30);
+      tY[j] = clamp(tY[j], -0.22, 0.22);
+      tX[j] = clamp(tX[j], -0.20, 0.20);
       // a slow waver from two incommensurate frequencies, so it never repeats
       var wav1 = Math.sin(t * 1.31 + j * 0.74) * 0.55 + Math.sin(t * 0.57 + j * 1.27) * 0.45;
       var wav2 = Math.sin(t * 0.97 + j * 1.11) * 0.60 + Math.sin(t * 1.73 + j * 0.41) * 0.40;
@@ -1579,7 +1599,8 @@ function buildDragon() {
       tailSegs[j].rotation.y = tY[j] + wav1 * amp;
       tailSegs[j].rotation.x = tX[j] + wav2 * amp * 0.7 + 0.014;  // hangs a little
       tailSegs[j].rotation.z = -dRoll * 0.5 * (1 - j / TN);       // lags the roll too
-      // this joint's own swing is what the next one feels
+      // Include the inertial counter-rotation in the inherited delta. Omitting
+      // it applied the body's full turn at every joint and curled the whole tail.
       wY += tY[j] - oy;
       wX += tX[j] - ox;
     }
@@ -1588,7 +1609,7 @@ function buildDragon() {
     armR.rotation.x = damp(armR.rotation.x, -0.35 + st.aimY * 0.5, 9, dt);
     armR.rotation.z = damp(armR.rotation.z, -st.aimX * 0.55, 9, dt);
     rider.rotation.y = damp(rider.rotation.y, st.aimX * 0.35, 8, dt);
-    rider.rotation.x = damp(rider.rotation.x, -pitchAim * 0.55, 7, dt);   // stays upright
+    rider.rotation.x = damp(rider.rotation.x, -pitchAim * 0.55 + gLoad * 0.07, 7, dt);
     headR.rotation.y = st.aimX * 0.4;
     headR.rotation.x = -st.aimY * 0.3 + Math.sin(t * 0.8) * 0.02;
 
@@ -1706,8 +1727,7 @@ function buildDragon() {
       if (riderBaseY) {
         rider.position.y = riderBaseY - clamp(bobV, -3, 3) * 0.035 - gLoad * 0.11;
       }
-      rider.rotation.z = damp(rider.rotation.z, (st.strafeX || 0) * 0.11, 6, dt);
-      rider.rotation.x += gLoad * 0.07;                         // brace on the pull
+      rider.rotation.z = damp(rider.rotation.z, turn * 0.08, 6, dt);
       // gaze stabilisation: eyes hold the horizon while the body pitches
       RM.turn('Head', headR.rotation.x * 0.5 + RM.headLift - pitchAim * 0.45,
               headR.rotation.y * 0.8, 0);
@@ -1980,15 +2000,60 @@ function buildTower(col, col2) {
   var lamp = mesh(oct(1.4), G(0xffd25e)); lamp.position.y = h + 13; g.add(lamp);
   return g;
 }
+// Shared procedural mist texture: soft atmosphere instead of opaque rock clouds.
+var mistData = new Uint8Array(64 * 64 * 4);
+for (var mi = 0; mi < 4096; mi++) {
+  var mx = (mi % 64 - 31.5) / 31.5, my = (Math.floor(mi / 64) - 31.5) / 31.5;
+  var ma = Math.pow(Math.max(0, 1 - mx * mx - my * my), 2.6);
+  mistData[mi * 4] = mistData[mi * 4 + 1] = mistData[mi * 4 + 2] = 255;
+  mistData[mi * 4 + 3] = Math.round(ma * 255);
+}
+var mistTexture = new THREE.DataTexture(mistData, 64, 64, THREE.RGBAFormat);
+mistTexture.magFilter = mistTexture.minFilter = THREE.LinearFilter; mistTexture.needsUpdate = true;
 function buildCloud(col) {
   var g = new THREE.Group();
-  for (var i = 0; i < 5; i++) {
-    var m = mesh(ico(rand(8, 18), 0), M(col, { shine: 0 }));
-    m.position.set(rand(-24, 24), rand(-4, 4), rand(-18, 18));
-    m.scale.set(rand(1, 2), rand(0.4, 0.7), rand(1, 2));
-    m.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
-    g.add(m);
+  var mat = new THREE.SpriteMaterial({ map: mistTexture, color: col, transparent: true, opacity: 0.38, depthWrite: false });
+  for (var i = 0; i < 4; i++) {
+    var puff = new THREE.Sprite(mat); puff.position.set(rand(-24, 24), rand(-4, 4), rand(-16, 16));
+    puff.scale.set(rand(55, 95), rand(18, 32), 1); g.add(puff);
   }
+  return g;
+}
+function buildKeep() {
+  var g = new THREE.Group();
+  function block(w, h, d, x, y, z, col) {
+    var q = mesh(box(w, h, d), M(col, { shine: 8 })); q.position.set(x, y, z); g.add(q);
+  }
+  // Deep foundations bury into the mountain even where the slope changes.
+  block(62, 80, 68, 0, -35, 0, 0x494354);
+  block(54, 18, 60, 0, 10, 0, 0x777087);
+  block(44, 3, 54, 0, 20, 0, 0xc1b3bf);
+  [-18, 18].forEach(function (z) {
+    var tower = buildTower(0x77738f, 0xb5a269); tower.position.set(-12, 19, z); tower.scale.setScalar(0.65); g.add(tower);
+  });
+  // A buttressed bridge joins the two towers, with glowing recessed windows.
+  block(12, 5, 42, -12, 34, 0, 0xa59aaa);
+  for (var j = -2; j <= 2; j++) {
+    block(3, 7, 3, 27.1, 13, j * 9, 0x393544);
+    var lamp = mesh(box(0.2, 4, 1.4), G(0xffd39c)); lamp.position.set(28.7, 13, j * 9); g.add(lamp);
+  }
+  return g;
+}
+function buildFoundry() {
+  var g = new THREE.Group();
+  var base = mesh(box(60, 85, 62), M(0x424049, { shine: 18 })); base.position.y = -25; g.add(base);
+  for (var i = 0; i < 3; i++) {
+    var stack = mesh(cyl(5, 8, 65 + i * 10, 8), M(0x62515a, { shine: 16 }));
+    stack.position.set(-14 + i * 14, 40, 0); g.add(stack);
+    var mouth = mesh(tor(5.2, 0.8, 5, 12), G(0xff9144)); mouth.rotation.x = Math.PI / 2;
+    mouth.position.set(stack.position.x, 72.5 + i * 5, 0); g.add(mouth);
+    var smokeMat = new THREE.SpriteMaterial({ map: mistTexture, color: 0x615966, transparent: true, opacity: .55, depthWrite: false });
+    for (var j = 0; j < 3; j++) {
+      var smoke = new THREE.Sprite(smokeMat); smoke.position.set(stack.position.x + j * 5, 85 + i * 5 + j * 20, 0);
+      smoke.scale.set(22 + j * 16, 34 + j * 13, 1); g.add(smoke);
+    }
+  }
+  var vent = mesh(box(0.3, 10, 42), G(0xff642b)); vent.position.set(30.2, 8, 0); g.add(vent);
   return g;
 }
 
@@ -1998,7 +2063,7 @@ P.models = {
   buildDragon: buildDragon, buildOrb: buildOrb, buildBoss: buildBoss,
   ENEMY_DEFS: ENEMY_DEFS,
   buildRock: buildRock, buildSpire: buildSpire, buildRuin: buildRuin,
-  buildIsland: buildIsland, buildTower: buildTower, buildCloud: buildCloud
+  buildKeep: buildKeep, buildFoundry: buildFoundry, buildIsland: buildIsland, buildTower: buildTower, buildCloud: buildCloud
 };
 
 })();

@@ -217,6 +217,7 @@ var impactPool = new Pool(function () {
 }, 24);
 var impacts = [];
 function spawnImpact(pos, armColor, size) {
+  if (P.fx) P.fx.burst(pos, size || 1, armColor || 0x7fe8ff, true);
   var g = impactPool.get();
   g.position.copy(pos);
   g.rotation.set(rand(0, TAU), rand(0, TAU), rand(0, TAU));
@@ -253,6 +254,7 @@ var SHARD_MATS = {
 };
 
 function boom(pos, size, colorSet, count) {
+  if (P.fx && size >= 1) P.fx.burst(pos, size, 0xff944c, false);
   var n = count || Math.round(10 + size * 5);
   for (var i = 0; i < n; i++) {
     if (shards.length > 200) break;
@@ -329,7 +331,10 @@ function spawnEnemy(type, opts) {
     type: type, def: def, g: g, hp: def.hp * (opts.hpMul || 1), bs: bs,
     pos: new V3(), vel: new V3(), t: 0, fireT: rand(0.6, 2.0),
     alive: true, locked: 0, phase: rand(0, TAU), hold: rand(26, 64),
-    lane: rand(-1, 1), amp: rand(6, 18), flashT: 0, tag: opts.tag || null
+    lane: rand(-1, 1), amp: rand(6, 18), flashT: 0, tag: opts.tag || null,
+    openingOffset: opts.openingOffset || null,
+    formation: opts.formation || null, holdFor: opts.holdFor || 0,
+    deAge: opts.deAge === undefined ? def.deAge : opts.deAge
   };
   var pz = Game.railZ, ry = Player.railY;
 
@@ -377,10 +382,10 @@ function killEnemy(e, byPlayer) {
     e.spinA = rand(7, 12) * (Math.random() < 0.5 ? -1 : 1);
     e.fallV = rand(2, 7);
     spawnImpact(e.pos, 0xffa050, 1.3);
-    A.sBoom(false);
+    A.sBoom(false, e.pos);
   } else {
     boom(e.pos, e.def.radius * 1.4, enemyCols(e));
-    A.sBoom(e.def.radius > 2.3);
+    A.sBoom(e.def.radius > 2.3, e.pos);
   }
   if (byPlayer) {
     Game.kills++;
@@ -393,11 +398,13 @@ function killEnemy(e, byPlayer) {
     if (Game.combo > Game.bestCombo) Game.bestCombo = Game.combo;
     var mult = 1 + Math.min(Game.combo, 20) * 0.06;
     Game.score += Math.round(e.def.score * mult);
-    deAge(e.def.deAge * (1 + Math.min(Game.combo, 15) * 0.03));
+    deAge(e.deAge * (e.tag === 'opening-target' ? 1 : 2 + Math.min(Game.combo, 15) * 0.06));
+    if (P.opening) P.opening.onKill(e);
+    if (P.campaign) P.campaign.onKill(e);
     killQuip();
   }
   if (e.def.drops) for (var i = 0; i < e.def.drops; i++) spawnOrb(e.pos, true);
-  else if (Math.random() < 0.055) spawnOrb(e.pos, false);
+  else if (e.tag !== 'opening-target' && Math.random() < 0.055) spawnOrb(e.pos, false);
   dropLocks(e);
   if (!e.dying) {
     freeEnemyMesh(e.type, e.g);
@@ -406,6 +413,8 @@ function killEnemy(e, byPlayer) {
 }
 
 function hurtEnemy(e, dmg) {
+  // Carriers expose their cooling core to lateral or elevated attacks.
+  if (e.type === 'carrier' && (Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18)) dmg *= 2;
   e.hp -= dmg;
   e.flashT = 0.09;
   if (e.hp <= 0) killEnemy(e, true);
@@ -493,7 +502,7 @@ function addAge(y) {
   applyVigour();
 }
 function damagePlayer(amount, hard) {
-  if (Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
+  if ((Player.rollT > 0.14 && Player.rollT < 0.58) || Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
   addAge(amount);
   Game.invulnT = hard ? 1.5 : 1.15;
   Game.hurtT = 0.55;
@@ -503,7 +512,8 @@ function damagePlayer(amount, hard) {
   Game.heat = 0;
   refreshWeapons();
   A.sHit();
-  flashScreen(0.55, '#ff3b2a');
+  flashScreen(0.18, '#ff3b2a');
+  if (P.opening) P.opening.onHit();
   if (Math.random() < 0.5) sayQuip(pick([
     'That one cost him. They always cost him.',
     'He felt every year of it arrive at once.',
@@ -545,6 +555,7 @@ function fireLasers() {
   for (var i = 0; i < n; i++) {
     var tgt = Locks.list[i];
     var l = laserPool.get();
+    if (P.fx) P.fx.attachLaser(l);
     l.position.copy(origin);
     if (tgt.def) _fTp.copy(tgt.pos); else tgt.group.getWorldPosition(_fTp);
     var d = new V3().subVectors(_fTp, origin).normalize();
@@ -567,6 +578,8 @@ function fireLasers() {
     Game.shots++;
   }
   dragon.muzzleT = 0.18;
+  A.sLaser();
+  if (P.fx) P.fx.burst(origin, 0.8, 0x69dfff, true);
   Locks.list.length = 0;
 }
 
@@ -863,10 +876,13 @@ P.endGame = endGame;
 // ================================================================== UPDATES
 function updatePlayer(dt) {
   var ep = P.world.EPISODES[Game.epIndex];
-  var speed = ep.speed;
+  if (P.flight) P.flight.update(dt);
+  var speed = ep.speed * (Player.speedFactor || 1);
+  var corridor = ep.flightWidth || 72, ceiling = 58;
   // trading altitude for airspeed: a climb bleeds speed, a dive gains it
   var vyPrev = clamp(Player.vy / 44, -1, 1);
-  Game.railZ += speed * (1 - vyPrev * 0.15) * dt;
+  var forwardSpeed = speed * (1 - vyPrev * 0.15);
+  Game.railZ += forwardSpeed * dt;
 
   // ---- view rotation
   Player.camYaw += P.angDelta(Player.camYaw, Player.camYawTarget) * dampF(7.5, dt);
@@ -880,17 +896,27 @@ function updatePlayer(dt) {
   var yaw = Player.camYaw;
   // the camera looks along +Z, so screen-right is world -X (not +X)
   var rx = -Math.cos(yaw), rz = Math.sin(yaw);
-  var accel = 128;
-  Player.vx = damp(Player.vx, ix * rx * accel * 0.42, 7, dt);
-  Player.vz = damp(Player.vz, ix * rz * accel * 0.42, 7, dt);
-  Player.vy = damp(Player.vy, iy * accel * 0.36, 7, dt);
+  if (Player.rollT > 0) ix = Player.rollDir;
+  var accel = Player.rollT > 0 ? 185 : 128;
+  // Ease into the edge of the flight corridor instead of sliding at full
+  // speed into an invisible wall while the rig keeps showing a hard turn.
+  function corridorSpeed(want, pos, lo, hi) {
+    return clamp(want, -Math.max(0, pos - lo) * 4, Math.max(0, hi - pos) * 4);
+  }
+  Player.vx = damp(Player.vx, corridorSpeed(ix * rx * accel * 0.42, Player.x, -corridor, corridor), 7, dt);
+  Player.vz = damp(Player.vz, corridorSpeed(ix * rz * accel * 0.42, Player.zOff, -26, 26), 7, dt);
+  Player.vy = damp(Player.vy, corridorSpeed(iy * accel * 0.36, Player.y, -16, ceiling), 7, dt);
+  var oldX = Player.x, oldY = Player.y, oldZ = Player.zOff;
   Player.x += Player.vx * dt;
   Player.zOff += Player.vz * dt;
   Player.y += Player.vy * dt;
 
-  Player.x = clamp(Player.x, -30, 30);
-  Player.zOff = clamp(Player.zOff, -14, 14);
-  Player.y = clamp(Player.y, -16, 26);
+  Player.x = clamp(Player.x, -corridor, corridor);
+  Player.zOff = clamp(Player.zOff, -26, 26);
+  Player.y = clamp(Player.y, -16, ceiling);
+  if ((Player.x === -corridor && Player.vx < 0) || (Player.x === corridor && Player.vx > 0)) Player.vx = 0;
+  if ((Player.zOff === -26 && Player.vz < 0) || (Player.zOff === 26 && Player.vz > 0)) Player.vz = 0;
+  if ((Player.y === -16 && Player.vy < 0) || (Player.y === ceiling && Player.vy > 0)) Player.vy = 0;
 
   Player.railY = damp(Player.railY, ep.railY, 1.4, dt);
   Player.pos.set(Player.x, Player.railY + Player.y, Game.railZ + Player.zOff);
@@ -910,18 +936,26 @@ function updatePlayer(dt) {
   Player.aimY = damp(Player.aimY, cine ? 0 : Input.ndy, 10, dt);
 
   // ---- dragon transform
-  // The dragon faces the RAIL he is actually flying, always. The camera yaw
-  // (Q/E orbit, steering lean) is the camera's business alone — welding the
-  // root to it made him fly sideways whenever the view rotated.
-  Player.lean = damp(Player.lean || 0, ix, 3.2, dt);
+  // Pose from actual travel in the dragon's +Z frame, independent of the
+  // viewing direction. Filter contact corrections before they reach the rig.
+  var invDt = 1 / Math.max(dt, 1e-4);
+  Player.motionX = damp(Player.motionX || 0, (Player.x - oldX) * invDt, 10, dt);
+  Player.motionY = damp(Player.motionY || 0, (Player.y - oldY) * invDt, 8, dt);
+  Player.motionZ = damp(Player.motionZ || 0, (Player.zOff - oldZ) * invDt, 10, dt);
+  var screenStrafe = (Player.motionX * rx + Player.motionZ * rz) / (accel * 0.42);
+  Player.lean = damp(Player.lean || 0, screenStrafe, 5, dt);
   dragon.root.position.copy(Player.pos);
-  dragon.root.rotation.y = Player.lean * 0.22;   // gentle nose-lean into the dodge
+  var heading = Math.atan2(Player.motionX, Math.max(20, forwardSpeed + Player.motionZ));
+  dragon.root.rotation.y = damp(dragon.root.rotation.y, heading * 0.72, 6, dt);
   dragon.update(dt, Game.time, {
-    strafeX: clamp(Player.vx * -Math.cos(yaw) * 0.02 + Player.vz * Math.sin(yaw) * 0.02, -1, 1),
-    strafeY: clamp(Player.vy * 0.02, -1, 1),
-    vy: Player.vy,
-    aimX: Player.aimX, aimY: Player.aimY, boost: 0
+    strafeX: clamp(-Player.motionX / (accel * 0.42), -1, 1),
+    strafeY: clamp(Player.motionY / 44, -1, 1),
+    vy: Player.motionY,
+    aimX: Player.aimX, aimY: Player.aimY, boost: Player.boosting ? 1 : 0
   });
+
+  var rollProgress = Player.rollT > 0 ? 1 - Player.rollT / 0.65 : 0;
+  dragon.root.rotation.z = Player.rollT > 0 ? -Player.rollDir * TAU * (rollProgress * rollProgress * (3 - 2 * rollProgress)) : 0;
 
   // blink while invulnerable
   if (Game.invulnT > 0) {
@@ -942,7 +976,7 @@ function updatePlayer(dt) {
   camPos.addScaledVector(fwd, dragon.getSurge() * 0.5);
   // lateral lag: the boom hangs behind the sideways motion
   var rX = -Math.cos(yaw), rZ = Math.sin(yaw);           // screen-right
-  var latV = Player.vx * rX + Player.vz * rZ;             // signed strafe speed
+  var latV = Player.motionX * rX + Player.motionZ * rZ;
   camPos.x += rX * -latV * 0.05;
   camPos.z += rZ * -latV * 0.05;
   camPos.x += Math.sin(Game.time * 0.7) * 0.25;
@@ -957,14 +991,14 @@ function updatePlayer(dt) {
   look.x += Math.sin(lookYaw) * 34;
   look.z += Math.cos(lookYaw) * 34;
   look.y += 6.0 - Player.aimY * 4.0;
-  look.x += Input.ndx * 4.4 * -Math.cos(camYawV);
-  look.z += Input.ndx * 4.4 * Math.sin(camYawV);
+  look.x += Player.aimX * 4.4 * -Math.cos(camYawV);
+  look.z += Player.aimX * 4.4 * Math.sin(camYawV);
   camera.lookAt(look);
   camera.rotateZ(-lean * 0.035);         // a whisper of roll, not a tilt-a-whirl
   // speed reads through the lens: diving widens the field, and each wingbeat
   // surge breathes it slightly
   var fovT = 56 + Math.max(0, -Player.vy / 44) * 7 + Math.abs(lean) * 1.5
-           + Math.max(0, dragon.getSurge()) * 6;
+           + Math.max(0, dragon.getSurge()) * 6 + (Player.boosting ? 10 : 0);
   camera.fov = damp(camera.fov, fovT, 4.5, dt);
   camera.updateProjectionMatrix();
 
@@ -1004,22 +1038,23 @@ function updateProjectiles(dt) {
       p.v.lerp(P.tmpA, dampF(k, dt));
     }
     p.v.setLength(spd);
+    var previousLaserPos = p.m.position.clone();
     p.m.position.addScaledVector(p.v, dt);
     p.m.lookAt(P.tmpB.copy(p.m.position).add(p.v));
     ribbonAdvance(p.rib, p.m.position.x, p.m.position.y, p.m.position.z, 3.4);
-    ribbonBuild(p.rib, 0.4, 0xcfeeff, 0x1030d8, 0.9);
+    ribbonBuild(p.rib, 0.85, 0xffffff, 0x166dff, 1.25);
     p.life -= dt;
     var hit = false;
-    if (tp && p.m.position.distanceTo(tp) < (p.target.def ? p.target.def.radius + 1.6 : 7.0)) {
+    if (tp && segPointD2(previousLaserPos, p.m.position, tp) < Math.pow(p.target.def ? p.target.def.radius + 1.6 : 7.0, 2)) {
       if (p.target.def) hurtEnemy(p.target, p.dmg);
       else bossCoreHit(p.target, 4.5);
       spawnImpact(p.m.position, 0x7fe8ff, 1.15);
       boom(p.m.position, 0.7, [SHARD_MATS.cyan, SHARD_MATS.white], 4);
-      A.sZap();
+      A.sZap(p.m.position);
       hit = true; Game.hits++;
     }
     if (hit || p.life <= 0) {
-      releaseTrail(p.rib, 0.4, 0xcfeeff, 0x1030d8);
+      releaseTrail(p.rib, 0.85, 0xffffff, 0x166dff);
       p.rib = null;
       laserPool.put(p.m); lasers.splice(i, 1);
     }
@@ -1160,7 +1195,9 @@ function enemyShoot(e, speed, dmg, spread) {
   var d = P.tmpA.copy(Player.pos).sub(e.pos).normalize();
   d.x += rand(-spread, spread); d.y += rand(-spread, spread); d.z += rand(-spread, spread);
   d.normalize();
-  ebullets.push({ m: b, v: d.multiplyScalar(speed), life: 6, dmg: dmg });
+  var shot = { m: b, v: d.multiplyScalar(speed), life: 6, dmg: dmg };
+  ebullets.push(shot);
+  return shot;
 }
 
 function updateEnemies(dt) {
@@ -1182,10 +1219,18 @@ function updateEnemies(dt) {
       var gh = P.terrain.enabled ? P.terrain.heightAt(e.pos.x, e.pos.z) : -1e9;
       if (e.dying <= 0 || e.pos.y <= gh + 1) {
         boom(e.pos, e.def.radius * 1.5, enemyCols(e));
-        A.sBoom(e.def.radius > 2.3);
+        A.sBoom(e.def.radius > 2.3, e.pos);
         freeEnemyMesh(e.type, e.g);
         enemies.splice(i, 1);
       }
+      continue;
+    }
+
+    // Briefing targets hold a readable formation and never fire or collide.
+    if (e.openingOffset) {
+      e.pos.set(e.openingOffset.x, ry + e.openingOffset.y, Game.railZ + e.openingOffset.z);
+      e.g.position.copy(e.pos);
+      e.g.lookAt(Player.pos);
       continue;
     }
 
@@ -1193,7 +1238,10 @@ function updateEnemies(dt) {
     var dist = toP.length();
     var prevX = e.pos.x;
 
-    switch (e.type) {
+    if (e.formation && e.t < e.holdFor) {
+      e.pos.set(e.formation.x, ry + e.formation.y + Math.sin(e.t) * 2, Game.railZ + e.formation.z);
+      e.g.lookAt(Player.pos);
+    } else switch (e.type) {
       case 'wasp': {
         var want = P.tmpB.copy(Player.pos);
         want.x += Math.sin(e.t * 0.9 + e.phase) * e.amp;
@@ -1297,6 +1345,7 @@ function updateEnemies(dt) {
 var spawnT = 0;
 function updateSpawner(dt) {
   if (Game.state !== 'playing' || Game.ending) return;
+  if (P.opening && P.opening.active) return;
   var ep = P.world.EPISODES[Game.epIndex];
   spawnT -= dt;
   if (spawnT > 0) return;
@@ -1328,6 +1377,20 @@ P.entities = {
   updateBoss: updateBoss, bossStart: bossStart, Boss: Boss,
   fireGun: fireGun, fireLasers: fireLasers, boom: boom, SHARD_MATS: SHARD_MATS,
   spawnOrb: spawnOrb, spawnImpact: spawnImpact, impacts: impacts,
+  enemyShoot: enemyShoot,
+  dismissEnemy: function (e) {
+    var i = enemies.indexOf(e);
+    if (i < 0) return;
+    e.alive = false;
+    dropLocks(e);
+    freeEnemyMesh(e.type, e.g);
+    enemies.splice(i, 1);
+  },
+  dismissShot: function (shot) {
+    var i = ebullets.indexOf(shot);
+    if (i < 0) return;
+    ebPool.put(shot.m); ebullets.splice(i, 1);
+  },
   prewarm: prewarmEnemies,
   poolStats: function () {
     return { laser: laserPool.grown, ribbon: ribbonPool.grown, gun: gunPool.grown,
