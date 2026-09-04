@@ -11,7 +11,7 @@ window.addEventListener('error',e=>{status.textContent='ERROR: '+e.message;});
 frame.addEventListener('load',()=>frame.contentWindow.addEventListener('error',e=>{status.textContent='ERROR: '+e.message;}));
 function scene(){
  P.opening.reset();P.entities.reset();P.flight.reset();P.fx.reset();
- P.Game.state='playing';P.Game.cinematic=false;P.Game.age=60;P.Game.time=0;P.Game.railZ=0;
+ document.getElementById('pause').textContent='Pause';P.Game.state='playing';P.Game.cinematic=false;P.Game.age=60;P.Game.time=0;P.Game.railZ=0;
  const i=+document.getElementById('scene').value,ep=P.world.EPISODES[i];
  P.Player.x=i===0?54:0;P.Player.y=0;P.Player.railY=ep.railY;P.Player.zOff=0;P.Player.vx=P.Player.vy=P.Player.vz=0;
  P.Player.camYaw=P.Player.camYawTarget=P.Player.viewIndex=0;P.dragon.resetMotion();

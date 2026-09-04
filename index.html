@@ -4506,6 +4506,7 @@ function fireLasers() {
     var tgt = Locks.list[i];
     var l = laserPool.get();
     if (P.fx) P.fx.attachLaser(l);
+    l.visible = i === 0; // queued bolts must not stack their glows on the rider
     l.position.copy(origin);
     if (tgt.def) _fTp.copy(tgt.pos); else tgt.group.getWorldPosition(_fTp);
     var d = new V3().subVectors(_fTp, origin).normalize();
@@ -4971,7 +4972,7 @@ function updateProjectiles(dt) {
       var mz = getMuzzle();
       p.m.position.copy(mz);
       ribbonReset(p.rib, mz.x, mz.y, mz.z);
-      if (p.delay <= 0) { A.sLaser(); dragon.muzzleT = 0.07; }
+      if (p.delay <= 0) { p.m.visible = true; A.sLaser(); dragon.muzzleT = 0.07; }
       continue;
     }
     p.age += dt;
