@@ -224,7 +224,8 @@ function drawHUD(dt) {
     for (var q = 0; q < i; q++) if (Locks.list[q] === t) dup++;
     var sz = clamp(1400 / Math.max(20, pp.depth), 11, 60) + dup * 5;
     bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
-    bracket(pp.x, pp.y, sz, '#8fffc4', 2.5);
+    bracket(pp.x, pp.y, sz, t.attack ? '#ff9868' : '#8fffc4', 2.5);
+    if (t.attack && dup === 0) txt('FIRING', pp.x, pp.y + sz + 15, 11, '#ff9868', 'center');
     hx.strokeStyle = 'rgba(255,74,106,.35)';
     hx.beginPath(); hx.moveTo(Input.mx, Input.my); hx.lineTo(pp.x, pp.y); hx.stroke();
   }
@@ -241,7 +242,8 @@ function drawHUD(dt) {
         var lesson = e.tag === 'opening-target' || e.tag === 'opening-sentry';
         if (lesson) s2 = Math.max(s2, 20);
         bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
-        bracket(pp.x, pp.y, s2, lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
+        bracket(pp.x, pp.y, s2, e.attack ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
+        if (!lesson && P.enemyCombat && (e.attack || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.attack ? '#ff9868' : '#91e8ff', 'center');
         if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
         if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
       }

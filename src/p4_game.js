@@ -312,7 +312,7 @@ function freeEnemyMesh(type, g) { g.visible = false; enemyPools[type].push(g); }
 // Enemy meshes used to be built the first time each type appeared — mid-flight,
 // at full speed, with the GPU already busy. maxAlive is 16, so one wave of a
 // fresh type could build a dozen rigs inside a single frame. Build them at boot.
-var PREWARM = { wasp: 10, ray: 8, turret: 5, chaser: 8, carrier: 4, mine: 7 };
+var PREWARM = { wasp: 10, ray: 8, turret: 5, chaser: 8, carrier: 4, mine: 7, sentinel: 4, bomber: 3 };
 function prewarmEnemies() {
   for (var type in PREWARM) {
     if (!mdl.ENEMY_DEFS[type]) continue;
@@ -344,7 +344,7 @@ function spawnEnemy(type, opts) {
     var th = P.terrain.heightAt(tx, tz);
     e.pos.set(tx, th, tz);
   } else if (type === 'chaser') {
-    e.pos.set(rand(-30, 30), ry + rand(-10, 14), pz - rand(120, 200));
+    e.pos.set(rand(-30, 30), ry + rand(-10, 14), pz - rand(72, 100));
   } else if (type === 'ray') {
     var side = Math.random() < 0.5 ? -1 : 1;
     e.pos.set(side * rand(70, 130), ry + rand(-14, 22), pz + rand(240, 360));
@@ -359,6 +359,8 @@ function spawnEnemy(type, opts) {
     e.pos.set(Math.cos(a) * rand(14, 46), ry + Math.sin(a) * rand(8, 26), pz + rand(260, 380));
   }
   if (opts.pos) e.pos.copy(opts.pos);
+  g.rotation.set(0, 0, 0);
+  if (P.enemyCombat) P.enemyCombat.prepare(e);
   g.position.copy(e.pos);
   g.scale.setScalar(bs);
   e.bs = bs;
@@ -413,6 +415,7 @@ function killEnemy(e, byPlayer) {
 }
 
 function hurtEnemy(e, dmg) {
+  if (P.enemyCombat) dmg = P.enemyCombat.damage(e, dmg);
   // Carriers expose their cooling core to lateral or elevated attacks.
   if (e.type === 'carrier' && (Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18)) dmg *= 2;
   e.hp -= dmg;
@@ -883,6 +886,7 @@ function updatePlayer(dt) {
   // trading altitude for airspeed: a climb bleeds speed, a dive gains it
   var vyPrev = clamp(Player.vy / 44, -1, 1);
   var forwardSpeed = speed * (1 - vyPrev * 0.15);
+  Player.forwardSpeed = forwardSpeed;
   Game.railZ += forwardSpeed * dt;
 
   // ---- view rotation
@@ -1193,13 +1197,15 @@ function updateProjectiles(dt) {
   }
 }
 
-function enemyShoot(e, speed, dmg, spread) {
+function enemyShoot(e, speed, dmg, spread, aim, angle) {
   var b = ebPool.get();
   b.position.copy(e.pos);
-  var d = P.tmpA.copy(Player.pos).sub(e.pos).normalize();
+  if (e.type === 'turret') b.position.y += 3.1 * e.bs;
+  var d = P.tmpA.copy(aim || Player.pos).sub(b.position).normalize();
+  if (angle) d.applyAxisAngle(new V3(0, 1, 0), angle);
   d.x += rand(-spread, spread); d.y += rand(-spread, spread); d.z += rand(-spread, spread);
   d.normalize();
-  var shot = { m: b, v: d.multiplyScalar(speed), life: 6, dmg: dmg };
+  var shot = { m: b, v: d.clone().multiplyScalar(speed), life: 6, dmg: dmg };
   ebullets.push(shot);
   if (A.sEnemy) A.sEnemy(e.pos);
   return shot;
@@ -1209,6 +1215,7 @@ function updateEnemies(dt) {
   var ry = Player.railY;
   for (var i = enemies.length - 1; i >= 0; i--) {
     var e = enemies[i];
+    if (e.bank && e.dying === undefined) e.g.rotation.z -= e.bank;
     e.t += dt;
     var d = e.def;
 
@@ -1243,7 +1250,13 @@ function updateEnemies(dt) {
     var dist = toP.length();
     var prevX = e.pos.x;
 
-    if (e.formation && e.t < e.holdFor) {
+    var inFormation = e.formation && e.t < e.holdFor;
+    if (!inFormation && ['wasp', 'chaser', 'sentinel', 'bomber'].indexOf(e.type) >= 0) {
+      var cruise = P.world.EPISODES[Game.epIndex].speed;
+      if (e.t < 14) e.pos.z += Math.min(Player.forwardSpeed || cruise, cruise * 1.1) * dt;
+      else e.pos.z -= 32 * dt;
+    }
+    if (inFormation) {
       e.pos.set(e.formation.x, ry + e.formation.y + Math.sin(e.t) * 2, Game.railZ + e.formation.z);
       e.g.lookAt(Player.pos);
     } else switch (e.type) {
@@ -1283,6 +1296,14 @@ function updateEnemies(dt) {
         if (e.g.userData.flame) e.g.userData.flame.scale.setScalar(0.7 + Math.random() * 0.7);
         break;
       }
+      case 'sentinel':
+      case 'bomber': {
+        var heavy = P.tmpB.set(e.lane * 38 + Math.sin(e.t * .6 + e.phase) * 18, ry + 18 + Math.sin(e.t * .8) * 8, Game.railZ + (e.type === 'bomber' ? 145 : 100));
+        var dv = heavy.sub(e.pos), len = dv.length();
+        if (len > .01) e.pos.addScaledVector(dv.normalize(), Math.min(len, d.speed * dt));
+        e.g.lookAt(Player.pos);
+        break;
+      }
       case 'carrier': {
         e.pos.z -= 14 * dt;
         e.pos.x += Math.sin(e.t * 0.5 + e.phase) * 10 * dt;
@@ -1320,8 +1341,9 @@ function updateEnemies(dt) {
     // the enemy has moved since dist was measured; gates below want the new one
     dist = P.tmpA.copy(Player.pos).sub(e.pos).length();
 
-    // shooting
-    if (d.fireRate > 0 && dist < 300 && Game.state === 'playing' && !Game.ending) {
+    // Telegraph and role-specific volleys, with the original fallback for isolated tools.
+    if (P.enemyCombat) P.enemyCombat.update(e, dt, dist);
+    else if (d.fireRate > 0 && dist < 300 && Game.state === 'playing' && !Game.ending) {
       e.fireT -= dt;
       if (e.fireT <= 0) {
         e.fireT = d.fireRate * rand(0.7, 1.3);
@@ -1332,7 +1354,7 @@ function updateEnemies(dt) {
 
     // collision with the dragon
     if (dist < d.radius + 2.6 && e.type !== 'mine') {
-      killEnemy(e, true); damagePlayer(3.0, true); continue;
+      killEnemy(e, false); damagePlayer(3.0, true); continue;
     }
 
     // cull
@@ -1349,6 +1371,7 @@ function updateEnemies(dt) {
 // ------------------------------------------------------------- enemy waves
 var spawnT = 0;
 function updateSpawner(dt) {
+  if (P.encounters) { P.encounters.update(dt); return; }
   if (Game.state !== 'playing' || Game.ending) return;
   if (P.opening && P.opening.active) return;
   var ep = P.world.EPISODES[Game.epIndex];
@@ -1424,6 +1447,7 @@ P.entities = {
     for (i = 0; i < orbs.length; i++) { orbs[i].g.visible = false; orbPool.push(orbs[i].g); } orbs.length = 0;
     Locks.list.length = 0;
     spawnT = 1.5;
+    if (P.encounters) P.encounters.reset();
     if (Boss.group) { Boss.group.visible = false; Boss.active = false; Boss.group.scale.setScalar(1); }
     Game.bossActive = false;
   },

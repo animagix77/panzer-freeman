@@ -14,6 +14,7 @@ const parts = [
   'p4b_opening.js',
   'p4c_effects.js',
   'p4d_campaign.js',
+  'p4e_enemies.js',
   'p5_hud_loop.js'
 ];
 const js = parts.map(f => fs.readFileSync(path.join(src, f), 'utf8')).join('\n\n');

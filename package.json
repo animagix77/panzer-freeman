@@ -12,8 +12,9 @@
     "check:music": "node tools/check-music.js",
     "check:fixes": "node tools/check-fixes.js",
     "check:upgrade": "node tools/check-upgrade.js",
-    "check:release": "node build.js && node tools/check-opening.js && node tools/check-upgrade.js && node tools/check-audio.js && node tools/check-bundle.js",
-    "check:audio": "node tools/check-audio.js"
+    "check:release": "node build.js && node tools/check-opening.js && node tools/check-upgrade.js && node tools/check-enemies.js && node tools/check-audio.js && node tools/check-bundle.js",
+    "check:audio": "node tools/check-audio.js",
+    "check:enemies": "node tools/check-enemies.js"
   },
   "keywords": [
     "threejs",

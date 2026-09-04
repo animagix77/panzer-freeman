@@ -53,6 +53,16 @@ three-year mission reward. The Citadel of Hours and final arena now have continu
 mountain terrain and keeps planted on deep foundations, with bridges between towers.
 The foundry currently shares the canyon music cue.
 
+**An enemy force with distinct roles.** Mixed squadrons replace the random single-type
+spawns. Wasps and rear interceptors match cruise speed during their attack runs;
+boosting can still open distance. Shield sentinels resist frontal fire, but flanking
+or their post-volley opening bypasses the shield. Heavy bombers fire five lanes after
+a longer windup. Carriers deploy two escorts. Orange rings and brackets warn of
+incoming volleys; lateral aim commits during that warning so dodging works.
+The director and escort launches stay within 18 active enemies, with at most three
+simultaneous windups and 100 ordinary hostile shots. Scripted mission encounters can
+add their own enemies. Ramming enemies does not award kill rewards.
+
 **Flight choices.** Boost, air brake and evasive roll add speed control and a brief
 evasion window. Boost and roll share a replenishing power reserve. Carriers take
 double damage when attacked from more than 26 units to either side or 18 units above;
@@ -170,6 +180,7 @@ node build.js        # concatenates src/ into index.html
 | `p4_game.js` | player, projectiles, ribbons, impacts, enemies, boss AI |
 | `p4b_opening.js` | guided opening and authored first encounter |
 | `p4c_effects.js` | pooled glow, shockwaves and impact lights |
+| `p4e_enemies.js` | mixed squadrons, shield and bomber roles, attack telegraphs |
 | `p4d_campaign.js` | boost/brake/roll, route gates and authored stage encounters |
 | `p5_hud_loop.js` | HUD canvas, opening cinematic, input, main loop |
 
@@ -184,6 +195,7 @@ OfflineAudioContext and checks output headroom. The older Playwright tools below
 they are additional developer probes, not part of the release gate:
 
 ```bash
+node tools/check-enemies.js  # pursuit, shields, volleys, stage population, caps and reset
 node tools/check-audio.js    # audio graph lifecycle, mixing, looping, mute and cleanup
 node tools/check-upgrade.js  # maneuvers, campaign, world, effects, audio (includes motion)
 node tools/check-opening.js  # briefing lifecycle plus real laser/dodge collision checks

@@ -3,7 +3,7 @@
 <style>*{box-sizing:border-box}body{margin:0;background:#100c19;color:#e0edf0;font:13px system-ui}iframe{width:100%;height:calc(100vh - 84px);border:0;display:block}footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;height:84px}button,select,a{background:#253246;color:#e0edf0;border:1px solid #526176;padding:8px;border-radius:4px}#status{font-size:11px;color:#9cead8}</style>
 <iframe id="game" src="../index.html" title="Game preview"></iframe>
 <footer><select id="scene" aria-label="Preview scene"><option value="0">Split canyon</option><option value="1">Drowned Choir</option><option value="2">Ember Foundry</option><option value="3">Mountain Citadel</option><option value="4">Chronos arena</option></select>
-<button id="volley">Laser volley</button><button id="boom">Explosion</button><button id="boost">Boost</button><button id="roll">Roll</button><button id="pause">Pause</button><button id="sound">Sound samples</button><a href="../index.html">Play</a><span id="status">Loading…</span></footer>
+<button id="hostiles">New enemies</button><button id="volley">Laser volley</button><button id="boom">Explosion</button><button id="boost">Boost</button><button id="roll">Roll</button><button id="pause">Pause</button><button id="sound">Sound samples</button><a href="../index.html">Play</a><span id="status">Loading…</span></footer>
 <script>
 let P,ready=false,boostUntil=0;
 const frame=document.querySelector('iframe'), status=document.getElementById('status');
@@ -22,6 +22,7 @@ function scene(){
  status.textContent='Live production scene · invulnerable preview';
 }
 document.getElementById('scene').onchange=()=>{if(P)scene();};
+document.getElementById('hostiles').onclick=()=>{if(!P)return;P.entities.reset();P.Game.state='playing';document.getElementById('pause').textContent='Pause';['sentinel','bomber'].forEach((type,i)=>{const e=P.entities.spawnEnemy(type,{pos:new P.V3(P.Player.x+(i-.5)*42,P.Player.pos.y+12,P.Game.railZ+80),formation:new P.V3(P.Player.x+(i-.5)*42,P.Player.y+12,80),holdFor:15});e.fireT=.5+i;});};
 document.getElementById('volley').onclick=()=>{if(!P)return;P.armAudio();P.Locks.list.length=0;
  for(let i=0;i<6;i++){const e=P.entities.spawnEnemy('wasp',{pos:new P.V3(P.Player.x+(i-2.5)*12,P.Player.pos.y+12,P.Game.railZ+130),formation:new P.V3(P.Player.x+(i-2.5)*12,12,130),holdFor:10});e.hp=1;e.fireT=20;P.Locks.list.push(e);}P.entities.fireLasers();};
 document.getElementById('boom').onclick=()=>{if(!P)return;P.armAudio();const pos=P.Player.pos.clone().add(new P.V3(12,5,45));P.entities.boom(pos,5,[P.entities.SHARD_MATS.fire,P.entities.SHARD_MATS.hot]);P.Audio_.sBoom(true,pos);};

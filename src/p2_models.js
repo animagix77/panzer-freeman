@@ -1842,6 +1842,37 @@ var ENEMY_DEFS = {
       return g;
     }
   },
+  sentinel: {
+    hp: 5, radius: 4.1, scale: 1.7, score: 320, deAge: .18, speed: 23, fireRate: 3.8, bulletSpeed: 66,
+    build: function () {
+      var g = new THREE.Group();
+      var hull = mesh(oct(1.8), M(0x356b87, { shine: 35, spec: 0x86bfd0 })); hull.scale.set(1.2, .65, 1.6); g.add(hull);
+      [-1, 1].forEach(function (side) {
+        var plate = mesh(box(.75, 3.2, 1.2), M(0xb99c51, { shine: 30 })); plate.position.set(side * 2.2, 0, .9); plate.rotation.z = side * -.25; g.add(plate);
+        var vent = mesh(box(.22, 2.2, .12), G(0x7eeaff)); vent.position.set(side * 2.2, 0, 1.55); g.add(vent);
+      });
+      var shield = mesh(new THREE.CircleGeometry(3.1, 6), new THREE.MeshBasicMaterial({ color: 0x72dfff, transparent: true, opacity: .27, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+      shield.position.z = 1.9; g.add(shield); g.userData.shield = shield;
+      var core = mesh(oct(.75), G(0xffcf70)); core.position.z = 1.3; g.add(core);
+      return g;
+    }
+  },
+  bomber: {
+    hp: 9, radius: 5.4, scale: 1.6, score: 550, deAge: .22, speed: 17, fireRate: 4.6, bulletSpeed: 55, drops: 1,
+    build: function () {
+      var g = new THREE.Group();
+      var hull = mesh(box(4.5, 1.8, 4), M(0x633546, { shine: 22 })); g.add(hull);
+      var bridge = mesh(oct(1.5), M(0xa97155, { shine: 28 })); bridge.position.set(0, .4, 2); bridge.scale.set(1.2, .6, 1.3); g.add(bridge);
+      [-1, 1].forEach(function (side) {
+        var wing = mesh(box(4.2, .25, 2.3), M(0x8b4c52)); wing.position.set(side * 3.3, 0, -.2); g.add(wing);
+        var pod = mesh(cyl(.8, 1, 4.5, 8), M(0x332a3e, { shine: 24 })); pod.rotation.x = Math.PI / 2; pod.position.set(side * 4.2, -.25, -.1); g.add(pod);
+        var exhaust = mesh(oct(.65), G(0xff8550)); exhaust.position.set(side * 4.2, -.25, -2.5); g.add(exhaust);
+        var cannon = mesh(box(.65, .65, 2.4), M(0xc19a68)); cannon.position.set(side * 1.3, -.65, 2.6); g.add(cannon);
+      });
+      var core = mesh(oct(.65), G(0xffbd64)); core.position.set(0, -.6, 2.5); g.add(core); g.userData.core = core;
+      return g;
+    }
+  },
   mine: {
     hp: 1, radius: 2.5, scale: 1.4, score: 60, deAge: 0.03, speed: 0, fireRate: 0, bulletSpeed: 0,
     build: function () {
