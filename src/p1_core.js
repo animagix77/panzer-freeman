@@ -437,6 +437,7 @@ var MUSIC_FILES = {
   boss:   'sound/04_hour_sphinx.mp3',
   ending: 'sound/05_ending.mp3'
 };
+var musicMix = .8;
 var MUSIC_VOL = 0.48;                 // mastered tracks sit UNDER the synth SFX
 // One level, not two. The old 0.5 existed because the synth band shared this
 // WebAudio graph and SFX at full level buried it. The score is an <audio>
@@ -453,6 +454,7 @@ function streamFor(k) {
     a.loop = true;
     a.preload = 'auto';
     a.volume = 0;
+    a.muted = Audio_.muted || musicMix === 0;
     // nothing to do when playback starts any more — the SFX bus no longer
     // shares a graph with the music, so it does not have to get out of the way
     a.addEventListener('error', function () {
@@ -479,7 +481,7 @@ function fadeStreams(next) {
       else done = false;
     }
     if (next) {
-      var tv = Audio_.muted ? 0 : MUSIC_VOL;
+      var tv = Audio_.muted ? 0 : MUSIC_VOL * musicMix;
       next.volume = Math.min(tv, next.volume + 0.06);
       if (Math.abs(next.volume - tv) > 0.001) done = false;
     }
@@ -537,7 +539,13 @@ function playMusic(k) {
   }
 }
 function setStreamMuted(m) {
-  if (curStream) curStream.volume = m ? 0 : MUSIC_VOL;
+  Object.keys(streams).forEach(function (k) { streams[k].muted = m || musicMix === 0; });
+  if (curStream) curStream.volume = m ? 0 : MUSIC_VOL * musicMix;
+}
+function setMusicMix(level) {
+  musicMix = clamp(level, 0, 1);
+  Object.keys(streams).forEach(function (k) { streams[k].muted = Audio_.muted || musicMix === 0; });
+  if (curStream && !fadeTimer) curStream.volume = Audio_.muted ? 0 : MUSIC_VOL * musicMix;
 }
 // introspection for the check tools
 function musicState() {
@@ -563,7 +571,7 @@ window.__PF = {
   trackShadow: trackShadow, setShadows: setShadows, toggleShadows: toggleShadows,
   setSunDir: setSunDir,
   shadowsOn: function () { return SHADOWS_ON; },
-  Audio_: Audio_, playMusic: playMusic, musicState: musicState, armAudio: armAudio,
+  Audio_: Audio_, playMusic: playMusic, setMusicMix: setMusicMix, musicState: musicState, armAudio: armAudio,
   hudCanvas: hudCanvas, hx: hx, glCanvas: glCanvas,
   el: { flash: elFlash, card: elCard, toast: elToast, pause: elPause, skip: elSkip, quip: elQuip,
         title: elTitle, over: elOver, win: elWin, loading: elLoading,

@@ -416,6 +416,7 @@ function drawHUD(dt) {
 function keyName(e) { return (e.key || '').toLowerCase(); }
 window.addEventListener('keydown', function (e) {
   var k = keyName(e);
+  if (e.target && /^(INPUT|SELECT|BUTTON)$/.test(e.target.tagName) && Game.state === 'paused' && k !== 'p' && k !== 'escape' && k !== 'm') return;
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].indexOf(k) >= 0) e.preventDefault();
   if (Input.keys[k]) return;
   Input.keys[k] = true;
@@ -589,6 +590,7 @@ function skipIntro() {
 
 // ================================================================= GAME FLOW
 function resetGame() {
+  if (P.sound) P.sound.reset();
   P.opening.reset();
   if (P.flight) P.flight.reset();
   if (P.fx) P.fx.reset();

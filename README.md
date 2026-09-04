@@ -137,7 +137,16 @@ measured against the game itself — is in [`ost/ELEVENLABS_PROMPTS.md`](ost/ELE
 Effects combine swept FM energy, filtered noise, bass resonance, impact transients,
 and decaying chimes. Three reusable variants per effect avoid identical repeated
 shots. Stereo placement, distance attenuation, a short reverb and a compressor
-blend the layers. A 28-voice cap and per-effect rate limits control busy volleys.
+blend the layers. The revised weapons use electrical cracks, mechanical clacks,
+metal resonances, debris and low pressure tails. Wingbeats have distinct downstroke
+and recovery textures. Three reusable stereo loops supply speed-sensitive wind,
+stage ambience and an evolving lock charge; they fade out when paused or hidden.
+Near misses and enemy shots have positional cues. Large impacts briefly lower the
+music, and distant effects lose high frequencies as well as volume.
+
+Press `P` for independently saved music, effects and ambience levels, plus buttons
+to audition the laser, explosion and wings. The existing recorded score is retained.
+A 28-voice cap and per-effect rate limits control busy volleys.
 These are original procedural effects, with no external sample licenses required.
 
 ## Building
@@ -155,6 +164,7 @@ node build.js        # concatenates src/ into index.html
 |---|---|
 | `p1_core.js` | renderer, retro shader patch, sky, SFX synth and the streamed score |
 | `p1b_audio.js` | layered effect bank, stereo mix, reverb and compression |
+| `p1c_soundscape.js` | flight ambience, charge loop, music ducking and saved mix controls |
 | `p2_models.js` | procedural dragon + rider + enemies + boss, and the flight model |
 | `p3_world.js` | terrain chunking, prop fields, episode definitions |
 | `p4_game.js` | player, projectiles, ribbons, impacts, enemies, boss AI |
@@ -169,10 +179,12 @@ The release gate runs production-code integration checks without a browser:
 `npm run check:release`. It covers the opening, flight rig, maneuvers, authored
 formations, route and convoy rewards, world foundations, FX bounds and audio buffers.
 Visual review uses `tools/combat-preview.html` and `tools/motion-preview.html`.
-The older Playwright tools below require their configured browser installation;
+`tools/audio-check.html` renders the production mix through a real browser
+OfflineAudioContext and checks output headroom. The older Playwright tools below require their configured browser installation;
 they are additional developer probes, not part of the release gate:
 
 ```bash
+node tools/check-audio.js    # audio graph lifecycle, mixing, looping, mute and cleanup
 node tools/check-upgrade.js  # maneuvers, campaign, world, effects, audio (includes motion)
 node tools/check-opening.js  # briefing lifecycle plus real laser/dodge collision checks
 node tools/check-motion.js   # real dragon/rider rig, view directions, boundary settling, frame rates

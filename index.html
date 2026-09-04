@@ -156,7 +156,14 @@
     background:rgba(6,3,14,.7);
   }
   #pausebox.on { display:flex; }
-  #pausebox div { font-size:clamp(18px,3vw,34px); letter-spacing:.4em; color:#ffd25e; }
+  #pausebox .pause-heading { font-size:clamp(18px,3vw,34px); letter-spacing:.4em; color:#ffd25e; }
+  #pausebox { flex-direction:column; gap:24px; }
+  .audio-mixer { width:min(380px,88vw); padding:22px; border:1px solid #796a86; background:#151023; color:#e0d9ea; font:14px system-ui,sans-serif; }
+  .audio-mixer label { display:grid; grid-template-columns:80px 1fr 42px; gap:12px; align-items:center; margin:14px 0; }
+  .audio-mixer input { width:100%; accent-color:#8de9e9; }
+  .audio-mixer output { text-align:right; color:#8de9e9; font-size:12px; }
+  .audio-mixer button { cursor:pointer; padding:7px 10px; margin:6px 3px 0 0; border:1px solid #766785; background:#2a2039; color:#eee2cd; }
+  .audio-mixer p { margin:16px 0 0; color:#aaa1b7; font-size:12px; line-height:1.5; }
   /* ---- Preload screen ---- */
   #loading {
     position:absolute; inset:0; z-index:30; display:flex;
@@ -259,7 +266,16 @@
   </aside>
   <div id="skiphint">PRESS ANY KEY TO SKIP</div>
   <div id="quip"></div>
-  <div id="pausebox"><div>— PAUSED —</div></div>
+  <div id="pausebox"><div class="pause-heading">— PAUSED —</div>
+    <section class="audio-mixer" aria-label="Audio settings">
+      <strong>Sound mix</strong>
+      <label for="audio-music">Music <input id="audio-music" type="range" min="0" max="100" value="80"><output id="audio-music-value">80%</output></label>
+      <label for="audio-effects">Effects <input id="audio-effects" type="range" min="0" max="100" value="100"><output id="audio-effects-value">100%</output></label>
+      <label for="audio-ambience">Ambience <input id="audio-ambience" type="range" min="0" max="100" value="60"><output id="audio-ambience-value">60%</output></label>
+      <button id="test-laser">Test laser</button><button id="test-blast">Test explosion</button><button id="test-wing">Test wings</button>
+      <p>Settings are saved on this device.<br>Press P or Escape to return to flight. M mutes all audio.</p>
+    </section>
+  </div>
   <div id="perf"></div>
 
   <div class="screen on" id="title">
@@ -834,6 +850,7 @@ var MUSIC_FILES = {
   boss:   'sound/04_hour_sphinx.mp3',
   ending: 'sound/05_ending.mp3'
 };
+var musicMix = .8;
 var MUSIC_VOL = 0.48;                 // mastered tracks sit UNDER the synth SFX
 // One level, not two. The old 0.5 existed because the synth band shared this
 // WebAudio graph and SFX at full level buried it. The score is an <audio>
@@ -850,6 +867,7 @@ function streamFor(k) {
     a.loop = true;
     a.preload = 'auto';
     a.volume = 0;
+    a.muted = Audio_.muted || musicMix === 0;
     // nothing to do when playback starts any more — the SFX bus no longer
     // shares a graph with the music, so it does not have to get out of the way
     a.addEventListener('error', function () {
@@ -876,7 +894,7 @@ function fadeStreams(next) {
       else done = false;
     }
     if (next) {
-      var tv = Audio_.muted ? 0 : MUSIC_VOL;
+      var tv = Audio_.muted ? 0 : MUSIC_VOL * musicMix;
       next.volume = Math.min(tv, next.volume + 0.06);
       if (Math.abs(next.volume - tv) > 0.001) done = false;
     }
@@ -934,7 +952,13 @@ function playMusic(k) {
   }
 }
 function setStreamMuted(m) {
-  if (curStream) curStream.volume = m ? 0 : MUSIC_VOL;
+  Object.keys(streams).forEach(function (k) { streams[k].muted = m || musicMix === 0; });
+  if (curStream) curStream.volume = m ? 0 : MUSIC_VOL * musicMix;
+}
+function setMusicMix(level) {
+  musicMix = clamp(level, 0, 1);
+  Object.keys(streams).forEach(function (k) { streams[k].muted = Audio_.muted || musicMix === 0; });
+  if (curStream && !fadeTimer) curStream.volume = Audio_.muted ? 0 : MUSIC_VOL * musicMix;
 }
 // introspection for the check tools
 function musicState() {
@@ -960,7 +984,7 @@ window.__PF = {
   trackShadow: trackShadow, setShadows: setShadows, toggleShadows: toggleShadows,
   setSunDir: setSunDir,
   shadowsOn: function () { return SHADOWS_ON; },
-  Audio_: Audio_, playMusic: playMusic, musicState: musicState, armAudio: armAudio,
+  Audio_: Audio_, playMusic: playMusic, setMusicMix: setMusicMix, musicState: musicState, armAudio: armAudio,
   hudCanvas: hudCanvas, hx: hx, glCanvas: glCanvas,
   el: { flash: elFlash, card: elCard, toast: elToast, pause: elPause, skip: elSkip, quip: elQuip,
         title: elTitle, over: elOver, win: elWin, loading: elLoading,
@@ -975,29 +999,58 @@ window.__PF = {
 (function () {
 'use strict';
 var P = window.__PF, A = P.Audio_, oldInit = A.init;
-var durations = { laser: .48, gun: .14, impact: .35, blast: 1.15, hit: .65,
-  lock: .13, orb: .65, view: .22, warn: .4, boost: .8, roll: .45 };
+var durations = { laser: .54, gun: .19, impact: .48, blast: 1.85, hit: .65,
+  lock: .13, orb: .65, view: .22, warn: .4, boost: .8, roll: .45, wing: .62, near: .32, enemy: .3 };
 // Low-passed noise, swept FM energy, body resonance and a shaped transient.
 // Every variant has a zero-ended envelope; no raw square/saw oscillators.
 function render(name, rate, variant) {
   var length = Math.ceil(durations[name] * rate), out = new Float32Array(length);
-  var seed = 8713 + variant * 971, low = 0, phase = 0, peak = 0;
+  var seed = 8713 + variant * 971, low = 0, subNoise = 0, phase = 0, phase2 = 0, peak = 0;
   function noise() { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 2147483648 - 1; }
   for (var i = 0; i < length; i++) {
     var t = i / rate, u = i / (length - 1), n = noise();
     low += (n - low) * (1 - Math.exp(-2 * Math.PI * (name === 'blast' ? 330 : 1600) / rate));
+    subNoise += (n - subNoise) * (1 - Math.exp(-2 * Math.PI * 110 / rate));
     var v = 0, pitch = 1 + variant * .023;
-    if (name === 'laser') {
-      phase += 2 * Math.PI * (170 + 1250 * Math.exp(-t * 14)) * pitch / rate;
-      v = .48 * Math.sin(phase + 2.2 * Math.sin(phase * 1.49) * Math.exp(-t * 13)) * Math.exp(-t * 9)
-        + .26 * (n - low) * Math.exp(-t * 52) + .22 * low * Math.exp(-t * 11);
+    if (name === 'laser' || name === 'enemy') {
+      var hostile = name === 'enemy';
+      // A short electrical crack over a low resonant body; the airy tail
+      // carries the motion instead of a conspicuous descending arcade beep.
+      phase += 2 * Math.PI * (hostile ? 155 : 245) * pitch / rate;
+      phase2 += 2 * Math.PI * (hostile ? 390 : 710 + 420 * Math.exp(-t * 24)) * pitch / rate;
+      v = .38 * Math.sin(phase + .8 * Math.sin(phase2)) * Math.exp(-t * 18)
+        + .5 * (n - low) * Math.exp(-t * 90)
+        + .65 * low * Math.exp(-t * 11) * (.6 + .4 * Math.sin(phase2 * .13));
+      var arc = Math.max(0, t - .035);
+      if (t > .035) v += .16 * Math.sin(phase2) * Math.exp(-arc * 22);
     } else if (name === 'blast' || name === 'hit' || name === 'impact' || name === 'gun') {
       var big = name === 'blast', gun = name === 'gun';
-      phase += 2 * Math.PI * (big ? 34 + 90 * Math.exp(-t * 15) : gun ? 100 + 350 * Math.exp(-t * 65) : 90 + 620 * Math.exp(-t * 32)) / rate;
-      v = (big ? .9 : .5) * Math.sin(phase) * Math.exp(-t * (big ? 5 : 26))
-        + low * (big ? 2.1 : .8) * Math.exp(-t * (big ? 3.9 : 17))
-        + n * .36 * Math.exp(-t * (gun ? 110 : 60));
-      if (big) v += .15 * n * Math.pow(Math.max(0, Math.sin(t * 113)), 16) * Math.exp(-t * 5);
+      phase += 2 * Math.PI * (big ? 39 + 64 * Math.exp(-t * 22) : gun ? 115 + 170 * Math.exp(-t * 80) : 125 + 240 * Math.exp(-t * 42)) * pitch / rate;
+      v = (big ? .85 : .4) * Math.sin(phase) * Math.exp(-t * (big ? 5 : 32))
+        + low * (big ? 1.5 : .95) * Math.exp(-t * (big ? 4 : 22))
+        + n * .42 * Math.exp(-t * (gun ? 120 : 75));
+      if (big) {
+        // Pressure arrives first; gritty debris and slower low rumble follow.
+        v += subNoise * 3.5 * (1 - Math.exp(-t * 40)) * Math.exp(-t * 2.9);
+        var crackle = Math.pow(Math.max(0, Math.sin(t * 147 + variant)), 24);
+        v += (n - low) * .25 * crackle * Math.exp(-t * 3.5);
+      } else if (gun) {
+        // The mechanism returns after the shot, like a small mechanical bolt.
+        var clack = t - .047;
+        if (clack >= 0) v += (.23 * n + .13 * Math.sin(t * 2 * Math.PI * 1710)) * Math.exp(-clack * 160);
+      } else {
+        // Inharmonic body modes suggest fractured metal rather than a buzzer.
+        v += .13 * (Math.sin(t * 2 * Math.PI * 1331 * pitch) + .5 * Math.sin(t * 2 * Math.PI * 2149 * pitch)) * Math.exp(-t * 30);
+      }
+    } else if (name === 'wing') {
+      var down = Math.exp(-Math.pow((t - .11) / .065, 2));
+      var recovery = Math.exp(-Math.pow((t - .34) / .1, 2));
+      v = (low * .95 + subNoise * 1.8) * down + (n - low) * .14 * recovery;
+      v += .07 * Math.sin(2 * Math.PI * 78 * t) * down;
+    } else if (name === 'near') {
+      var pass = Math.exp(-Math.pow((u - .42) / .19, 2));
+      phase += 2 * Math.PI * (1350 - u * 720) / rate;
+      v = (low * .75 + Math.sin(phase) * .065) * pass;
     } else if (name === 'boost' || name === 'roll' || name === 'view') {
       var env = Math.sin(Math.PI * Math.pow(u, .65));
       phase += 2 * Math.PI * (90 + 240 * u) / rate;
@@ -1031,20 +1084,21 @@ A.init = function (override) {
   var compressor = ctx.createDynamicsCompressor();
   compressor.threshold.value = -16; compressor.knee.value = 16; compressor.ratio.value = 4;
   compressor.attack.value = .004; compressor.release.value = .16;
-  this.sfxGain.connect(compressor); compressor.connect(this.master);
+  var warmth = ctx.createBiquadFilter(); warmth.type = 'lowpass'; warmth.frequency.value = 10500; warmth.Q.value = .5;
+  this.sfxGain.connect(warmth); warmth.connect(compressor); compressor.connect(this.master);
   var reverb = ctx.createConvolver(), impulse = ctx.createBuffer(2, Math.ceil(ctx.sampleRate * .7), ctx.sampleRate);
   for (var ch = 0; ch < 2; ch++) {
     var d = impulse.getChannelData(ch), lp = 0;
     for (var i = 0; i < d.length; i++) { lp += ((Math.random() * 2 - 1) - lp) * .3; d[i] = lp * Math.pow(1 - i / d.length, 3); }
   }
   reverb.buffer = impulse;
-  var wet = ctx.createGain(), hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 280; wet.gain.value = .13;
+  var wet = ctx.createGain(), hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 280; wet.gain.value = .11; this.reverbWet = wet;
   this.sfxGain.connect(hp); hp.connect(reverb); reverb.connect(wet); wet.connect(compressor);
 };
 A.effect = function (name, volume, pos) {
-  if (!this.started || this.muted || !this.bank) return;
+  if (!this.started || this.muted || !this.bank || !this.bank[name]) return;
   var ctx = this.ctx, now = ctx.currentTime;
-  var interval = name === 'gun' ? .045 : name === 'blast' ? .07 : .035;
+  var interval = name === 'gun' ? .04 : name === 'blast' ? .1 : name === 'wing' ? .16 : name === 'enemy' ? .12 : name === 'near' ? .18 : .035;
   if (now - (this.lastEffect[name] === undefined ? -100 : this.lastEffect[name]) < interval) return;
   this.lastEffect[name] = now;
   if (this.voices.length >= 28) return;
@@ -1052,17 +1106,19 @@ A.effect = function (name, volume, pos) {
   src.buffer = this.bank[name][Math.floor(Math.random() * 3)]; src.playbackRate.value = .97 + Math.random() * .06;
   var distance = pos && P.Player ? pos.distanceTo(P.Player.pos) : 0;
   gain.gain.value = volume / (1 + distance / 220);
+  var air = ctx.createBiquadFilter(); air.type = 'lowpass'; air.frequency.value = Math.max(1600, 12500 / (1 + distance / 120)); air.Q.value = .5;
   if (pan.pan) {
     var side = pos && P.Player ? (pos.x - P.Player.pos.x) * -Math.cos(P.Player.camYaw) + (pos.z - P.Player.pos.z) * Math.sin(P.Player.camYaw) : 0;
     pan.pan.value = Math.max(-.8, Math.min(.8, side / 100));
   }
-  src.connect(gain); gain.connect(pan); pan.connect(this.sfxGain);
+  src.connect(air); air.connect(gain); gain.connect(pan); pan.connect(this.sfxGain);
   var voices = this.voices; voices.push(src);
-  src.onended = function () { var i = voices.indexOf(src); if (i >= 0) voices.splice(i, 1); src.disconnect(); gain.disconnect(); pan.disconnect(); };
+  src.onended = function () { var i = voices.indexOf(src); if (i >= 0) voices.splice(i, 1); src.disconnect(); air.disconnect(); gain.disconnect(); pan.disconnect(); };
   src.start();
+  if (this.duck && (name === 'blast' || name === 'hit')) this.duck(name === 'hit' ? .36 : .24);
 };
-A.sLaser = function () { this.effect('laser', .48); };
-A.sGun = function () { this.effect('gun', .32); };
+A.sLaser = function () { this.effect('laser', .60); };
+A.sGun = function () { this.effect('gun', .43); };
 A.sZap = function (pos) { this.effect('impact', .52, pos); };
 A.sBoom = function (big, pos) { this.effect(big ? 'blast' : 'impact', big ? .85 : .45, pos); };
 A.sHit = function () { this.effect('hit', .7); };
@@ -1072,6 +1128,118 @@ A.sView = function () { this.effect('view', .35); };
 A.sWarn = function () { this.effect('warn', .45); };
 A.sBoost = function () { this.effect('boost', .55); };
 A.sRoll = function () { this.effect('roll', .6); };
+A.sWing = function (power) { this.effect('wing', .18 * Math.max(.2, Math.min(1.5, power))); };
+A.sNear = function (pos) { this.effect('near', .42, pos); };
+A.sEnemy = function (pos) { this.effect('enemy', .33, pos); };
+})();
+
+
+/* Continuous flight sound and user-adjustable mixing. No per-frame audio nodes. */
+(function () {
+'use strict';
+var P = window.__PF, A = P.Audio_, init = A.init;
+var settings = { music: .8, effects: 1, ambience: .6 };
+try {
+  var saved = JSON.parse(window.localStorage.getItem('pf-audio-v1') || '{}');
+  Object.keys(settings).forEach(function (k) { if (typeof saved[k] === 'number' && isFinite(saved[k])) settings[k] = Math.max(0, Math.min(1, saved[k])); });
+} catch (e) {}
+if (P.setMusicMix) P.setMusicMix(settings.music);
+var duck = 0, lastTime = 0;
+// Crossfade the tail of generated noise into its beginning for seamless looping.
+function loopBuffer(ctx, kind) {
+  var n = Math.round(ctx.sampleRate * 3), fade = Math.round(ctx.sampleRate * .12);
+  var b = ctx.createBuffer(2, n, ctx.sampleRate);
+  for (var ch = 0; ch < 2; ch++) {
+    var raw = new Float32Array(n + fade), low = 0, seed = 391 + ch * 811;
+    for (var i = 0; i < raw.length; i++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
+      var t = i / ctx.sampleRate, noise = (seed >>> 0) / 2147483648 - 1;
+      low += (noise - low) * (1 - Math.exp(-2 * Math.PI * 1800 / ctx.sampleRate));
+      raw[i] = kind === 'charge' ? .22 * Math.sin(2 * Math.PI * 120 * t) + .09 * Math.sin(2 * Math.PI * 361 * t) + low * .16 : low * 1.5;
+      if (kind === 'world') raw[i] += .055 * Math.sin(2 * Math.PI * 60 * t) + .03 * Math.sin(2 * Math.PI * 91 * t);
+    }
+    var out = b.getChannelData(ch);
+    for (i = 0; i < n; i++) {
+      var f = Math.min(1, i / fade);
+      out[i] = i < fade ? raw[n + i] * (1 - f) + raw[i] * f : raw[i];
+    }
+  }
+  return b;
+}
+A.init = function (override) {
+  var previous = this.ctx;
+  init.call(this, override);
+  if (!this.started || (previous === this.ctx && this.soundscape)) return;
+  if (this.soundscape) Object.keys(this.soundscape).forEach(function (k) { var l = A.soundscape[k]; l.source.stop(); l.source.disconnect(); l.filter.disconnect(); l.gain.disconnect(); });
+  var ctx = this.ctx;
+  this.ambienceBus = ctx.createGain(); this.ambienceBus.gain.value = settings.ambience; this.ambienceBus.connect(this.master);
+  this.soundscape = {};
+  ['wind', 'world', 'charge'].forEach(function (kind) {
+    var source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+    source.buffer = loopBuffer(ctx, kind); source.loop = true;
+    filter.type = kind === 'charge' ? 'lowpass' : 'bandpass'; filter.frequency.value = 600; filter.Q.value = .55;
+    gain.gain.value = 0; source.connect(filter); filter.connect(gain); gain.connect(kind === 'charge' ? A.sfxGain : A.ambienceBus);
+    source.start(); A.soundscape[kind] = { source: source, filter: filter, gain: gain };
+  });
+  this.sfxGain.gain.value = .95 * settings.effects;
+  lastTime = ctx.currentTime;
+};
+A.duck = function (amount) { duck = Math.max(duck, amount); };
+function target(param, value, now, speed) { param.setTargetAtTime(value, now, speed || .14); }
+A.update = function () {
+  if (!this.started || !this.soundscape) return;
+  var now = this.ctx.currentTime, dt = Math.min(.1, Math.max(0, now - lastTime)); lastTime = now;
+  duck *= Math.exp(-dt * 3.5);
+  var state = P.Game ? P.Game.state : 'title';
+  var visible = !window.document || !window.document.hidden;
+  var flying = visible && (state === 'playing' || state === 'intro');
+  var player = P.Player || {}, speed = player.speedFactor || 1;
+  var ep = P.world && P.Game ? P.world.EPISODES[P.Game.epIndex] : null, id = ep ? ep.id : '';
+  var wind = this.soundscape.wind, world = this.soundscape.world, charge = this.soundscape.charge;
+  target(wind.gain.gain, flying ? .11 + Math.max(0, speed - .6) * .14 + Math.min(1, Math.abs(player.vy || 0) / 50) * .055 : 0, now);
+  target(wind.filter.frequency, 240 + speed * 390, now, .3);
+  target(wind.source.playbackRate, .8 + speed * .18, now, .3);
+  var foundry = id === 'foundry' || id === 'boss', rain = id === 'ep2';
+  target(world.filter.frequency, foundry ? 110 : rain ? 2300 : 420, now, .7);
+  target(world.gain.gain, flying ? (foundry ? .27 : rain ? .17 : .045) : 0, now, .6);
+  var locks = P.Locks ? P.Locks.list.length : 0;
+  target(charge.gain.gain, flying && P.Input && P.Input.lmb && locks > 0 ? .065 + Math.min(locks, 12) * .006 : 0, now, .045);
+  target(charge.source.playbackRate, 1 + Math.min(locks, 16) * .045, now, .1);
+  target(charge.filter.frequency, 700 + locks * 100, now, .1);
+  if (this.reverbWet) target(this.reverbWet.gain, id === 'ep3' || id === 'boss' ? .2 : rain ? .13 : .085, now, .7);
+  if (P.setMusicMix) P.setMusicMix(settings.music * (state === 'paused' ? .6 : 1) * (1 - duck));
+};
+P.sound = {
+  settings: settings,
+  set: function (key, value) {
+    if (!Object.prototype.hasOwnProperty.call(settings, key) || !isFinite(value)) return;
+    settings[key] = Math.max(0, Math.min(1, +value));
+    if (A.started) {
+      target(A.sfxGain.gain, .95 * settings.effects, A.ctx.currentTime, .035);
+      if (A.ambienceBus) target(A.ambienceBus.gain, settings.ambience, A.ctx.currentTime, .035);
+    }
+    if (P.setMusicMix) P.setMusicMix(settings.music * (1 - duck));
+    try { window.localStorage.setItem('pf-audio-v1', JSON.stringify(settings)); } catch (e) {}
+  },
+  reset: function () { duck = 0; },
+  loopBuffer: loopBuffer
+};
+if (window.document) {
+  Object.keys(settings).forEach(function (key) {
+    var slider = window.document.getElementById('audio-' + key), output = window.document.getElementById('audio-' + key + '-value');
+    if (!slider) return;
+    slider.value = Math.round(settings[key] * 100); output.textContent = slider.value + '%';
+    slider.addEventListener('input', function () { P.sound.set(key, +slider.value / 100); output.textContent = slider.value + '%'; });
+  });
+  ['laser', 'blast', 'wing'].forEach(function (name) {
+    var button = window.document.getElementById('test-' + name);
+    if (button) button.addEventListener('click', function () { P.armAudio(); A.effect(name, name === 'wing' ? .35 : .7); });
+  });
+  window.document.addEventListener('visibilitychange', function () {
+    if (!window.document.hidden || !A.soundscape) return;
+    Object.keys(A.soundscape).forEach(function (k) { target(A.soundscape[k].gain.gain, 0, A.ctx.currentTime, .03); });
+  });
+}
 })();
 
 
@@ -5088,6 +5256,9 @@ function updateProjectiles(dt) {
       boom(p.m.position, 0.8, [SHARD_MATS.fire, SHARD_MATS.hot], 6);
       dead = true;
     }
+    if (!dead && !p.nearHeard && segPointD2(_segA, p.m.position, Player.pos) < 144 && P.tmpA.copy(p.m.position).sub(Player.pos).dot(p.v) > 0) {
+      p.nearHeard = true; if (A.sNear) A.sNear(p.m.position);
+    }
     if (dead) { ebPool.put(p.m); ebullets.splice(i, 1); }
   }
   // shards
@@ -5148,6 +5319,7 @@ function enemyShoot(e, speed, dmg, spread) {
   d.normalize();
   var shot = { m: b, v: d.multiplyScalar(speed), life: 6, dmg: dmg };
   ebullets.push(shot);
+  if (A.sEnemy) A.sEnemy(e.pos);
   return shot;
 }
 
@@ -6133,6 +6305,7 @@ function drawHUD(dt) {
 function keyName(e) { return (e.key || '').toLowerCase(); }
 window.addEventListener('keydown', function (e) {
   var k = keyName(e);
+  if (e.target && /^(INPUT|SELECT|BUTTON)$/.test(e.target.tagName) && Game.state === 'paused' && k !== 'p' && k !== 'escape' && k !== 'm') return;
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].indexOf(k) >= 0) e.preventDefault();
   if (Input.keys[k]) return;
   Input.keys[k] = true;
@@ -6306,6 +6479,7 @@ function skipIntro() {
 
 // ================================================================= GAME FLOW
 function resetGame() {
+  if (P.sound) P.sound.reset();
   P.opening.reset();
   if (P.flight) P.flight.reset();
   if (P.fx) P.fx.reset();

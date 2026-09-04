@@ -156,7 +156,14 @@
     background:rgba(6,3,14,.7);
   }
   #pausebox.on { display:flex; }
-  #pausebox div { font-size:clamp(18px,3vw,34px); letter-spacing:.4em; color:#ffd25e; }
+  #pausebox .pause-heading { font-size:clamp(18px,3vw,34px); letter-spacing:.4em; color:#ffd25e; }
+  #pausebox { flex-direction:column; gap:24px; }
+  .audio-mixer { width:min(380px,88vw); padding:22px; border:1px solid #796a86; background:#151023; color:#e0d9ea; font:14px system-ui,sans-serif; }
+  .audio-mixer label { display:grid; grid-template-columns:80px 1fr 42px; gap:12px; align-items:center; margin:14px 0; }
+  .audio-mixer input { width:100%; accent-color:#8de9e9; }
+  .audio-mixer output { text-align:right; color:#8de9e9; font-size:12px; }
+  .audio-mixer button { cursor:pointer; padding:7px 10px; margin:6px 3px 0 0; border:1px solid #766785; background:#2a2039; color:#eee2cd; }
+  .audio-mixer p { margin:16px 0 0; color:#aaa1b7; font-size:12px; line-height:1.5; }
   /* ---- Preload screen ---- */
   #loading {
     position:absolute; inset:0; z-index:30; display:flex;
@@ -259,7 +266,16 @@
   </aside>
   <div id="skiphint">PRESS ANY KEY TO SKIP</div>
   <div id="quip"></div>
-  <div id="pausebox"><div>— PAUSED —</div></div>
+  <div id="pausebox"><div class="pause-heading">— PAUSED —</div>
+    <section class="audio-mixer" aria-label="Audio settings">
+      <strong>Sound mix</strong>
+      <label for="audio-music">Music <input id="audio-music" type="range" min="0" max="100" value="80"><output id="audio-music-value">80%</output></label>
+      <label for="audio-effects">Effects <input id="audio-effects" type="range" min="0" max="100" value="100"><output id="audio-effects-value">100%</output></label>
+      <label for="audio-ambience">Ambience <input id="audio-ambience" type="range" min="0" max="100" value="60"><output id="audio-ambience-value">60%</output></label>
+      <button id="test-laser">Test laser</button><button id="test-blast">Test explosion</button><button id="test-wing">Test wings</button>
+      <p>Settings are saved on this device.<br>Press P or Escape to return to flight. M mutes all audio.</p>
+    </section>
+  </div>
   <div id="perf"></div>
 
   <div class="screen on" id="title">

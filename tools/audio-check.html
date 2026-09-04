@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Panzer Freeman · Audio render check</title>
+<style>body{background:#151023;color:#e7e0ed;font:16px system-ui;padding:40px;max-width:760px}button{padding:12px;background:#8de9e9;border:0;border-radius:4px;cursor:pointer}pre{white-space:pre-wrap;line-height:1.8}audio{display:block;margin:20px 0}</style>
+<h1>Audio render check</h1><p>Render the production effects and flight ambience through the browser’s audio engine.</p><button id="run">Render and check</button><pre id="result">Ready</pre><audio id="listen" controls aria-label="Rendered combat mix"></audio>
+<script>
+window.__PF={Game:{state:'playing',epIndex:0},Player:{pos:{x:0,y:0,z:0},speedFactor:1,camYaw:0},Input:{lmb:true},Locks:{list:[1,2,3]},world:{EPISODES:[{id:'foundry'}]},Audio_:{init:function(ctx){this.ctx=ctx;this.master=ctx.createGain();this.master.gain.value=.55;this.master.connect(ctx.destination);this.sfxGain=ctx.createGain();this.sfxGain.gain.value=.95;this.sfxGain.connect(this.master);this.started=true;}}};
+</script><script src="../src/p1b_audio.js"></script><script src="../src/p1c_soundscape.js"></script><script>
+let lastURL;
+document.getElementById('run').onclick=async()=>{
+const output=document.getElementById('result');output.textContent='Rendering…';
+try{
+ const ctx=new OfflineAudioContext(2,48000*3,48000),P=window.__PF,A=P.Audio_;
+ A.init(ctx);A.update();
+ const names=['laser','gun','blast','impact','hit','wing','roll','near','enemy','boost','orb'];
+ names.forEach(name=>A.effect(name,.7));
+ const buffer=await ctx.startRendering();let peak=0,energy=0;
+ for(let c=0;c<2;c++)for(const v of buffer.getChannelData(c)){if(!Number.isFinite(v))throw Error('Non-finite output');peak=Math.max(peak,Math.abs(v));energy+=v*v;}
+ if(peak>=1||energy<1)throw Error('Clipping or silent output');
+ output.textContent='PASS · Actual Web Audio rendering\n'+names.length+' simultaneous effects + stereo wind / environment / lock charge\nPeak: '+(20*Math.log10(peak)).toFixed(1)+' dBFS · no clipped samples\nFinished effect voices: '+A.voices.length+' remaining\nThree reusable ambience / charge loops';
+ const count=buffer.length,bytes=new ArrayBuffer(44+count*4),view=new DataView(bytes);
+ function text(at,s){for(let i=0;i<s.length;i++)view.setUint8(at+i,s.charCodeAt(i));}
+ text(0,'RIFF');view.setUint32(4,36+count*4,true);text(8,'WAVEfmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,2,true);view.setUint32(24,48000,true);view.setUint32(28,192000,true);view.setUint16(32,4,true);view.setUint16(34,16,true);text(36,'data');view.setUint32(40,count*4,true);
+ for(let i=0;i<count;i++)for(let c=0;c<2;c++)view.setInt16(44+(i*2+c)*2,Math.round(Math.max(-1,Math.min(1,buffer.getChannelData(c)[i]))*32767),true);
+ if(lastURL)URL.revokeObjectURL(lastURL);lastURL=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));document.getElementById('listen').src=lastURL;
+}catch(e){output.textContent='FAIL: '+e.message;}
+};
+</script></html>

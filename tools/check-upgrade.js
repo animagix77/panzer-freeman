@@ -51,7 +51,7 @@ for(let i=0;i<100;i++)P.fx.burst(new P.V3(0,0,0),3,0xffaa44,false);
 assert.equal(P.fx.stats().active,40);assert.equal(P.fx.stats().lights,3);P.fx.update(2);assert.equal(P.fx.stats().active,0);P.fx.reset();
 // Audio bank is finite, bounded, non-silent, varied, and zero-ended at both common rates.
 const audioP={Audio_:{init(){}}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/p1b_audio.js'),'utf8'),{window:{__PF:audioP}});
-for(const rate of [44100,48000])for(const name of ['laser','gun','impact','blast','hit','lock','orb','view','warn','boost','roll']){
+for(const rate of [44100,48000])for(const name of ['laser','gun','impact','blast','hit','lock','orb','view','warn','boost','roll','wing','near','enemy']){
  const a=audioP.Audio_.renderEffect(name,rate,0),b=audioP.Audio_.renderEffect(name,rate,1);
  assert.equal(a[0],0);assert.equal(a.at(-1),0);let peak=0,sum=0;
  for(const n of a){assert(Number.isFinite(n));peak=Math.max(peak,Math.abs(n));sum+=n*n;}

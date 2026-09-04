@@ -4,6 +4,7 @@ const src = path.join(__dirname, 'src');
 const parts = [
   'p1_core.js',
   'p1b_audio.js',
+  'p1c_soundscape.js',
   'gen/rider_model.js',   // baked from model/*.glb by tools/bake-glb.js
   'p2_models.js',
   'p2b_rider_model.js',

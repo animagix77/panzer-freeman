@@ -1138,6 +1138,9 @@ function updateProjectiles(dt) {
       boom(p.m.position, 0.8, [SHARD_MATS.fire, SHARD_MATS.hot], 6);
       dead = true;
     }
+    if (!dead && !p.nearHeard && segPointD2(_segA, p.m.position, Player.pos) < 144 && P.tmpA.copy(p.m.position).sub(Player.pos).dot(p.v) > 0) {
+      p.nearHeard = true; if (A.sNear) A.sNear(p.m.position);
+    }
     if (dead) { ebPool.put(p.m); ebullets.splice(i, 1); }
   }
   // shards
@@ -1198,6 +1201,7 @@ function enemyShoot(e, speed, dmg, spread) {
   d.normalize();
   var shot = { m: b, v: d.multiplyScalar(speed), life: 6, dmg: dmg };
   ebullets.push(shot);
+  if (A.sEnemy) A.sEnemy(e.pos);
   return shot;
 }
 
