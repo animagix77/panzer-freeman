@@ -361,6 +361,7 @@ function spawnEnemy(type, opts) {
   if (opts.pos) e.pos.copy(opts.pos);
   g.rotation.set(0, 0, 0);
   if (P.enemyCombat) P.enemyCombat.prepare(e);
+  if (opts.entry && P.enemyCombat) P.enemyCombat.beginArrival(e);
   g.position.copy(e.pos);
   g.scale.setScalar(bs);
   e.bs = bs;
@@ -1174,16 +1175,17 @@ function updateProjectiles(dt) {
     o.t += dt; o.life -= dt;
     o.v.y -= 5 * dt;
     o.v.multiplyScalar(1 - dt * 0.7);
-    // gentle magnet
+    // Broad proximity pickup, with a strong pull before the collection sphere.
     var d = P.tmpA.copy(Player.pos).sub(o.pos);
     var dist = d.length();
-    if (dist < 46) o.v.addScaledVector(d.normalize(), (1 - dist / 46) * 130 * dt);
+    if (dist < 95) o.v.addScaledVector(d.normalize(), (1 - dist / 95) * 240 * dt);
+    var oldOrbPos = o.pos.clone();
     o.pos.addScaledVector(o.v, dt);
     o.g.rotation.y += dt * 2.2;
     o.g.userData.rings[0].rotation.z += dt * 3;
     o.g.userData.rings[1].rotation.x += dt * 2.4;
     o.g.scale.setScalar(1 + Math.sin(o.t * 6) * 0.09);
-    if (dist < 4.2) {
+    if (dist < 18 || segPointD2(oldOrbPos, o.pos, Player.pos) < 18 * 18) {
       deAge(1.0); Game.score += 250; Game.orbsTaken++;
       A.sOrb(); flashScreen(0.28, '#8ffff0');
       sayQuip('A year, handed back to him without ceremony.', true);
@@ -1243,6 +1245,11 @@ function updateEnemies(dt) {
       e.pos.set(e.openingOffset.x, ry + e.openingOffset.y, Game.railZ + e.openingOffset.z);
       e.g.position.copy(e.pos);
       e.g.lookAt(Player.pos);
+      continue;
+    }
+
+    if (e.arrival && P.enemyCombat) {
+      P.enemyCombat.arrive(e, dt);
       continue;
     }
 
@@ -1314,6 +1321,7 @@ function updateEnemies(dt) {
         break;
       }
       case 'mine': {
+        if (e.dropT > 0) { e.pos.y -= 12 * dt; e.dropT -= dt; }
         e.pos.y += Math.sin(e.t * 1.6 + e.phase) * 5 * dt;
         e.g.rotation.x += dt * 0.7; e.g.rotation.z += dt * 0.5;
         if (e.g.userData.core) e.g.userData.core.scale.setScalar(0.8 + Math.sin(e.t * 9) * 0.35);
@@ -1359,7 +1367,7 @@ function updateEnemies(dt) {
 
     // cull
     var behind = Game.railZ - e.pos.z;
-    if (behind > 140 || e.pos.z - Game.railZ > 700 || Math.abs(e.pos.x) > 320) {
+    if (behind > 1000 || e.pos.z - Game.railZ > 1300 || Math.abs(e.pos.x) > 1000) {
       e.alive = false;
       freeEnemyMesh(e.type, e.g);
       enemies.splice(i, 1);

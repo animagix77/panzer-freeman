@@ -4,10 +4,10 @@
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var ringGeo = new THREE.TorusGeometry(1, .09, 4, 20);
 var profiles = {
-  wasp: { label: 'WASP', windup: .85, count: 2, arc: .035, damage: 1.5 },
-  ray: { label: 'SKIMMER', windup: 1.1, count: 3, arc: .12, damage: 1.7 },
-  turret: { label: 'SIEGE TURRET', windup: 1.2, count: 2, arc: .04, damage: 2 },
-  chaser: { label: 'INTERCEPTOR', windup: .9, count: 1, arc: 0, damage: 1.8 },
+  wasp: { label: 'WASP', windup: .85, count: 2, interval: .18, arc: .035, damage: 1.5 },
+  ray: { label: 'SKIMMER', windup: 1.1, count: 3, interval: .24, sweep: 28, arc: 0, damage: 1.7 },
+  turret: { label: 'SIEGE TURRET', windup: 1.5, count: 1, speed: 1.65, arc: 0, damage: 2.4 },
+  chaser: { label: 'INTERCEPTOR', windup: .9, count: 3, interval: .16, arc: .018, damage: 1.3 },
   carrier: { label: 'DRONE CARRIER', windup: 1.35, count: 2, arc: .13, damage: 2 },
   sentinel: { label: 'SHIELD SENTINEL', windup: 1.25, count: 3, arc: .08, damage: 1.8 },
   bomber: { label: 'HEAVY BOMBER', windup: 1.6, count: 5, arc: .16, damage: 2.1 }
@@ -17,7 +17,7 @@ function aliveCount() { return E.enemies.filter(function (e) { return e.alive; }
 P.enemyCombat = {
   profiles: profiles,
   prepare: function (e) {
-    e.shieldDown = 0; e.attack = null; e.charge = 0; e.deployed = false;
+    e.shieldDown = 0; e.attack = null; e.volley = null; e.arrival = null; e.charge = 0; e.deployed = false;
     if (!profiles[e.type]) return;
     if (!e.g.userData.warning) {
       var ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xff814f, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
@@ -27,6 +27,27 @@ P.enemyCombat = {
     e.g.userData.warning.visible = false;
     if (e.g.userData.shield) { e.g.userData.shield.visible = true; e.g.userData.shield.material.opacity = .27; }
   },
+  beginArrival: function (e) {
+    var far = P.world.EPISODES[Game.epIndex].fog.far + 160;
+    if (e.type === 'mine' || e.type === 'turret') {
+      e.pos.z = Game.railZ + far + Math.max(0, e.pos.z - Game.railZ - 120);
+      if (e.type === 'turret') e.pos.y = P.terrain.heightAt(e.pos.x, e.pos.z);
+      return;
+    }
+    e.arrival = { elapsed: 0, duration: e.type === 'chaser' ? 7 : 6,
+      target: e.pos.clone().sub(new P.V3(0, Player.railY, Game.railZ)), far: far };
+    e.pos.z = Game.railZ + far;
+  },
+  arrive: function (e, dt) {
+    var a = e.arrival; a.elapsed += dt;
+    var t = Math.min(1, a.elapsed / a.duration), ease = t * t * (3 - 2 * t);
+    // Interceptors sweep down a wide flank before settling astern.
+    var pass = e.type === 'chaser' ? Math.sin(Math.PI * t) * (a.target.x < 0 ? -75 : 75) : 0;
+    e.pos.set(a.target.x + pass, Player.railY + a.target.y + Math.sin(Math.PI * t) * 12,
+      Game.railZ + a.far + (a.target.z - a.far) * ease);
+    e.g.position.copy(e.pos); e.g.lookAt(Player.pos);
+    if (t === 1) { e.arrival = null; e.t = 0; e.fireT = Math.max(e.fireT, .9); }
+  },
   damage: function (e, damage) {
     if (e.type === 'sentinel' && e.shieldDown <= 0 && !flanked(e)) {
       if (P.fx) P.fx.burst(e.pos, 1.1, 0x67dcff, true);
@@ -35,12 +56,13 @@ P.enemyCombat = {
     return damage;
   },
   label: function (e) {
-    if (e.attack) return 'FIRING';
+    if (e.arrival) return 'INCOMING';
+    if (e.attack || e.volley) return 'FIRING';
     if (e.type === 'sentinel') return e.shieldDown > 0 || flanked(e) ? 'SHIELD OPEN' : 'SHIELD · FLANK';
     return profiles[e.type] ? profiles[e.type].label : '';
   },
   update: function (e, dt, distance) {
-    if (Game.state !== 'playing' || Game.ending || !e.alive || e.openingOffset) return;
+    if (Game.state !== 'playing' || Game.ending || !e.alive || e.openingOffset || e.arrival) return;
     var p = profiles[e.type]; if (!p) return;
     e.shieldDown = Math.max(0, (e.shieldDown || 0) - dt);
     if (e.g.userData.shield) {
@@ -56,6 +78,18 @@ P.enemyCombat = {
         if (P.fx) P.fx.burst(pos, .8, 0xffbd69, true);
       });
     }
+    if (e.volley) {
+      e.volley.wait -= dt;
+      while (e.volley && e.volley.wait <= 0) {
+        var v = e.volley, aim = v.aim.clone(); aim.z += Game.railZ - v.railZ;
+        if (p.sweep) aim.x += (v.index - (p.count - 1) / 2) * p.sweep;
+        if (distance < 330 && E.ebullets.length < 100)
+          E.enemyShoot(e, e.def.bulletSpeed * (p.speed || 1), p.damage, 0, aim, (v.index - (p.count - 1) / 2) * p.arc);
+        v.index++; v.wait += p.interval || .01;
+        if (v.index >= p.count) e.volley = null;
+      }
+      return;
+    }
     if (e.attack) {
       e.attack.left -= dt;
       e.charge = Math.min(1, 1 - e.attack.left / p.windup);
@@ -65,8 +99,18 @@ P.enemyCombat = {
       if (e.attack.left <= 0) {
         // Lock lateral aim at the warning, but account for forward rail travel.
         e.attack.aim.z += Game.railZ - e.attack.railZ;
-        if (distance < 330) for (var i = 0; i < p.count && E.ebullets.length < 100; i++) {
-          E.enemyShoot(e, e.def.bulletSpeed, p.damage, 0, e.attack.aim, (i - (p.count - 1) / 2) * p.arc);
+        if (p.interval) {
+          e.volley = { aim: e.attack.aim.clone(), railZ: Game.railZ, index: 0, wait: 0 };
+        } else if (distance < 330) for (var i = 0; i < p.count && E.ebullets.length < 100; i++) {
+          E.enemyShoot(e, e.def.bulletSpeed * (p.speed || 1), p.damage, 0, e.attack.aim, (i - (p.count - 1) / 2) * p.arc);
+        }
+        // Bombers release physical mines from the hull, leaving a hazard trail.
+        if (e.type === 'bomber' && !e.deployed && aliveCount() <= 16) {
+          e.deployed = true;
+          [-1, 1].forEach(function (side) {
+            var mine = E.spawnEnemy('mine', { pos: e.pos.clone().add(new P.V3(side * 10, -5, -10)), tag: 'bomber-mine' });
+            mine.dropT = .8;
+          });
         }
         if (P.fx) P.fx.burst(e.pos, e.type === 'bomber' ? 1.6 : .8, 0xffa46b, true);
         if (e.type === 'sentinel') e.shieldDown = 2.5;
@@ -76,7 +120,7 @@ P.enemyCombat = {
       return;
     }
     e.fireT -= dt;
-    var windingUp = E.enemies.filter(function (other) { return other.alive && other.attack; }).length;
+    var windingUp = E.enemies.filter(function (other) { return other.alive && (other.attack || other.volley); }).length;
     if (e.fireT <= 0 && distance > 35 && distance < 280 && E.ebullets.length < 85 && windingUp < 3) {
       e.attack = { left: p.windup, aim: Player.pos.clone(), railZ: Game.railZ };
     }
@@ -92,7 +136,7 @@ var decks = [
   ['shield', 'bomber', 'cross', 'battery', 'escort', 'pursuit']
 ];
 function make(type, x, y, z, hold) {
-  var opts = { pos: new P.V3(x, Player.railY + y, Game.railZ + z), tag: 'squadron' };
+  var opts = { pos: new P.V3(x, Player.railY + y, Game.railZ + z), tag: 'squadron', entry: true };
   if (hold) { opts.formation = new P.V3(x, y, z); opts.holdFor = hold; }
   var e = E.spawnEnemy(type, opts); e.fireT = 1.4 + (sequence % 3) * .4 + Math.abs(x) * .012;
   return e;
@@ -126,7 +170,7 @@ P.encounters = {
     } else if (shape === 'battery') {
       [-1, 1].forEach(function (side) {
         var z = Game.railZ + 185 + (side > 0 ? 35 : 0), x = side * 62;
-        var e = E.spawnEnemy('turret', { pos: new P.V3(x, P.terrain.heightAt(x, z), z), tag: 'squadron' }); e.fireT = 1.7;
+        var e = E.spawnEnemy('turret', { pos: new P.V3(x, P.terrain.heightAt(x, z), z), tag: 'squadron', entry: true }); e.fireT = 1.7;
         make('mine', side * 35, 7, 125, 0);
       });
     } else if (shape === 'mines') {
@@ -134,7 +178,7 @@ P.encounters = {
     } else if (shape === 'pursuit') {
       make('chaser', -30, 8, -82, 0); make('chaser', 30, 16, -95, 0);
       make('wasp', lane, 12, 130, 3);
-      P.toast('INTERCEPTORS ASTERN · Q / E');
+      P.toast('INTERCEPTORS INBOUND · WATCH YOUR FLANKS');
     } else {
       make('wasp', -24, 15, 140, 3); make('wasp', 24, 15, 160, 3);
     }

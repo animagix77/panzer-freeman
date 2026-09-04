@@ -37,12 +37,15 @@ function hFoundry(x, z) {
   return -12 + Math.max(0, Math.abs(x) - 90) * 0.42 + Math.sin(z * 0.02) * 3;
 }
 
+// Keep dense vertices around the flight corridor, spreading the outer terrain beyond fog.
+function terrainX(i, sx, width) { var u = i / sx * 2 - 1; return width * .5 * (.25 * u + .75 * u * u * u); }
 // ------------------------------------------------------------------ terrain
 function Terrain() {
   this.group = new THREE.Group();
   scene.add(this.group);
   this.chunks = [];
-  this.W = 640; this.D = 100; this.SX = 62; this.SZ = 18; this.N = 15;
+  this.W = 2400; this.D = 100; this.SX = 90; this.SZ = 18; this.N = 24;
+  this.behind = 1100;
   this.enabled = false;
   this.cfg = null;
   for (var i = 0; i < this.N; i++) this.chunks.push(this._mkChunk());
@@ -52,7 +55,7 @@ Terrain.prototype._mkChunk = function () {
   var pos = [], col = [], idx = [];
   for (var j = 0; j <= sz; j++) {
     for (var i = 0; i <= sx; i++) {
-      pos.push(-W / 2 + (i / sx) * W, 0, (j / sz) * D);
+      pos.push(terrainX(i, sx, W), 0, (j / sz) * D);
       col.push(1, 1, 1);
     }
   }
@@ -73,7 +76,7 @@ Terrain.prototype._mkChunk = function () {
   var mat = new THREE.MeshPhongMaterial({ flatShading: true, vertexColors: true, shininess: 0, specular: 0x000000 });
   P.retroPatch(mat);
   var mesh = new THREE.Mesh(g, mat);
-  mesh.frustumCulled = false;
+  mesh.frustumCulled = true;
   mesh.receiveShadow = true;   // the ground is the only shadow receiver
   this.group.add(mesh);
   return { mesh: mesh, geo: g, mat: mat, z: 0 };
@@ -86,7 +89,7 @@ Terrain.prototype.configure = function (cfg, startZ) {
   for (var i = 0; i < this.N; i++) {
     var c = this.chunks[i];
     c.mat.color.set(0xffffff);
-    this._fill(c, startZ - this.D * 2 + i * this.D);
+    this._fill(c, Math.floor(startZ / this.D) * this.D - this.behind + i * this.D);
   }
 };
 Terrain.prototype._fill = function (c, zBase) {
@@ -98,7 +101,7 @@ Terrain.prototype._fill = function (c, zBase) {
   for (var j = 0; j <= sz; j++) {
     var wz = zBase + (j / sz) * D;
     for (var i = 0; i <= sx; i++) {
-      var wx = -W / 2 + (i / sx) * W;
+      var wx = terrainX(i, sx, W);
       var h = cfg.h(wx, wz);
       pa[k * 3 + 1] = h;
       var t = clamp((h - cfg.colBase) / hr, 0, 1);
@@ -112,6 +115,7 @@ Terrain.prototype._fill = function (c, zBase) {
   c.geo.attributes.position.needsUpdate = true;
   c.geo.attributes.color.needsUpdate = true;
   c.geo.computeVertexNormals();
+  c.geo.computeBoundingSphere();
   c.mesh.position.z = zBase;
   c.z = zBase;
 };
@@ -120,7 +124,10 @@ Terrain.prototype.update = function (playerZ) {
   var span = this.N * this.D;
   for (var i = 0; i < this.N; i++) {
     var c = this.chunks[i];
-    if (playerZ - (c.z + this.D) > this.D * 2.2) this._fill(c, c.z + span);
+    if (playerZ - (c.z + this.D) > this.behind) {
+      var jumps = Math.floor((playerZ - this.behind - c.z - this.D) / span) + 1;
+      this._fill(c, c.z + span * jumps);
+    }
   }
 };
 Terrain.prototype.heightAt = function (x, z) {
@@ -146,14 +153,17 @@ PropField.prototype.clear = function () {
 PropField.prototype.configure = function (spec, startZ) {
   this.clear();
   this.spec = spec;
-  this.nextZ = startZ;
+  this.nextZ = startZ - 900;
+  this.ahead = 1100;
+  this.capacity = spec ? Math.max(spec.count, Math.ceil(2300 / (spec.gap * .7)) + 2) : 0;
   if (!spec) return;
   // preload the visible band
-  for (var i = 0; i < spec.count; i++) this._spawn();
+  for (var i = 0; i < this.capacity; i++) this._spawn();
 };
 PropField.prototype._spawn = function () {
   var s = this.spec;
   var obj = s.make();
+  batchProp(obj);
   s.place(obj, this.nextZ);
   this.group.add(obj);
   this.items.push({ obj: obj, z: this.nextZ });
@@ -162,9 +172,9 @@ PropField.prototype._spawn = function () {
 PropField.prototype.update = function (playerZ) {
   if (!this.spec) return;
   var s = this.spec;
-  while (this.nextZ < playerZ + s.ahead) {
+  while (this.nextZ < playerZ + this.ahead) {
     // recycle the furthest-behind item if the pool is full
-    if (this.items.length >= s.count) {
+    if (this.items.length >= this.capacity) {
       var it = this.items.shift();
       s.place(it.obj, this.nextZ);
       it.z = this.nextZ;
@@ -173,6 +183,34 @@ PropField.prototype.update = function (playerZ) {
     } else this._spawn();
   }
 };
+
+function batchProp(root) {
+  root.updateMatrixWorld(true);
+  var batches = {}, meshes = [], inverse = root.matrixWorld.clone().invert();
+  root.traverse(function (o) {
+    if (!o.isMesh || Array.isArray(o.material)) return;
+    var key = o.material.uuid, b = batches[key];
+    if (!b) b = batches[key] = { material: o.material, p: [], n: [], uv: [], shadow: o.castShadow };
+    var geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inverse, o.matrixWorld));
+    var pos = geo.attributes.position, normal = geo.attributes.normal, uv = geo.attributes.uv;
+    for (var i = 0; i < pos.count; i++) {
+      b.p.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+      b.n.push(normal ? normal.getX(i) : 0, normal ? normal.getY(i) : 1, normal ? normal.getZ(i) : 0);
+      b.uv.push(uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0);
+    }
+    geo.dispose(); meshes.push(o);
+  });
+  meshes.forEach(function (o) { o.parent.remove(o); o.geometry.dispose(); });
+  Object.keys(batches).forEach(function (key) {
+    var b = batches[key], geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(b.p, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.n, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
+    geo.computeBoundingSphere();
+    var mesh = new THREE.Mesh(geo, b.material); mesh.castShadow = b.shadow; root.add(mesh);
+  });
+}
 
 function disposeTree(o) {
   o.traverse(function (n) {

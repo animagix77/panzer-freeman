@@ -235,9 +235,12 @@ function drawHUD(dt) {
   for (i = 0; i < list.length; i++) {
     var e = list[i];
     if (Locks.list.indexOf(e) >= 0) continue;
+    var markerDistance = targetPos(e).distanceTo(Player.pos);
+    if (markerDistance >= 450) continue;
+    hx.save(); hx.globalAlpha = clamp((450 - markerDistance) / 160, 0, 1);
     pp = project(targetPos(e));
     if (pp.front && pp.x > -40 && pp.x < w + 40 && pp.y > -40 && pp.y < h + 40) {
-      if (pp.depth < 380) {
+      if (pp.depth < 450) {
         var s2 = clamp(1200 / Math.max(20, pp.depth), 8, 44);
         var lesson = e.tag === 'opening-target' || e.tag === 'opening-sentry';
         if (lesson) s2 = Math.max(s2, 20);
@@ -264,6 +267,7 @@ function drawHUD(dt) {
       hx.beginPath(); hx.moveTo(12, 0); hx.lineTo(-8, 7); hx.lineTo(-8, -7); hx.closePath(); hx.fill();
       hx.restore();
     }
+    hx.restore();
   }
 
   // ---------- reticle
@@ -828,6 +832,7 @@ function frame(now) {
   drawHUD(dt);
   // weather rides the camera, so it updates after the camera is final
   if (P.weather) P.weather.update(dt, camera.position, Game.time);
+  if (P.horizon) P.horizon.update();
   renderer.render(scene, camera);
   if (perfOn) samplePerf(rawDt);
 }

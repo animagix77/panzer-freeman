@@ -55,5 +55,31 @@ for(let stage=0;stage<4;stage++){
 }
 for(const type of ['wasp','ray','chaser','carrier','sentinel','bomber','turret','mine'])assert(seen.has(type),type+' encountered');
 E.reset();const reused=E.spawnEnemy('sentinel');assert.equal(reused.shieldDown,0);assert.equal(reused.attack,null);assert(!reused.g.userData.warning.visible);
+// All flyers approach from beyond fog, stay disarmed and reach their formation continuously.
+for (const type of ['wasp','ray','chaser','carrier','sentinel','bomber']) {
+ E.reset();P.Game.railZ=0;P.Player.railY=22;P.Player.pos.set(0,22,0);
+ const rear=type==='chaser', e=E.spawnEnemy(type,{pos:new P.V3(30,34,rear?-82:140),entry:true});
+ assert(e.pos.z>P.world.EPISODES[P.Game.epIndex].fog.far+100);
+ for(let i=0;i<480 && e.arrival;i++) {
+  const old=e.pos.clone();P.Game.railZ+=56/60;P.Player.pos.z=P.Game.railZ;
+  E.updateEnemies(1/60);
+  assert(e.pos.distanceTo(old)<5,'arrival has no position jumps');
+  assert.equal(E.ebullets.length,0,'no attacks while arriving');
+ }
+ assert.equal(e.arrival,null);assert(Math.abs(e.pos.z-P.Game.railZ-(rear?-82:140))<.01);
+}
+for(const type of ['wasp','ray','turret','chaser']) {
+ E.reset();P.Game.railZ=0;P.Player.pos.set(0,22,0);
+ const e=E.spawnEnemy(type,{pos:new P.V3(0,22,150)});e.fireT=0;
+ const p=P.enemyCombat.profiles[type];P.enemyCombat.update(e,.01,150);
+ P.enemyCombat.update(e,p.windup+.01,150);
+ if(p.interval) {
+  assert.equal(E.ebullets.length,0);P.enemyCombat.update(e,.01,150);assert.equal(E.ebullets.length,1,'burst begins with one shot');
+  for(let i=0;i<60;i++)P.enemyCombat.update(e,1/60,150);
+ }
+ assert.equal(E.ebullets.length,p.count,type+' shot count');
+ if(type==='turret')assert(E.ebullets[0].v.length()>100,'precision turret has faster shot');
+ if(type==='ray')assert(E.ebullets[0].v.x<0 && E.ebullets[2].v.x>0,'skimmer sweeps three different lanes');
+}
 console.log('Enemy checks passed: pursuit, shields, telegraphs, committed aim, carrier escorts, pause/briefing isolation, all stage decks, actor/projectile limits and pooled reset.');
 console.log(stats);

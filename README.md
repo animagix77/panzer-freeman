@@ -53,15 +53,28 @@ three-year mission reward. The Citadel of Hours and final arena now have continu
 mountain terrain and keeps planted on deep foundations, with bridges between towers.
 The foundry currently shares the canyon music cue.
 
+**A continuous horizon.** Terrain and scenery recycle beyond the fog in forward,
+side and rear views. Three persistent mountain silhouettes add depth beyond the
+playable landscape. Static scenery meshes are batched by material to keep the
+larger scenery buffers practical.
+
 **An enemy force with distinct roles.** Mixed squadrons replace the random single-type
-spawns. Wasps and rear interceptors match cruise speed during their attack runs;
+spawns. Squadrons emerge from beyond the fog over six seconds; interceptors take
+seven seconds to sweep around the flanks and settle astern. Target markers fade in
+as enemies approach. Wasps and rear interceptors match cruise speed during attack runs;
 boosting can still open distance. Shield sentinels resist frontal fire, but flanking
 or their post-volley opening bypasses the shield. Heavy bombers fire five lanes after
-a longer windup. Carriers deploy two escorts. Orange rings and brackets warn of
+a longer windup and release a pair of mines. Skimmers rake three lanes in sequence,
+interceptors fire tight three-shot bursts, and turrets fire a single fast precision
+shot after a longer warning. Carriers deploy two escorts. Orange rings and brackets warn of
 incoming volleys; lateral aim commits during that warning so dodging works.
 The director and escort launches stay within 18 active enemies, with at most three
 simultaneous windups and 100 ordinary hostile shots. Scripted mission encounters can
 add their own enemies. Ramming enemies does not award kill rewards.
+
+**More forgiving orbs.** Collection radius is 18 world units (previously 4.2), with
+strong attraction starting at 95 units (previously 46). Passing near an orb collects
+it without requiring contact with its small visible mesh.
 
 **Flight choices.** Boost, air brake and evasive roll add speed control and a brief
 evasion window. Boost and roll share a replenishing power reserve. Carriers take
@@ -176,7 +189,8 @@ node build.js        # concatenates src/ into index.html
 | `p1b_audio.js` | layered effect bank, stereo mix, reverb and compression |
 | `p1c_soundscape.js` | flight ambience, charge loop, music ducking and saved mix controls |
 | `p2_models.js` | procedural dragon + rider + enemies + boss, and the flight model |
-| `p3_world.js` | terrain chunking, prop fields, episode definitions |
+| `p3_world.js` | terrain chunking, batched prop fields, episode definitions |
+| `p3c_horizon.js` | layered distant mountain silhouettes |
 | `p4_game.js` | player, projectiles, ribbons, impacts, enemies, boss AI |
 | `p4b_opening.js` | guided opening and authored first encounter |
 | `p4c_effects.js` | pooled glow, shockwaves and impact lights |
@@ -188,14 +202,16 @@ node build.js        # concatenates src/ into index.html
 
 The release gate runs production-code integration checks without a browser:
 `npm run check:release`. It covers the opening, flight rig, maneuvers, authored
-formations, route and convoy rewards, world foundations, FX bounds and audio buffers.
+formations, route and convoy rewards, world foundations, hidden scenery recycling, enemy approaches and attack patterns,
+orb proximity collection, FX bounds and audio buffers.
 Visual review uses `tools/combat-preview.html` and `tools/motion-preview.html`.
 `tools/audio-check.html` renders the production mix through a real browser
 OfflineAudioContext and checks output headroom. The older Playwright tools below require their configured browser installation;
 they are additional developer probes, not part of the release gate:
 
 ```bash
-node tools/check-enemies.js  # pursuit, shields, volleys, stage population, caps and reset
+node tools/check-enemies.js  # distant approaches, role attacks, shields, stage population and caps
+node tools/check-visibility.js # concealed recycling, side views, horizon depth and orb pickup
 node tools/check-audio.js    # audio graph lifecycle, mixing, looping, mute and cleanup
 node tools/check-upgrade.js  # maneuvers, campaign, world, effects, audio (includes motion)
 node tools/check-opening.js  # briefing lifecycle plus real laser/dodge collision checks

@@ -38,7 +38,7 @@ function once(id, distance, fn) {
   if (!events[id] && Game.railZ - Game.epStartZ >= distance) { events[id] = true; fn(); }
 }
 function formation(type, x, y, z, tag) {
-  var e = E.spawnEnemy(type, { pos: new P.V3(x, Player.railY + y, Game.railZ + z), formation: new P.V3(x, y, z), holdFor: 16, tag: tag });
+  var e = E.spawnEnemy(type, { pos: new P.V3(x, Player.railY + y, Game.railZ + z), formation: new P.V3(x, y, z), holdFor: 16, tag: tag, entry: true });
   e.fireT = 4; return e;
 }
 P.campaign = {

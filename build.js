@@ -10,6 +10,7 @@ const parts = [
   'p2b_rider_model.js',
   'p3_world.js',
   'p3b_weather.js',
+  'p3c_horizon.js',
   'p4_game.js',
   'p4b_opening.js',
   'p4c_effects.js',
