@@ -330,7 +330,7 @@ function spawnEnemy(type, opts) {
   var e = {
     type: type, def: def, g: g, hp: def.hp * (opts.hpMul || 1), maxHp: def.hp * (opts.hpMul || 1), bs: bs,
     pos: new V3(), vel: new V3(), t: 0, fireT: rand(0.6, 2.0),
-    alive: true, locked: 0, phase: rand(0, TAU), hold: rand(26, 64),
+    launchT: opts.deployed ? .65 : 0, alive: true, locked: 0, phase: rand(0, TAU), hold: rand(26, 64),
     lane: rand(-1, 1), amp: rand(6, 18), flashT: 0, tag: opts.tag || null,
     openingOffset: opts.openingOffset || null,
     formation: opts.formation || null, holdFor: opts.holdFor || 0,
@@ -361,9 +361,9 @@ function spawnEnemy(type, opts) {
   if (opts.pos) e.pos.copy(opts.pos);
   g.rotation.set(0, 0, 0);
   if (P.enemyCombat) P.enemyCombat.prepare(e);
-  if (opts.entry && P.enemyCombat) P.enemyCombat.beginArrival(e);
+  if (opts.entry !== false && P.enemyCombat) P.enemyCombat.beginArrival(e);
   g.position.copy(e.pos);
-  g.scale.setScalar(bs);
+  g.scale.setScalar(opts.deployed ? .001 : bs);
   e.bs = bs;
   enemies.push(e);
   return e;
@@ -1227,6 +1227,7 @@ function updateEnemies(dt) {
     if (e.bank && e.dying === undefined) e.g.rotation.z -= e.bank;
     e.t += dt;
     var d = e.def;
+    if (!e.alive && e.g.userData.beacon) e.g.userData.beacon.visible = false;
 
     // ---- death spiral: no AI, just ballistics and spin ------------------
     if (e.dying !== undefined) {
@@ -1247,18 +1248,21 @@ function updateEnemies(dt) {
       continue;
     }
 
-    // Briefing targets hold a readable formation and never fire or collide.
-    if (e.openingOffset) {
-      e.pos.set(e.openingOffset.x, ry + e.openingOffset.y, Game.railZ + e.openingOffset.z);
-      e.g.position.copy(e.pos);
-      e.g.lookAt(Player.pos);
-      continue;
-    }
-
+    // Arrival always runs first, including the default guided opening.
     if (e.arrival && P.enemyCombat) {
       P.enemyCombat.arrive(e, dt);
       continue;
     }
+    if (P.enemyCombat) P.enemyCombat.visibility(e, dt);
+    // Briefing targets hold only after their approach has finished.
+    if (e.openingOffset) {
+      e.pos.set(e.openingOffset.x, ry + e.openingOffset.y, Game.railZ + e.openingOffset.z);
+      e.g.position.copy(e.pos);
+      e.g.lookAt(Player.pos);
+      if (P.enemyCombat) P.enemyCombat.finishPose(e, dt);
+      continue;
+    }
+
     if (e.retired && P.enemyCombat) {
       if (P.enemyCombat.depart(e, dt)) {
         e.alive = false; freeEnemyMesh(e.type, e.g); enemies.splice(i, 1); dropLocks(e);
@@ -1359,6 +1363,7 @@ function updateEnemies(dt) {
       e.g.scale.setScalar(e.bs * (1 + fl * 0.22));
     } else e.g.scale.setScalar(damp(e.g.scale.x, e.bs, 14, dt));
 
+    if (e.launchT > 0) { e.launchT = Math.max(0, e.launchT - dt); e.g.scale.multiplyScalar(1 - e.launchT / .65); }
     // the enemy has moved since dist was measured; gates below want the new one
     if (P.enemyCombat && P.enemyCombat.finishPose) P.enemyCombat.finishPose(e, dt);
     dist = P.tmpA.copy(Player.pos).sub(e.pos).length();

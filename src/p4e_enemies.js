@@ -13,6 +13,19 @@ var profiles = {
   sentinel: { label: 'SHIELD SENTINEL', windup: 1.25, count: 3, arc: .08, damage: 1.8 },
   bomber: { label: 'HEAVY BOMBER', windup: 1.6, count: 5, arc: .16, damage: 2.1 }
 };
+// Readable silhouettes and engine signatures, even while ships are deep in haze.
+Object.keys(profiles).forEach(function(type) {
+  var def = P.models.ENEMY_DEFS[type];
+  if (def) { def.scale = (def.scale || 1) * 1.28; def.radius *= 1.28; }
+});
+var pixels = new Uint8Array(32 * 32 * 4);
+for(var pixel=0;pixel<1024;pixel++) {
+  var bx=(pixel%32-15.5)/15.5,by=(Math.floor(pixel/32)-15.5)/15.5;
+  pixels[pixel*4]=pixels[pixel*4+1]=pixels[pixel*4+2]=255;
+  pixels[pixel*4+3]=Math.round(255*Math.pow(Math.max(0,1-Math.sqrt(bx*bx+by*by)),2));
+}
+var beaconMap=new THREE.DataTexture(pixels,32,32,THREE.RGBAFormat);
+beaconMap.minFilter=beaconMap.magFilter=THREE.LinearFilter;beaconMap.needsUpdate=true;
 function flanked(e) { return Math.abs(Player.x - e.pos.x) > 25 || Player.pos.y - e.pos.y > 18; }
 function active(e) {
   if (e.alive && !e.arrival && (e.pos.z < Game.railZ - 300 || Math.abs(e.pos.x) > 350)) e.retired = true;
@@ -30,6 +43,12 @@ P.enemyCombat = {
   activeCount: activeCount,
   prepare: function (e) {
     e.shieldDown = 0; e.attack = null; e.volley = null; e.arrival = null; e.charge = 0; e.deployed = false;
+    e.visibleAge = 0;
+    if (e.type !== 'turret' && e.type !== 'mine' && !e.g.userData.beacon) {
+      var beacon = new THREE.Sprite(new THREE.SpriteMaterial({map:beaconMap,color:0xffac72,transparent:true,opacity:0,depthWrite:false,fog:false,blending:THREE.AdditiveBlending}));
+      beacon.position.set(0,.3,-1);e.g.add(beacon);e.g.userData.beacon=beacon;
+    }
+    if(e.g.userData.beacon) { e.g.userData.beacon.visible=true;e.g.userData.beacon.material.opacity=0; }
     e.poseBlend = 0; e.poseQuaternion = null; e.retired = false;
     if (!profiles[e.type]) return;
     if (!e.g.userData.warning) {
@@ -48,7 +67,7 @@ P.enemyCombat = {
       if (e.type === 'turret') e.pos.y = P.terrain.heightAt(e.pos.x, e.pos.z);
       return;
     }
-    e.arrival = { elapsed: 0, duration: e.type === 'chaser' ? 7 : 6,
+    e.arrival = { elapsed: 0, duration: e.type === 'chaser' ? 10 : 9,
       target: e.pos.clone().sub(new P.V3(0, Player.railY, Game.railZ)), far: far,
       previous: e.pos.clone(), oriented: false };
     e.pos.z = Game.railZ + far;
@@ -71,10 +90,20 @@ P.enemyCombat = {
       a.oriented = true;
     }
     a.previous.copy(e.pos);
+    this.visibility(e, dt);
     if (t === 1) {
       e.poseQuaternion = e.g.quaternion.clone(); e.poseBlend = 1.2;
       e.arrival = null; e.t = 0; e.fireT = Math.max(e.fireT, .9);
     }
+  },
+  visibility: function(e,dt) {
+    e.visibleAge += dt;
+    var beacon=e.g.userData.beacon;if(!beacon)return;
+    var distance=e.pos.distanceTo(P.camera.position);
+    var fade=P.clamp((1000-distance)/260,0,1)*P.clamp(e.visibleAge/1.2,0,1);
+    beacon.material.opacity=fade*(e.arrival ? .85 : .32);
+    // A small luminous engine, never a screen-filling target marker.
+    var size=(e.arrival ? 7 : 3.5)/e.bs;beacon.scale.setScalar(size);
   },
   finishPose: function (e, dt) {
     if (e.poseBlend <= 0 || !e.poseQuaternion) return;
@@ -131,7 +160,7 @@ P.enemyCombat = {
       e.deployed = true;
       [-1, 1].forEach(function (side) {
         var pos = e.pos.clone().add(new P.V3(side * 12, -4, -15));
-        var drone = E.spawnEnemy('wasp', { pos: pos, tag: 'carrier-escort' }); drone.fireT = 2.5;
+        var drone = E.spawnEnemy('wasp', { pos: pos, tag: 'carrier-escort', entry: false, deployed: true }); drone.fireT = 2.5;
         if (P.fx) P.fx.burst(pos, .8, 0xffbd69, true);
       });
     }
@@ -172,7 +201,7 @@ P.enemyCombat = {
         if (e.type === 'bomber' && !e.deployed && canAdd(2)) {
           e.deployed = true;
           [-1, 1].forEach(function (side) {
-            var mine = E.spawnEnemy('mine', { pos: e.pos.clone().add(new P.V3(side * 10, -5, -10)), tag: 'bomber-mine' });
+            var mine = E.spawnEnemy('mine', { pos: e.pos.clone().add(new P.V3(side * 10, -5, -10)), tag: 'bomber-mine', entry: false, deployed: true });
             mine.dropT = .8;
           });
         }

@@ -232,6 +232,11 @@
   #briefingStep { color:#8fd9ff; font-size:10px; letter-spacing:.18em; }
   #briefingTitle { margin:8px 0; color:#ffd25e; font-size:20px; letter-spacing:.02em; }
   #briefingText { color:#f3e2bb; font-size:13px; line-height:1.65; }
+  @media (min-width:900px) and (min-height:601px) {
+    #briefing { top:auto; bottom:170px; left:22px; transform:none; width:320px; padding:12px 16px; }
+    #briefingTitle { font-size:16px; margin:6px 0; }
+    #briefingText { font-size:12px; line-height:1.5; }
+  }
   #skipBriefing { margin-top:10px; border:0; background:none; color:#c6b8d4; font-family:inherit; font-size:11px; cursor:pointer; }
   #skipBriefing:hover, #skipBriefing:focus-visible { color:#fff; text-decoration:underline; }
   .guide-choice { display:block; margin-top:20px; color:#e9dcc0; font-size:13px; cursor:pointer; }
@@ -293,7 +298,7 @@
         <div><span class="kbd">HOLD LMB</span><span class="d">paint lock-ons</span></div>
         <div><span class="kbd">RELEASE</span><span class="d">fire laser volley</span></div>
       </div>
-      <label class="guide-choice"><input id="guidedOpening" type="checkbox" checked>Guide my first minute</label>
+      <label class="guide-choice"><input id="guidedOpening" type="checkbox" checked>Guide my opening flight</label>
       <details class="extra-controls">
         <summary>All controls &amp; display options</summary>
         <div class="keys">

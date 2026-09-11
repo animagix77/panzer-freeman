@@ -223,7 +223,7 @@ function C(hex) { return new THREE.Color(hex); }
 
 var EPISODES = [
   {
-    id: 'ep1', label: 'EPISODE I', name: 'THE ASHEN CANYON',
+    id: 'ep1', flightWidth: 96, label: 'EPISODE I', name: 'THE ASHEN CANYON',
     sub: 'Where the empire buried its machines, the sand still hums.',
     music: 'ep1', length: 7400, railY: 22, speed: 56,
     weather: { ember: 0.85, wind: 0.35 },   // the buried machines still burn
@@ -256,7 +256,7 @@ var EPISODES = [
     density: 0.85
   },
   {
-    id: 'ep2', label: 'EPISODE II', name: 'THE DROWNED CHOIR',
+    id: 'ep2', flightWidth: 112, label: 'EPISODE II', name: 'THE DROWNED CHOIR',
     sub: 'A city sang here once. Now only the water keeps the tune.',
     music: 'ep2', length: 6400, railY: 20, speed: 60,
     weather: { rain: 1.0, wind: 0.7 },      // the drowned city, still drowning
@@ -289,7 +289,7 @@ var EPISODES = [
     density: 1.0
   },
   {
-    id: 'foundry', label: 'EPISODE III', name: 'THE EMBER FOUNDRY',
+    id: 'foundry', flightWidth: 104, label: 'EPISODE III', name: 'THE EMBER FOUNDRY',
     sub: 'The empire feeds its furnaces with borrowed time. Break the supply line.',
     music: 'ep1', length: 6100, railY: 28, speed: 62,
     weather: { ember: 1.2, wind: 0.8 },
@@ -313,7 +313,7 @@ var EPISODES = [
     enemyMix: [['carrier', 4], ['turret', 3], ['chaser', 2], ['wasp', 2]], density: 1.1
   },
   {
-    id: 'ep3', label: 'EPISODE IV', name: 'THE CITADEL OF HOURS',
+    id: 'ep3', flightWidth: 104, label: 'EPISODE IV', name: 'THE CITADEL OF HOURS',
     sub: 'The mountain holds the city. The city holds the stolen years.',
     music: 'ep3', length: 7000, railY: 46, speed: 64,
     weather: { snow: 1.0, wind: 0.5 },      // above the last cloud
@@ -342,7 +342,7 @@ var EPISODES = [
     density: 1.18
   },
   {
-    id: 'boss', label: 'FINAL', name: 'CHRONOS, THE HOUR-SPHINX',
+    id: 'boss', flightWidth: 112, label: 'FINAL', name: 'CHRONOS, THE HOUR-SPHINX',
     sub: 'It has counted every second of his life. It intends to keep them.',
     music: 'boss', length: 1e9, railY: 46, speed: 40,
     weather: { snow: 0.5, ember: 0.7, wind: 0.9 },  // snow and forge-light together

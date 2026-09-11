@@ -1,4 +1,4 @@
-/* An authored first minute. All clocks use simulation time, including pause. */
+/* An authored guided opening. All clocks use simulation time, including pause. */
 (function () {
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var panel = document.getElementById('briefing');
@@ -7,7 +7,7 @@ var body = document.getElementById('briefingText');
 var step = document.getElementById('briefingStep');
 var state = P.opening = {
   active: false, phase: 'off', t: 0, elapsed: 0, kills: 0, startAge: 89,
-  targets: [], shot: null, hit: false, wave: false
+  targets: [], incoming: [], shot: null, hit: false, wave: false
 };
 function copy(title, text, label) {
   if (heading.textContent !== title) heading.textContent = title;
@@ -24,6 +24,7 @@ function clearTargets() {
 }
 state.reset = function () {
   clearTargets();
+  state.incoming.length = 0;
   state.active = false; state.phase = 'off'; state.t = state.elapsed = state.kills = 0;
   state.hit = state.wave = false;
   panel.hidden = true;
@@ -53,36 +54,49 @@ function practice() {
   for (var i = -1; i <= 1; i++) {
     var offset = new P.V3(i * 19, 12, 95);
     var e = E.spawnEnemy('wasp', {
-      tag: 'opening-target', hpMul: 0.5, deAge: 1,
+      tag: 'opening-target', hpMul: 0.5, deAge: 1, entry: true,
       openingOffset: offset,
       pos: new P.V3(offset.x, Player.railY + offset.y, Game.railZ + offset.z)
     });
     state.targets.push(e);
   }
+  if (approaching(state.targets)) {
+    phase('practice-approach');
+    copy('Three scouts on the horizon', 'Watch them approach. Get ready to hold, sweep and release your volley.', '01 / INCOMING');
+  }
 }
+function approaching(list) { return list.some(function (e) { return e.alive && e.arrival; }); }
 function warn() {
   phase('warning');
   // Hold the source ahead; only the single explicitly timed shot can fire.
   var offset = new P.V3(Player.x, Player.y, 260);
   state.targets.push(E.spawnEnemy('ray', {
-    tag: 'opening-sentry', openingOffset: offset,
+    tag: 'opening-sentry', openingOffset: offset, entry: true,
     pos: new P.V3(offset.x, Player.railY + offset.y, Game.railZ + offset.z)
   }));
-  copy('Watch the sentry', 'One shot is coming. When it fires, bank with A or D.', '02 / EVADE');
+  if (approaching(state.targets)) {
+    phase('sentry-approach');
+    copy('A sentry is approaching', 'Keep it in view. You will have time to bank after its warning.', '02 / INCOMING');
+  } else copy('Watch the sentry', 'One shot is coming. When it fires, bank with A or D.', '02 / EVADE');
 }
 function encounter() {
   phase('encounter');
   copy('The canyon wakes', 'A carrier and its escort. Sweep the formation, then release your volley.', '03 / PUT IT TOGETHER');
-  E.spawnEnemy('carrier', {
+  state.incoming.push(E.spawnEnemy('carrier', {
     pos: new P.V3(0, Player.railY + 17, Game.railZ + 160),
-    formation: new P.V3(0, 17, 160), holdFor: 12
-  });
+    formation: new P.V3(0, 17, 160), holdFor: 12, entry: true
+  }));
   for (var i = -1; i <= 1; i += 2) {
     var e = E.spawnEnemy('wasp', {
       pos: new P.V3(i * 24, Player.railY + 10, Game.railZ + 105),
-      formation: new P.V3(i * 24, 10, 105), holdFor: 10
+      formation: new P.V3(i * 24, 10, 105), holdFor: 10, entry: true
     });
     e.fireT = 4; e.phase = i < 0 ? 0 : Math.PI;
+    state.incoming.push(e);
+  }
+  if (approaching(state.incoming)) {
+    phase('encounter-approach');
+    copy('The canyon wakes', 'A carrier and its escort are coming into view. Prepare your next volley.', '03 / INCOMING');
   }
 }
 state.update = function (dt) {
@@ -91,6 +105,8 @@ state.update = function (dt) {
   state.t += dt; state.elapsed += dt;
   if (state.phase === 'arrival') {
     if (state.t >= 4) practice();
+  } else if (state.phase === 'practice-approach') {
+    if (!approaching(state.targets)) phase('volley');
   } else if (state.phase === 'volley') {
     var unique = state.targets.filter(function (e) { return P.Locks.list.indexOf(e) >= 0; }).length;
     var forward = ((Player.viewIndex % 4) + 4) % 4 === 0;
@@ -113,6 +129,11 @@ state.update = function (dt) {
     }
   } else if (state.phase === 'reward') {
     if (state.t >= 4) warn();
+  } else if (state.phase === 'sentry-approach') {
+    if (!approaching(state.targets)) {
+      phase('warning');
+      copy('Watch the sentry', 'One shot is coming. When it fires, bank with A or D.', '02 / EVADE');
+    }
   } else if (state.phase === 'warning') {
     if (state.t >= 3) {
       var sentry = state.targets[0];
@@ -142,17 +163,22 @@ state.update = function (dt) {
     }
   } else if (state.phase === 'breath') {
     if (state.t >= 3) encounter();
+  } else if (state.phase === 'encounter-approach') {
+    if (!approaching(state.incoming)) {
+      state.incoming.length = 0; phase('encounter');
+      copy('The canyon wakes', 'Sweep the carrier and its escort, then release your volley.', '03 / PUT IT TOGETHER');
+    }
   } else if (state.phase === 'encounter') {
     if (state.t >= 7) panel.hidden = true;
     if (state.t >= 10 && !state.wave) {
       state.wave = true;
       for (var i = -1; i <= 1; i += 2) {
-        var ray = E.spawnEnemy('ray', { pos: new P.V3(i * 85, Player.railY + 13, Game.railZ + 270) });
+        var ray = E.spawnEnemy('ray', { pos: new P.V3(i * 85, Player.railY + 13, Game.railZ + 270), entry: true });
         ray.vel.x = -i * 22; ray.fireT = 3;
       }
       P.toast('CROSSING PATROL');
     }
-    if (state.elapsed >= 60) {
+    if (state.elapsed >= 60 && state.t >= 18) {
       state.reset();
       P.toast('THE SKY IS YOURS');
     }

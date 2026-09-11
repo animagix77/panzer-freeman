@@ -76,4 +76,54 @@ for (const fps of [30, 60, 120]) {
   P.flight.reset();
   assert.equal(P.Player.rollT, 0); assert.equal(P.Player.energy, 100);
 }
-console.log('Gauntlet checks passed: swept diagonal gates, misses, complete routes at 30/60/120 fps, replay reset, immediate dodge and vulnerable recovery.');
+
+// The wider authored corridors provide real travel, then settle naturally at
+// either edge. Use the actual terrain sampler, including the canyon fork ridge.
+for (const fps of [30, 60, 120]) for (let stage = 0; stage < 5; stage++) for (const key of ['a', 'd']) {
+  const { P, context } = flight();
+  for (const file of ['p3_world.js', 'p4d_campaign.js'])
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src', file), 'utf8'), context);
+  const ep = P.world.EPISODES[stage];
+  assert(ep.flightWidth > 72, ep.id + ' must provide more maneuvering space than the original corridor');
+  P.Game.epIndex = stage; P.Game.railZ = stage === 0 ? 4700 : 2000;
+  P.Player.railY = ep.railY; P.Player.pos.set(0, ep.railY, P.Game.railZ);
+  P.terrain = Object.create(P.world.Terrain.prototype);
+  P.terrain.enabled = true; P.terrain.cfg = ep.terrain;
+  P.Input.keys = { [key]: true };
+  for (let frame = 0; frame < fps * 4; frame++) {
+    P.Game.time += 1 / fps; P.entities.updatePlayer(1 / fps);
+    assert([P.Player.pos.x, P.Player.pos.y, P.Player.pos.z, P.Player.vx, P.Player.motionX].every(Number.isFinite));
+    assert(Math.abs(P.Player.x) <= ep.flightWidth, 'steering stays within the authored corridor');
+    assert(P.Player.pos.y >= P.terrain.heightAt(P.Player.pos.x, P.Player.pos.z) + 6 - .00001,
+      'lateral flight remains above the real terrain');
+  }
+  assert(Math.abs(Math.abs(P.Player.x) - ep.flightWidth) < .1, ep.id + ' reaches the expanded edge at ' + fps + ' fps');
+  assert(Math.abs(P.Player.motionX) < .1, 'holding against the wider edge stops actual lateral travel');
+  assert(Math.abs(P.dragon.body.rotation.z) < .025, 'the rig levels after reaching the expanded edge');
+}
+
+// Monument supports and crossbeams must also leave room for the expanded
+// corridor plus the dragon's wings, up through the normal flight ceiling.
+{
+  const { P, context } = flight();
+  for (const file of ['p3_world.js', 'p3d_landmarks.js'])
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src', file), 'utf8'), context);
+  for (let stage = 0; stage < 5; stage++) {
+    const ep = P.world.EPISODES[stage];
+    P.Game.epIndex = stage; P.Game.epStartZ = P.Game.railZ = stage * 7000;
+    P.landmarks.update();
+    for (const root of P.scene.children.filter(o => o.name.startsWith('route-landmark-'))) {
+      for (const mesh of root.children) {
+        const positions = mesh.geometry.attributes.position;
+        for (let triangle = 0; triangle < positions.count; triangle += 3) {
+          const x = [0, 1, 2].map(i => positions.getX(triangle + i));
+          if (Math.min(...x) < ep.flightWidth + 12 && Math.max(...x) > -ep.flightWidth - 12) {
+            const lowest = Math.min(...[0, 1, 2].map(i => positions.getY(triangle + i)));
+            assert(lowest > ep.railY + 58 + 15, ep.id + ' architecture clears expanded flight and wing space');
+          }
+        }
+      }
+    }
+  }
+}
+console.log('Gauntlet checks passed: swept gates, route rewards/replay, immediate dodge, wider stage corridors and edge settling at 30/60/120 fps, terrain and landmark clearance.');

@@ -868,6 +868,7 @@ function frame(now) {
   // weather rides the camera, so it updates after the camera is final
   if (P.weather) P.weather.update(dt, camera.position, Game.time);
   if (P.horizon) P.horizon.update();
+  if (P.landmarks) P.landmarks.update();
   renderer.render(scene, camera);
   if (perfOn) samplePerf(rawDt);
 }

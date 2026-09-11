@@ -107,7 +107,7 @@ for (const when of [4.2, 31.5]) {
 }
 // Exercise actual entity movement, lasers and swept projectile collisions.
 // Rendering/audio are inert; the production combat functions run unchanged.
-for (const dodge of [false, true]) {
+for (const realEntry of [false, true]) for (const dodge of [false, true]) {
   const THREE = require('three');
   const { P, nodes } = world();
   nodes.guidedOpening = { checked: true };
@@ -125,11 +125,12 @@ for (const dodge of [false, true]) {
   P.Audio_ = new Proxy({}, { get: () => () => {} });
   P.el = { flash: {}, quip: {}, toast: {} };
   P.terrain = { enabled: false, heightAt: () => 0 };
+  P.world = { EPISODES: [{ id: 'ep1', speed: 56, fog: { far: 640 } }] };
   P.models = {
     oct: n => new THREE.OctahedronGeometry(n), tet: n => new THREE.TetrahedronGeometry(n),
     tor: (...args) => new THREE.TorusGeometry(...args), mesh: (g, m) => new THREE.Mesh(g, m),
     buildOrb: () => { const g = group(); g.userData.rings = [group(), group()]; return g; },
-    buildDragon: () => ({ root: group(), gun: group(), setAge() {} }),
+    buildDragon: () => { const root = group(), gun = group(); root.add(gun); return { root, gun, setAge() {} }; },
     ENEMY_DEFS: {}
   };
   for (const type of ['wasp', 'ray', 'carrier']) {
@@ -138,6 +139,13 @@ for (const dodge of [false, true]) {
   }
   const context = { THREE, window: { __PF: P }, document: { getElementById: id => nodes[id] } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/p4_game.js'), 'utf8'), context);
+  if (realEntry) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/p4e_enemies.js'), 'utf8'), context);
+  const spawns = [], spawn = P.entities.spawnEnemy;
+  P.entities.spawnEnemy = function (type, opts) {
+    const e = spawn(type, opts);
+    spawns.push({ e, entry: opts.entry, distance: e.pos.z - P.Game.railZ });
+    return e;
+  };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/p4b_opening.js'), 'utf8'), context);
   P.Game.state = 'playing'; P.Player.railY = 22;
   P.opening.start();
@@ -145,24 +153,65 @@ for (const dodge of [false, true]) {
     for (let i = 0; i < Math.ceil(seconds * 60); i++) {
       P.Game.railZ += 56 / 60;
       P.Player.pos.set(P.Player.x, 22, P.Game.railZ);
+      P.dragon.root.position.copy(P.Player.pos); P.dragon.root.updateMatrixWorld(true);
       P.opening.update(1 / 60);
+      const arriving = P.entities.enemies.filter(e => e.arrival).map(e => ({ e, previous: e.pos.clone() }));
       P.entities.updateEnemies(1 / 60);
+      arriving.forEach(({ e, previous }) => assert(e.pos.distanceTo(previous) < 7,
+        'tutorial openingOffset must not snap an approaching enemy into its close formation'));
       P.entities.updateProjectiles(1 / 60);
     }
   };
+  const until = wanted => {
+    for (let i = 0; i < 40 * 60 && P.opening.phase !== wanted; i++) tick(1 / 60);
+    assert.equal(P.opening.phase, wanted, 'opening must progress to ' + wanted);
+  };
   tick(4.2);
+  if (realEntry) {
+    assert.equal(P.opening.phase, 'practice-approach');
+    assert(P.opening.targets.every(e => e.arrival), 'all three practice enemies approach from afar');
+    assert(spawns.every(s => s.entry && s.distance > 640), 'practice is created outside the visible fog');
+    tick(1);
+    assert.equal(P.opening.phase, 'practice-approach', 'lock lesson waits for arrival');
+    assert.equal(P.entities.ebullets.length, 0, 'approaching practice targets do not attack');
+    until('volley');
+    assert(P.opening.t < .05, 'the full lesson window starts after arrival');
+  }
   P.Locks.list.push(...P.opening.targets);
   P.entities.fireLasers(); tick(3);
-  assert.equal(P.Game.kills, 3, 'all three real homing lasers hit moving targets');
+  assert.equal(P.Game.kills, 3, 'all three real homing lasers hit moving targets (arrival=' + realEntry + ')');
   assert.equal(P.Game.age, 86, 'combat awards exactly three years');
-  while (P.opening.phase !== 'dodge') tick(.05);
+  if (realEntry) {
+    until('sentry-approach'); tick(1);
+    assert.equal(P.opening.phase, 'sentry-approach');
+    assert.equal(P.entities.ebullets.length, 0, 'the sentry cannot fire during its approach');
+    until('warning'); tick(2);
+    assert.equal(P.entities.ebullets.length, 0, 'arrival preserves the full three-second shot warning');
+  }
+  until('dodge');
   if (dodge) P.Player.x = 20;
   tick(3.6);
   assert.equal(P.Game.age, dodge ? 86 : 87, 'only an actual collision costs a year');
   assert.equal(nodes.briefingTitle.textContent, dodge ? 'Clean escape' : 'A year lost. Keep flying.');
   tick(6.2);
   const carrier = P.entities.enemies.find(e => e.type === 'carrier');
+  if (realEntry) {
+    assert.equal(P.opening.phase, 'encounter-approach');
+    assert(carrier.arrival, 'carrier joins from the horizon');
+    assert(P.opening.incoming.every(e => e.arrival), 'carrier escorts also approach');
+    until('encounter');
+  }
   tick(2);
   assert(Math.abs(carrier.pos.z - P.Game.railZ - 160) < .001, 'carrier holds its encounter position');
+  if (realEntry) {
+    tick(8.1);
+    const patrol = spawns.slice(-2);
+    assert(patrol.every(s => s.e.type === 'ray' && s.entry && s.distance > 640 && s.e.arrival),
+      'the crossing patrol also begins beyond fog');
+    assert(spawns.every(s => s.entry), 'every guided-opening flyer uses the arrival path');
+    P.opening.skip();
+    assert.equal(P.opening.active, false, 'skip remains available after arrival phases');
+    assert(P.entities.enemies.includes(carrier), 'normal carrier encounter survives handover');
+  }
 }
-console.log('Opening checks passed: combat integration, earned rewards, dodge collision, formations, timeout, pause, skip, restart, opt-out, episode handover.');
+console.log('Opening checks passed: real combat/arrival integration, distant tutorial entries, approach-gated clocks, earned rewards, dodge collision, formations, timeout, pause, skip, restart, opt-out, episode handover.');

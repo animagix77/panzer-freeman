@@ -27,9 +27,9 @@ document.getElementById('arrivals').onclick=()=>{if(!P)return;P.entities.reset()
 document.getElementById('view').onclick=()=>{if(P){P.Player.viewIndex=(P.Player.viewIndex+1)%4;P.Player.camYawTarget=P.Player.viewIndex*Math.PI/2;}};
 document.getElementById('orbs').onclick=()=>{if(P)[-15,15].forEach(x=>P.entities.spawnOrb(P.Player.pos.clone().add(new P.V3(x,0,5)),true));};
 document.getElementById('scene').onchange=()=>{if(P)scene();};
-document.getElementById('hostiles').onclick=()=>{if(!P)return;P.entities.reset();P.Game.state='playing';document.getElementById('pause').textContent='Pause';['sentinel','bomber'].forEach((type,i)=>{const e=P.entities.spawnEnemy(type,{pos:new P.V3(P.Player.x+(i-.5)*42,P.Player.pos.y+12,P.Game.railZ+80),formation:new P.V3(P.Player.x+(i-.5)*42,P.Player.y+12,80),holdFor:15});e.fireT=.5+i;});};
+document.getElementById('hostiles').onclick=()=>{if(!P)return;P.entities.reset();P.Game.state='playing';document.getElementById('pause').textContent='Pause';['sentinel','bomber'].forEach((type,i)=>{const e=P.entities.spawnEnemy(type,{pos:new P.V3(P.Player.x+(i-.5)*42,P.Player.pos.y+12,P.Game.railZ+80),formation:new P.V3(P.Player.x+(i-.5)*42,P.Player.y+12,80),holdFor:15,entry:false});e.fireT=.5+i;});};
 document.getElementById('volley').onclick=()=>{if(!P)return;P.armAudio();P.Locks.list.length=0;
- for(let i=0;i<6;i++){const e=P.entities.spawnEnemy('wasp',{pos:new P.V3(P.Player.x+(i-2.5)*12,P.Player.pos.y+12,P.Game.railZ+130),formation:new P.V3(P.Player.x+(i-2.5)*12,12,130),holdFor:10});e.hp=1;e.fireT=20;P.Locks.list.push(e);}P.entities.fireLasers();};
+ for(let i=0;i<6;i++){const e=P.entities.spawnEnemy('wasp',{pos:new P.V3(P.Player.x+(i-2.5)*12,P.Player.pos.y+12,P.Game.railZ+130),formation:new P.V3(P.Player.x+(i-2.5)*12,12,130),holdFor:10,entry:false});e.hp=1;e.fireT=20;P.Locks.list.push(e);}P.entities.fireLasers();};
 document.getElementById('boom').onclick=()=>{if(!P)return;P.armAudio();const pos=P.Player.pos.clone().add(new P.V3(12,5,45));P.entities.boom(pos,5,[P.entities.SHARD_MATS.fire,P.entities.SHARD_MATS.hot]);P.Audio_.sBoom(true,pos);};
 document.getElementById('boost').onclick=()=>{if(P){P.Player.energy=100;boostUntil=performance.now()+1600;P.Input.keys.shift=true;}};
 document.getElementById('roll').onclick=()=>{if(P){P.Player.energy=100;P.flight.roll();}};

@@ -232,6 +232,11 @@
   #briefingStep { color:#8fd9ff; font-size:10px; letter-spacing:.18em; }
   #briefingTitle { margin:8px 0; color:#ffd25e; font-size:20px; letter-spacing:.02em; }
   #briefingText { color:#f3e2bb; font-size:13px; line-height:1.65; }
+  @media (min-width:900px) and (min-height:601px) {
+    #briefing { top:auto; bottom:170px; left:22px; transform:none; width:320px; padding:12px 16px; }
+    #briefingTitle { font-size:16px; margin:6px 0; }
+    #briefingText { font-size:12px; line-height:1.5; }
+  }
   #skipBriefing { margin-top:10px; border:0; background:none; color:#c6b8d4; font-family:inherit; font-size:11px; cursor:pointer; }
   #skipBriefing:hover, #skipBriefing:focus-visible { color:#fff; text-decoration:underline; }
   .guide-choice { display:block; margin-top:20px; color:#e9dcc0; font-size:13px; cursor:pointer; }
@@ -293,7 +298,7 @@
         <div><span class="kbd">HOLD LMB</span><span class="d">paint lock-ons</span></div>
         <div><span class="kbd">RELEASE</span><span class="d">fire laser volley</span></div>
       </div>
-      <label class="guide-choice"><input id="guidedOpening" type="checkbox" checked>Guide my first minute</label>
+      <label class="guide-choice"><input id="guidedOpening" type="checkbox" checked>Guide my opening flight</label>
       <details class="extra-controls">
         <summary>All controls &amp; display options</summary>
         <div class="keys">
@@ -3826,7 +3831,7 @@ function C(hex) { return new THREE.Color(hex); }
 
 var EPISODES = [
   {
-    id: 'ep1', label: 'EPISODE I', name: 'THE ASHEN CANYON',
+    id: 'ep1', flightWidth: 96, label: 'EPISODE I', name: 'THE ASHEN CANYON',
     sub: 'Where the empire buried its machines, the sand still hums.',
     music: 'ep1', length: 7400, railY: 22, speed: 56,
     weather: { ember: 0.85, wind: 0.35 },   // the buried machines still burn
@@ -3859,7 +3864,7 @@ var EPISODES = [
     density: 0.85
   },
   {
-    id: 'ep2', label: 'EPISODE II', name: 'THE DROWNED CHOIR',
+    id: 'ep2', flightWidth: 112, label: 'EPISODE II', name: 'THE DROWNED CHOIR',
     sub: 'A city sang here once. Now only the water keeps the tune.',
     music: 'ep2', length: 6400, railY: 20, speed: 60,
     weather: { rain: 1.0, wind: 0.7 },      // the drowned city, still drowning
@@ -3892,7 +3897,7 @@ var EPISODES = [
     density: 1.0
   },
   {
-    id: 'foundry', label: 'EPISODE III', name: 'THE EMBER FOUNDRY',
+    id: 'foundry', flightWidth: 104, label: 'EPISODE III', name: 'THE EMBER FOUNDRY',
     sub: 'The empire feeds its furnaces with borrowed time. Break the supply line.',
     music: 'ep1', length: 6100, railY: 28, speed: 62,
     weather: { ember: 1.2, wind: 0.8 },
@@ -3916,7 +3921,7 @@ var EPISODES = [
     enemyMix: [['carrier', 4], ['turret', 3], ['chaser', 2], ['wasp', 2]], density: 1.1
   },
   {
-    id: 'ep3', label: 'EPISODE IV', name: 'THE CITADEL OF HOURS',
+    id: 'ep3', flightWidth: 104, label: 'EPISODE IV', name: 'THE CITADEL OF HOURS',
     sub: 'The mountain holds the city. The city holds the stolen years.',
     music: 'ep3', length: 7000, railY: 46, speed: 64,
     weather: { snow: 1.0, wind: 0.5 },      // above the last cloud
@@ -3945,7 +3950,7 @@ var EPISODES = [
     density: 1.18
   },
   {
-    id: 'boss', label: 'FINAL', name: 'CHRONOS, THE HOUR-SPHINX',
+    id: 'boss', flightWidth: 112, label: 'FINAL', name: 'CHRONOS, THE HOUR-SPHINX',
     sub: 'It has counted every second of his life. It intends to keep them.',
     music: 'boss', length: 1e9, railY: 46, speed: 40,
     weather: { snow: 0.5, ember: 0.7, wind: 0.9 },  // snow and forge-light together
@@ -4218,6 +4223,184 @@ P.horizon = {
     });
   },
   layers: layers
+};
+})();
+
+
+/* Monumental route architecture. Four recycled, material-batched structures. */
+(function () {
+'use strict';
+var P = window.__PF, sites = [], spacing = 960, capacity = 4, stage = null, stageStart = 0, previousRail = null;
+var palettes = {
+  ep1: [0xa76b45, 0xe4b273, 0x573d35, 0xffca75],
+  ep2: [0x476e7a, 0xa7c5be, 0x253d54, 0x78f1e5],
+  foundry: [0x46444b, 0x987a66, 0x262a35, 0xff6b24],
+  ep3: [0x746578, 0xc0abc4, 0x3f344f, 0xf3b66c],
+  boss: [0x62516f, 0xb898b2, 0x342c46, 0xfb6fad]
+};
+var materials = [];
+function clear(site) {
+  while (site.root.children.length) {
+    var mesh = site.root.children[0]; site.root.remove(mesh); mesh.geometry.dispose();
+  }
+}
+function build(site, z, ep) {
+  clear(site); site.z = z; site.root.position.z = z;
+  var batches = [[], [], [], []], variant = Math.abs(Math.round((z - stageStart - 450) / spacing)) % 3;
+  function put(geo, x, y, localZ, key, rotation) {
+    if (rotation) geo.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(rotation));
+    geo.translate(x, y, localZ);
+    var flat = geo.index ? geo.toNonIndexed() : geo;
+    batches[key || 0].push(flat);
+    if (flat !== geo) geo.dispose();
+  }
+  function box(w, h, d, x, y, localZ, key) { put(new THREE.BoxGeometry(w, h, d), x, y, localZ, key); }
+  function beam(x1, y1, x2, y2, width, depth, localZ, key) {
+    var direction = new THREE.Vector3(x2 - x1, y2 - y1, 0), length = direction.length();
+    put(new THREE.BoxGeometry(width, length + .4, depth), (x1 + x2) / 2, (y1 + y2) / 2, localZ, key,
+      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize()));
+  }
+  function ground(x, localZ) { return ep.terrain ? ep.terrain.h(x, z + localZ) : -10; }
+  function pier(x, localZ, top, width, depth, key) {
+    var floor = Math.min(ground(x, localZ), ground(x - width / 2 - 6, localZ - depth / 2 - 6),
+      ground(x + width / 2 + 6, localZ - depth / 2 - 6), ground(x - width / 2 - 6, localZ + depth / 2 + 6),
+      ground(x + width / 2 + 6, localZ + depth / 2 + 6)) - 12;
+    box(width, top - floor, depth, x, (top + floor) / 2, localZ, key);
+    box(width + 12, 12, depth + 12, x, floor + 12, localZ, 2);
+    box(width + 8, 9, depth + 8, x, top, localZ, 1);
+  }
+  function arch(radius, spring, rise, localZ, width, key) {
+    for (var i = 0; i < 14; i++) {
+      var a = i / 14 * Math.PI, b = (i + 1) / 14 * Math.PI;
+      beam(Math.cos(a) * radius, spring + Math.sin(a) * rise,
+        Math.cos(b) * radius, spring + Math.sin(b) * rise, width, 17, localZ, i % 4 === 0 ? 1 : key);
+    }
+  }
+  if (ep.id === 'ep1') {
+    // Twin aqueduct ribs make a recognisable silhouette against the opening sky.
+    [-24, 24].forEach(function (depth) {
+      [-1, 1].forEach(function (side) { pier(side * 178, depth, 138, 30, 24, 0); });
+      arch(178, 138, 74 + variant * 7, depth, 22, 0);
+    });
+    for (var support = -3; support <= 3; support++) {
+      var sx = support * 48, archTop = 138 + Math.sqrt(1 - sx * sx / (178 * 178)) * (74 + variant * 7) + 7;
+      var deckBottom = 230 + variant * 7;
+      box(24, deckBottom - archTop + 4, 64, sx, (deckBottom + archTop) / 2, 0, 0);
+    }
+    [-178, 178].forEach(function (x) { box(34, 98 + variant * 7, 70, x, 184 + variant * 3.5, 0, 0); });
+    box(418, 16, 70, 0, 238 + variant * 7, 0, 0);
+    box(426, 5, 76, 0, 248 + variant * 7, 0, 1);
+    for (var x = -192; x <= 192; x += 32) {
+      // Missing parapet stones break the pristine repeated outline.
+      if ((x / 32 + variant + 6) % 4 !== 1) box(19, 9 + ((x + 192) % 3) * 3, 12, x, 255 + variant * 7, -30, 1);
+    }
+    [-1, 1].forEach(function (side) {
+      pier(side * 258, 8, 169 + variant * 11, 35, 38, 0);
+      box(48, 8, 48, side * 258, 178 + variant * 11, 8, 1);
+      box(16, 32, 20, side * 178, 181, -39, 2);
+    });
+  } else if (ep.id === 'ep2') {
+    // A drowned nave: tall buttresses, a pointed double arch, and turquoise windows.
+    [-1, 1].forEach(function (side) {
+      pier(side * 173, 0, 213, 30, 48, 0);
+      pier(side * 215, 18, 140, 26, 30, 2);
+      beam(side * 215, 128, side * 173, 203, 13, 16, 18, 1);
+      put(new THREE.ConeGeometry(24, 67, 4), side * 173, 251, 0, 1);
+      box(12, 59, 1.5, side * 173, 159, -25, 3);
+      box(4, 66, 2, side * 173, 159, -27, 2);
+      [-19, 19].forEach(function (depth) {
+        beam(side * 169, 127, side * 126, 183, 16, 15, depth, 1);
+        beam(side * 126, 183, side * 67, 217, 16, 15, depth, 0);
+        beam(side * 67, 217, 0, 247, 16, 15, depth, 1);
+      });
+    });
+    put(new THREE.TorusGeometry(19, 4, 5, 12), 0, 241, -21, 1);
+    beam(-15, 241, 15, 241, 3, 5, -22, 3);
+    beam(0, 226, 0, 256, 3, 5, -22, 3);
+  } else if (ep.id === 'foundry') {
+    // A working furnace gantry: heavy legs, orange furnace mouths and overhead trusses.
+    [-1, 1].forEach(function (side) {
+      [-24, 24].forEach(function (depth) { pier(side * 168, depth, 192, 22, 22, 0); });
+      var floor = ground(side * 172, 0);
+      box(58, 86, 83, side * 172, floor + 35, 0, 2);
+      box(29, 35, 2, side * 172, floor + 47, -43, 3);
+      for (var bar = -1; bar <= 1; bar++) box(3, 40, 4, side * 172 + bar * 9, floor + 47, -45, 0);
+      box(72, 13, 93, side * 172, floor + 81, 0, 1);
+      var chimneyFloor = ground(side * 230, 19);
+      put(new THREE.CylinderGeometry(9, 16, 196, 6), side * 230, chimneyFloor + 86, 19, 0);
+      put(new THREE.CylinderGeometry(10, 10, 7, 6), side * 230, chimneyFloor + 183, 19, 3);
+    });
+    [-25, 25].forEach(function (depth) {
+      box(400, 13, 17, 0, 184, depth, 0); box(416, 10, 19, 0, 223, depth, 1);
+      for (var x = -180; x < 180; x += 45) beam(x, 188, x + 45, 218, 6, 10, depth, 1);
+    });
+    for (var lamp = -3; lamp <= 3; lamp++) box(12, 4, 42, lamp * 48, 175, 0, 3);
+    box(105, 18, 78, variant * 55 - 55, 238, 0, 2);
+  } else {
+    // Mountain fortification: the bridge carries between towers with deep foundations.
+    [-1, 1].forEach(function (side) {
+      var top = Math.max(235, ground(side * 166, 0) + 94);
+      pier(side * 166, 0, top, 52, 66, 0);
+      box(69, 12, 80, side * 166, top + 10, 0, 1);
+      put(new THREE.ConeGeometry(39, 56, 4), side * 166, top + 41, 0, 2);
+      box(15, 53, 2, side * 166, top - 46, -34, 3);
+      [-20, 20].forEach(function (dx) { box(9, 16, 12, side * 166 + dx, top + 23, -32, 1); });
+    });
+    arch(166, 150, 59, -23, 18, 1); arch(166, 150, 59, 23, 18, 0);
+    box(38, 26, 60, 0, 219, 0, 1);
+    box(340, 18, 62, 0, 229, 0, 0); box(350, 5, 70, 0, 242, 0, 1);
+    for (var tooth = -140; tooth <= 140; tooth += 28) box(15, 15, 11, tooth, 251, -29, 1);
+    [-92, 92].forEach(function (x) { box(17, 32, 2, x, 210, -33, 2); box(9, 25, 2, x, 210, -35, 3); });
+  }
+  batches.forEach(function (parts, key) {
+    if (!parts.length) return;
+    var length = parts.reduce(function (sum, g) { return sum + g.attributes.position.array.length; }, 0);
+    var positions = new Float32Array(length), normals = new Float32Array(length), offset = 0;
+    parts.forEach(function (g) {
+      positions.set(g.attributes.position.array, offset); normals.set(g.attributes.normal.array, offset);
+      offset += g.attributes.position.array.length; g.dispose();
+    });
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    geo.computeBoundingSphere();
+    var mesh = new THREE.Mesh(geo, materials[key]); mesh.name = 'landmark-' + ep.id + '-' + key;
+    site.root.add(mesh);
+  });
+}
+function reset() {
+  stage = null; previousRail = null;
+  sites.forEach(function (site) { site.root.visible = false; });
+}
+P.landmarks = {
+  update: function () {
+    if (!P.Game || !P.world || !P.world.EPISODES) return;
+    var game = P.Game, ep = P.world.EPISODES[game.epIndex];
+    if (!ep) return;
+    if (previousRail !== null && game.railZ < previousRail - 10) stage = null;
+    previousRail = game.railZ;
+    if (stage !== ep.id || stageStart !== game.epStartZ) {
+      stage = ep.id; stageStart = game.epStartZ;
+      materials.forEach(function (m) { m.dispose(); }); materials.length = 0;
+      (palettes[stage] || palettes.ep3).forEach(function (color, i) {
+        materials.push(i === 3 ? new THREE.MeshBasicMaterial({ color: color, fog: true })
+          : new THREE.MeshPhongMaterial({ color: color, flatShading: true, shininess: i === 1 ? 15 : 3, fog: true }));
+      });
+      var base = Math.floor((game.railZ - stageStart - 450) / spacing) * spacing + stageStart + 450 - spacing;
+      for (var i = 0; i < capacity; i++) {
+        if (!sites[i]) { var root = new THREE.Group(); root.name = 'route-landmark-' + i; P.scene.add(root); sites.push({ root: root, z: 0 }); }
+        build(sites[i], base + i * spacing, ep); sites[i].root.visible = true;
+      }
+    }
+    sites.forEach(function (site) {
+      if (game.railZ - site.z > 1250) {
+        var jumps = Math.ceil((game.railZ - site.z - 1250) / (spacing * capacity));
+        build(site, site.z + jumps * spacing * capacity, ep);
+      }
+    });
+  },
+  reset: reset,
+  stats: function () { return { capacity: capacity, sites: sites.length,
+    meshes: sites.reduce(function (sum, site) { return sum + site.root.children.length; }, 0) }; }
 };
 })();
 
@@ -4554,7 +4737,7 @@ function spawnEnemy(type, opts) {
   var e = {
     type: type, def: def, g: g, hp: def.hp * (opts.hpMul || 1), maxHp: def.hp * (opts.hpMul || 1), bs: bs,
     pos: new V3(), vel: new V3(), t: 0, fireT: rand(0.6, 2.0),
-    alive: true, locked: 0, phase: rand(0, TAU), hold: rand(26, 64),
+    launchT: opts.deployed ? .65 : 0, alive: true, locked: 0, phase: rand(0, TAU), hold: rand(26, 64),
     lane: rand(-1, 1), amp: rand(6, 18), flashT: 0, tag: opts.tag || null,
     openingOffset: opts.openingOffset || null,
     formation: opts.formation || null, holdFor: opts.holdFor || 0,
@@ -4585,9 +4768,9 @@ function spawnEnemy(type, opts) {
   if (opts.pos) e.pos.copy(opts.pos);
   g.rotation.set(0, 0, 0);
   if (P.enemyCombat) P.enemyCombat.prepare(e);
-  if (opts.entry && P.enemyCombat) P.enemyCombat.beginArrival(e);
+  if (opts.entry !== false && P.enemyCombat) P.enemyCombat.beginArrival(e);
   g.position.copy(e.pos);
-  g.scale.setScalar(bs);
+  g.scale.setScalar(opts.deployed ? .001 : bs);
   e.bs = bs;
   enemies.push(e);
   return e;
@@ -5451,6 +5634,7 @@ function updateEnemies(dt) {
     if (e.bank && e.dying === undefined) e.g.rotation.z -= e.bank;
     e.t += dt;
     var d = e.def;
+    if (!e.alive && e.g.userData.beacon) e.g.userData.beacon.visible = false;
 
     // ---- death spiral: no AI, just ballistics and spin ------------------
     if (e.dying !== undefined) {
@@ -5471,18 +5655,21 @@ function updateEnemies(dt) {
       continue;
     }
 
-    // Briefing targets hold a readable formation and never fire or collide.
-    if (e.openingOffset) {
-      e.pos.set(e.openingOffset.x, ry + e.openingOffset.y, Game.railZ + e.openingOffset.z);
-      e.g.position.copy(e.pos);
-      e.g.lookAt(Player.pos);
-      continue;
-    }
-
+    // Arrival always runs first, including the default guided opening.
     if (e.arrival && P.enemyCombat) {
       P.enemyCombat.arrive(e, dt);
       continue;
     }
+    if (P.enemyCombat) P.enemyCombat.visibility(e, dt);
+    // Briefing targets hold only after their approach has finished.
+    if (e.openingOffset) {
+      e.pos.set(e.openingOffset.x, ry + e.openingOffset.y, Game.railZ + e.openingOffset.z);
+      e.g.position.copy(e.pos);
+      e.g.lookAt(Player.pos);
+      if (P.enemyCombat) P.enemyCombat.finishPose(e, dt);
+      continue;
+    }
+
     if (e.retired && P.enemyCombat) {
       if (P.enemyCombat.depart(e, dt)) {
         e.alive = false; freeEnemyMesh(e.type, e.g); enemies.splice(i, 1); dropLocks(e);
@@ -5583,6 +5770,7 @@ function updateEnemies(dt) {
       e.g.scale.setScalar(e.bs * (1 + fl * 0.22));
     } else e.g.scale.setScalar(damp(e.g.scale.x, e.bs, 14, dt));
 
+    if (e.launchT > 0) { e.launchT = Math.max(0, e.launchT - dt); e.g.scale.multiplyScalar(1 - e.launchT / .65); }
     // the enemy has moved since dist was measured; gates below want the new one
     if (P.enemyCombat && P.enemyCombat.finishPose) P.enemyCombat.finishPose(e, dt);
     dist = P.tmpA.copy(Player.pos).sub(e.pos).length();
@@ -5711,7 +5899,7 @@ P.entities = {
 if (window.__PFLOAD) __PFLOAD.set(0.55, 'TUNING THE ORGAN');
 
 
-/* An authored first minute. All clocks use simulation time, including pause. */
+/* An authored guided opening. All clocks use simulation time, including pause. */
 (function () {
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var panel = document.getElementById('briefing');
@@ -5720,7 +5908,7 @@ var body = document.getElementById('briefingText');
 var step = document.getElementById('briefingStep');
 var state = P.opening = {
   active: false, phase: 'off', t: 0, elapsed: 0, kills: 0, startAge: 89,
-  targets: [], shot: null, hit: false, wave: false
+  targets: [], incoming: [], shot: null, hit: false, wave: false
 };
 function copy(title, text, label) {
   if (heading.textContent !== title) heading.textContent = title;
@@ -5737,6 +5925,7 @@ function clearTargets() {
 }
 state.reset = function () {
   clearTargets();
+  state.incoming.length = 0;
   state.active = false; state.phase = 'off'; state.t = state.elapsed = state.kills = 0;
   state.hit = state.wave = false;
   panel.hidden = true;
@@ -5766,36 +5955,49 @@ function practice() {
   for (var i = -1; i <= 1; i++) {
     var offset = new P.V3(i * 19, 12, 95);
     var e = E.spawnEnemy('wasp', {
-      tag: 'opening-target', hpMul: 0.5, deAge: 1,
+      tag: 'opening-target', hpMul: 0.5, deAge: 1, entry: true,
       openingOffset: offset,
       pos: new P.V3(offset.x, Player.railY + offset.y, Game.railZ + offset.z)
     });
     state.targets.push(e);
   }
+  if (approaching(state.targets)) {
+    phase('practice-approach');
+    copy('Three scouts on the horizon', 'Watch them approach. Get ready to hold, sweep and release your volley.', '01 / INCOMING');
+  }
 }
+function approaching(list) { return list.some(function (e) { return e.alive && e.arrival; }); }
 function warn() {
   phase('warning');
   // Hold the source ahead; only the single explicitly timed shot can fire.
   var offset = new P.V3(Player.x, Player.y, 260);
   state.targets.push(E.spawnEnemy('ray', {
-    tag: 'opening-sentry', openingOffset: offset,
+    tag: 'opening-sentry', openingOffset: offset, entry: true,
     pos: new P.V3(offset.x, Player.railY + offset.y, Game.railZ + offset.z)
   }));
-  copy('Watch the sentry', 'One shot is coming. When it fires, bank with A or D.', '02 / EVADE');
+  if (approaching(state.targets)) {
+    phase('sentry-approach');
+    copy('A sentry is approaching', 'Keep it in view. You will have time to bank after its warning.', '02 / INCOMING');
+  } else copy('Watch the sentry', 'One shot is coming. When it fires, bank with A or D.', '02 / EVADE');
 }
 function encounter() {
   phase('encounter');
   copy('The canyon wakes', 'A carrier and its escort. Sweep the formation, then release your volley.', '03 / PUT IT TOGETHER');
-  E.spawnEnemy('carrier', {
+  state.incoming.push(E.spawnEnemy('carrier', {
     pos: new P.V3(0, Player.railY + 17, Game.railZ + 160),
-    formation: new P.V3(0, 17, 160), holdFor: 12
-  });
+    formation: new P.V3(0, 17, 160), holdFor: 12, entry: true
+  }));
   for (var i = -1; i <= 1; i += 2) {
     var e = E.spawnEnemy('wasp', {
       pos: new P.V3(i * 24, Player.railY + 10, Game.railZ + 105),
-      formation: new P.V3(i * 24, 10, 105), holdFor: 10
+      formation: new P.V3(i * 24, 10, 105), holdFor: 10, entry: true
     });
     e.fireT = 4; e.phase = i < 0 ? 0 : Math.PI;
+    state.incoming.push(e);
+  }
+  if (approaching(state.incoming)) {
+    phase('encounter-approach');
+    copy('The canyon wakes', 'A carrier and its escort are coming into view. Prepare your next volley.', '03 / INCOMING');
   }
 }
 state.update = function (dt) {
@@ -5804,6 +6006,8 @@ state.update = function (dt) {
   state.t += dt; state.elapsed += dt;
   if (state.phase === 'arrival') {
     if (state.t >= 4) practice();
+  } else if (state.phase === 'practice-approach') {
+    if (!approaching(state.targets)) phase('volley');
   } else if (state.phase === 'volley') {
     var unique = state.targets.filter(function (e) { return P.Locks.list.indexOf(e) >= 0; }).length;
     var forward = ((Player.viewIndex % 4) + 4) % 4 === 0;
@@ -5826,6 +6030,11 @@ state.update = function (dt) {
     }
   } else if (state.phase === 'reward') {
     if (state.t >= 4) warn();
+  } else if (state.phase === 'sentry-approach') {
+    if (!approaching(state.targets)) {
+      phase('warning');
+      copy('Watch the sentry', 'One shot is coming. When it fires, bank with A or D.', '02 / EVADE');
+    }
   } else if (state.phase === 'warning') {
     if (state.t >= 3) {
       var sentry = state.targets[0];
@@ -5855,17 +6064,22 @@ state.update = function (dt) {
     }
   } else if (state.phase === 'breath') {
     if (state.t >= 3) encounter();
+  } else if (state.phase === 'encounter-approach') {
+    if (!approaching(state.incoming)) {
+      state.incoming.length = 0; phase('encounter');
+      copy('The canyon wakes', 'Sweep the carrier and its escort, then release your volley.', '03 / PUT IT TOGETHER');
+    }
   } else if (state.phase === 'encounter') {
     if (state.t >= 7) panel.hidden = true;
     if (state.t >= 10 && !state.wave) {
       state.wave = true;
       for (var i = -1; i <= 1; i += 2) {
-        var ray = E.spawnEnemy('ray', { pos: new P.V3(i * 85, Player.railY + 13, Game.railZ + 270) });
+        var ray = E.spawnEnemy('ray', { pos: new P.V3(i * 85, Player.railY + 13, Game.railZ + 270), entry: true });
         ray.vel.x = -i * 22; ray.fireT = 3;
       }
       P.toast('CROSSING PATROL');
     }
-    if (state.elapsed >= 60) {
+    if (state.elapsed >= 60 && state.t >= 18) {
       state.reset();
       P.toast('THE SKY IS YOURS');
     }
@@ -6176,6 +6390,19 @@ var profiles = {
   sentinel: { label: 'SHIELD SENTINEL', windup: 1.25, count: 3, arc: .08, damage: 1.8 },
   bomber: { label: 'HEAVY BOMBER', windup: 1.6, count: 5, arc: .16, damage: 2.1 }
 };
+// Readable silhouettes and engine signatures, even while ships are deep in haze.
+Object.keys(profiles).forEach(function(type) {
+  var def = P.models.ENEMY_DEFS[type];
+  if (def) { def.scale = (def.scale || 1) * 1.28; def.radius *= 1.28; }
+});
+var pixels = new Uint8Array(32 * 32 * 4);
+for(var pixel=0;pixel<1024;pixel++) {
+  var bx=(pixel%32-15.5)/15.5,by=(Math.floor(pixel/32)-15.5)/15.5;
+  pixels[pixel*4]=pixels[pixel*4+1]=pixels[pixel*4+2]=255;
+  pixels[pixel*4+3]=Math.round(255*Math.pow(Math.max(0,1-Math.sqrt(bx*bx+by*by)),2));
+}
+var beaconMap=new THREE.DataTexture(pixels,32,32,THREE.RGBAFormat);
+beaconMap.minFilter=beaconMap.magFilter=THREE.LinearFilter;beaconMap.needsUpdate=true;
 function flanked(e) { return Math.abs(Player.x - e.pos.x) > 25 || Player.pos.y - e.pos.y > 18; }
 function active(e) {
   if (e.alive && !e.arrival && (e.pos.z < Game.railZ - 300 || Math.abs(e.pos.x) > 350)) e.retired = true;
@@ -6193,6 +6420,12 @@ P.enemyCombat = {
   activeCount: activeCount,
   prepare: function (e) {
     e.shieldDown = 0; e.attack = null; e.volley = null; e.arrival = null; e.charge = 0; e.deployed = false;
+    e.visibleAge = 0;
+    if (e.type !== 'turret' && e.type !== 'mine' && !e.g.userData.beacon) {
+      var beacon = new THREE.Sprite(new THREE.SpriteMaterial({map:beaconMap,color:0xffac72,transparent:true,opacity:0,depthWrite:false,fog:false,blending:THREE.AdditiveBlending}));
+      beacon.position.set(0,.3,-1);e.g.add(beacon);e.g.userData.beacon=beacon;
+    }
+    if(e.g.userData.beacon) { e.g.userData.beacon.visible=true;e.g.userData.beacon.material.opacity=0; }
     e.poseBlend = 0; e.poseQuaternion = null; e.retired = false;
     if (!profiles[e.type]) return;
     if (!e.g.userData.warning) {
@@ -6211,7 +6444,7 @@ P.enemyCombat = {
       if (e.type === 'turret') e.pos.y = P.terrain.heightAt(e.pos.x, e.pos.z);
       return;
     }
-    e.arrival = { elapsed: 0, duration: e.type === 'chaser' ? 7 : 6,
+    e.arrival = { elapsed: 0, duration: e.type === 'chaser' ? 10 : 9,
       target: e.pos.clone().sub(new P.V3(0, Player.railY, Game.railZ)), far: far,
       previous: e.pos.clone(), oriented: false };
     e.pos.z = Game.railZ + far;
@@ -6234,10 +6467,20 @@ P.enemyCombat = {
       a.oriented = true;
     }
     a.previous.copy(e.pos);
+    this.visibility(e, dt);
     if (t === 1) {
       e.poseQuaternion = e.g.quaternion.clone(); e.poseBlend = 1.2;
       e.arrival = null; e.t = 0; e.fireT = Math.max(e.fireT, .9);
     }
+  },
+  visibility: function(e,dt) {
+    e.visibleAge += dt;
+    var beacon=e.g.userData.beacon;if(!beacon)return;
+    var distance=e.pos.distanceTo(P.camera.position);
+    var fade=P.clamp((1000-distance)/260,0,1)*P.clamp(e.visibleAge/1.2,0,1);
+    beacon.material.opacity=fade*(e.arrival ? .85 : .32);
+    // A small luminous engine, never a screen-filling target marker.
+    var size=(e.arrival ? 7 : 3.5)/e.bs;beacon.scale.setScalar(size);
   },
   finishPose: function (e, dt) {
     if (e.poseBlend <= 0 || !e.poseQuaternion) return;
@@ -6294,7 +6537,7 @@ P.enemyCombat = {
       e.deployed = true;
       [-1, 1].forEach(function (side) {
         var pos = e.pos.clone().add(new P.V3(side * 12, -4, -15));
-        var drone = E.spawnEnemy('wasp', { pos: pos, tag: 'carrier-escort' }); drone.fireT = 2.5;
+        var drone = E.spawnEnemy('wasp', { pos: pos, tag: 'carrier-escort', entry: false, deployed: true }); drone.fireT = 2.5;
         if (P.fx) P.fx.burst(pos, .8, 0xffbd69, true);
       });
     }
@@ -6335,7 +6578,7 @@ P.enemyCombat = {
         if (e.type === 'bomber' && !e.deployed && canAdd(2)) {
           e.deployed = true;
           [-1, 1].forEach(function (side) {
-            var mine = E.spawnEnemy('mine', { pos: e.pos.clone().add(new P.V3(side * 10, -5, -10)), tag: 'bomber-mine' });
+            var mine = E.spawnEnemy('mine', { pos: e.pos.clone().add(new P.V3(side * 10, -5, -10)), tag: 'bomber-mine', entry: false, deployed: true });
             mine.dropT = .8;
           });
         }
@@ -7294,6 +7537,7 @@ function frame(now) {
   // weather rides the camera, so it updates after the camera is final
   if (P.weather) P.weather.update(dt, camera.position, Game.time);
   if (P.horizon) P.horizon.update();
+  if (P.landmarks) P.landmarks.update();
   renderer.render(scene, camera);
   if (perfOn) samplePerf(rawDt);
 }

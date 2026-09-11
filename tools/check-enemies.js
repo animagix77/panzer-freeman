@@ -8,6 +8,9 @@ function setup() {
   for(const f of ['p3_world.js','p4e_enemies.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',f),'utf8'),context);
   P.Game.epIndex=0;P.Game.epProgress=0;P.Game.railZ=0;P.Player.pos.set(0,22,0);
   P.terrain.heightAt=()=>0;P.Game.invulnT=100;
+  // Direct combat probes place actors deliberately; director paths retain production entry.
+  P.spawnWorldEnemy=P.entities.spawnEnemy;
+  P.entities.spawnEnemy=(type,opts={})=>P.spawnWorldEnemy(type,{entry:false,...opts});
   return P;
 }
 const P=setup(),E=P.entities;
@@ -48,7 +51,7 @@ for(let stage=0;stage<4;stage++){
   const live=E.enemies.filter(e=>e.alive);max=Math.max(max,live.length);total+=live.length;
   const visible=live.filter(e=>e.pos.z-P.Game.railZ>-240 && e.pos.z-P.Game.railZ<450 && Math.abs(e.pos.x)<200);
   visibleTotal+=visible.length;maxActive=Math.max(maxActive,P.enemyCombat.activeCount());
-  if(frame>8*30){empty=visible.length?0:empty+1/30;longest=Math.max(longest,empty);}
+  if(frame>12*30){empty=visible.length?0:empty+1/30;longest=Math.max(longest,empty);}
   live.forEach(e=>{seen.add(e.type);assert([e.pos.x,e.pos.y,e.pos.z].every(Number.isFinite));});
   assert(live.filter(e=>e.attack || e.volley).length<=3,'bounded simultaneous attack warnings and bursts');assert(E.ebullets.length<=100,'bounded hostile projectiles');
   assert(P.enemyCombat.activeCount()<=18,'active director and deployed escort budget');
@@ -64,7 +67,7 @@ for (const type of ['wasp','ray','chaser','carrier','sentinel','bomber']) {
  E.reset();P.Game.railZ=0;P.Player.railY=22;P.Player.pos.set(0,22,0);
  const rear=type==='chaser', e=E.spawnEnemy(type,{pos:new P.V3(30,34,rear?-82:140),entry:true});
  assert(e.pos.z>P.world.EPISODES[P.Game.epIndex].fog.far+100);
- for(let i=0;i<480 && e.arrival;i++) {
+ for(let i=0;i<720 && e.arrival;i++) {
   const old=e.pos.clone();P.Game.railZ+=56/60;P.Player.pos.z=P.Game.railZ;
   E.updateEnemies(1/60);
   assert(e.pos.distanceTo(old)<5,'arrival has no position jumps');
@@ -127,3 +130,7 @@ P.enemyCombat.update(closeTurret,.01,100);assert(closeTurret.attack);
 P.enemyCombat.update(closeTurret,2,20);assert.equal(E.ebullets.length,0,'charging attack cancels at unsafe point-blank range');
 console.log('Enemy checks passed: pursuit, shields, telegraphs, committed aim, carrier escorts, pause/briefing isolation, all stage decks, actor/projectile limits and pooled reset.');
 console.log(stats);
+
+E.reset();const distantDefault=P.spawnWorldEnemy('wasp',{pos:new P.V3(0,34,100)});
+assert(distantDefault.arrival,'production spawn defaults to approach without an opt-in flag');
+assert(distantDefault.pos.z-P.Game.railZ>700,'all ordinary production spawns start far away');

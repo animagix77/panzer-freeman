@@ -58,6 +58,12 @@ side and rear views. Three persistent mountain silhouettes add depth beyond the
 playable landscape. Static scenery meshes are batched by material to keep the
 larger scenery buffers practical.
 
+**Architecture you fly through.** Large stone aqueducts cross the canyon, pointed
+cathedral arches rise from the drowned landscape, furnace gantries span the foundry,
+and mountain gates frame the citadel. Foundations reach the terrain and the central
+openings clear the dragon's full flight envelope. Lateral flight room is 33–56% wider
+than the previous release, depending on the stage.
+
 **Sharper flight feedback.** Boosts and evasive rolls leave short, soft vapor trails
 from the animated wingtips. Target health appears while locked; pale hit markers
 and gold kill confirmations show when shots connect. The power display shows roll
@@ -67,8 +73,10 @@ canyon run awards an extra 500 points and 25 wing power; diagonal boost crossing
 are judged at the gate plane.
 
 **An enemy force with distinct roles.** Mixed squadrons replace the random single-type
-spawns. Squadrons emerge from beyond the fog over six seconds; interceptors take
-seven seconds to sweep around the flanks and settle astern. Target markers fade in
+spawns. Squadrons arrive from beyond the fog over nine seconds; interceptors take
+ten seconds to sweep around the flanks and settle astern. This also applies to the
+guided opening: lesson timers wait for the incoming ships to reach formation.
+Larger hulls and distant engine lights make the approach readable. Target markers fade in
 as enemies approach. Wasps and rear interceptors match cruise speed during attack runs;
 boosting can still open distance. Shield sentinels resist frontal fire, but flanking
 or their post-volley opening bypasses the shield. Heavy bombers fire five lanes after
@@ -97,7 +105,7 @@ flare, explosions throw hot fragments and expanding shockwaves, and three pooled
 point lights illuminate nearby surfaces. Forty pooled glow bursts bound the cost.
 Clouds use soft mist sprites instead of solid polygon lumps.
 
-**A guided first minute.** An optional opening teaches sweeping lock-ons with
+**A guided opening flight.** An optional opening teaches sweeping lock-ons with
 three non-firing targets worth one year each, shows the years actually earned,
 then introduces a telegraphed shot and a carrier with escorts. The carrier holds
 formation long enough to engage before a crossing patrol arrives. Press Enter
@@ -202,6 +210,7 @@ node build.js        # concatenates src/ into index.html
 | `p2_models.js` | procedural dragon + rider + enemies + boss, and the flight model |
 | `p3_world.js` | terrain chunking, batched prop fields, episode definitions |
 | `p3c_horizon.js` | layered distant mountain silhouettes |
+| `p3d_landmarks.js` | grounded aqueducts, cathedral arches, furnace gantries and mountain gates |
 | `p4_game.js` | player, projectiles, ribbons, impacts, enemies, boss AI |
 | `p4b_opening.js` | guided opening and authored first encounter |
 | `p4c_effects.js` | pooled glow, shockwaves and impact lights |
