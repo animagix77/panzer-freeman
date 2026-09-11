@@ -4236,7 +4236,7 @@ var Game = {
   time: 0, railZ: 0, epIndex: 0, epStartZ: 0, epProgress: 0,
   age: 89, startAge: 89, score: 0, kills: 0, shots: 0, hits: 0,
   bestCombo: 0, combo: 0, comboT: 0,
-  hurtT: 0, invulnT: 0, shakeT: 0, shakeMag: 0,
+  hurtT: 0, invulnT: 0, shakeT: 0, shakeMag: 0, hitConfirmT: 0, killConfirmT: 0,
   ending: false, bossActive: false, orbsTaken: 0, cinematic: false
 };
 P.Game = Game;
@@ -4552,7 +4552,7 @@ function spawnEnemy(type, opts) {
   var g = getEnemyMesh(type);
   var bs = def.scale || 1;
   var e = {
-    type: type, def: def, g: g, hp: def.hp * (opts.hpMul || 1), bs: bs,
+    type: type, def: def, g: g, hp: def.hp * (opts.hpMul || 1), maxHp: def.hp * (opts.hpMul || 1), bs: bs,
     pos: new V3(), vel: new V3(), t: 0, fireT: rand(0.6, 2.0),
     alive: true, locked: 0, phase: rand(0, TAU), hold: rand(26, 64),
     lane: rand(-1, 1), amp: rand(6, 18), flashT: 0, tag: opts.tag || null,
@@ -4615,6 +4615,7 @@ function killEnemy(e, byPlayer) {
     A.sBoom(e.def.radius > 2.3, e.pos);
   }
   if (byPlayer) {
+    Game.killConfirmT = .42;
     Game.kills++;
     Game.combo++;
     Game.comboT = 2.6;
@@ -4640,10 +4641,12 @@ function killEnemy(e, byPlayer) {
 }
 
 function hurtEnemy(e, dmg) {
+  if (!e.alive) return;
   if (P.enemyCombat) dmg = P.enemyCombat.damage(e, dmg);
   // Carriers expose their cooling core to lateral or elevated attacks.
   if (e.type === 'carrier' && (Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18)) dmg *= 2;
   e.hp -= dmg;
+  Game.hitConfirmT = .18;
   e.flashT = 0.09;
   if (e.hp <= 0) killEnemy(e, true);
 }
@@ -4730,7 +4733,7 @@ function addAge(y) {
   applyVigour();
 }
 function damagePlayer(amount, hard) {
-  if ((Player.rollT > 0.14 && Player.rollT < 0.58) || Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
+  if (Player.rollT > 0.14 || Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
   addAge(amount);
   Game.invulnT = hard ? 1.5 : 1.15;
   Game.hurtT = 0.55;
@@ -4859,8 +4862,10 @@ function bossStart() {
 function bossCoreHit(c, dmg) {
   if (!c.alive) return;
   c.hp -= dmg;
+  Game.hitConfirmT = .18;
   c.shield.scale.setScalar(1.35);
   if (c.hp <= 0) {
+    Game.killConfirmT = .42;
     c.alive = false;
     var wp = new V3(); c.group.getWorldPosition(wp);
     boom(wp, 5.5, [SHARD_MATS.cyan, SHARD_MATS.white, SHARD_MATS.hot], 34);
@@ -5242,6 +5247,8 @@ function updatePlayer(dt) {
 var _lz = new V3();
 function updateProjectiles(dt) {
   var i, p;
+  Game.hitConfirmT = Math.max(0, Game.hitConfirmT - dt);
+  Game.killConfirmT = Math.max(0, Game.killConfirmT - dt);
   if (quipCD > 0) quipCD -= dt;
   // player lasers: launch wide, curl onto the target, drag a ribbon behind
   for (i = lasers.length - 1; i >= 0; i--) {
@@ -5476,6 +5483,12 @@ function updateEnemies(dt) {
       P.enemyCombat.arrive(e, dt);
       continue;
     }
+    if (e.retired && P.enemyCombat) {
+      if (P.enemyCombat.depart(e, dt)) {
+        e.alive = false; freeEnemyMesh(e.type, e.g); enemies.splice(i, 1); dropLocks(e);
+      }
+      continue;
+    }
 
     var toP = P.tmpA.copy(Player.pos).sub(e.pos);
     var dist = toP.length();
@@ -5571,6 +5584,7 @@ function updateEnemies(dt) {
     } else e.g.scale.setScalar(damp(e.g.scale.x, e.bs, 14, dt));
 
     // the enemy has moved since dist was measured; gates below want the new one
+    if (P.enemyCombat && P.enemyCombat.finishPose) P.enemyCombat.finishPose(e, dt);
     dist = P.tmpA.copy(Player.pos).sub(e.pos).length();
 
     // Telegraph and role-specific volleys, with the original fallback for isolated tools.
@@ -5659,6 +5673,7 @@ P.entities = {
   },
   reset: function () {
     var i;
+    Game.hitConfirmT = Game.killConfirmT = 0;
     for (i = enemies.length - 1; i >= 0; i--) { freeEnemyMesh(enemies[i].type, enemies[i].g); }
     enemies.length = 0;
     for (i = 0; i < lasers.length; i++) {
@@ -5886,6 +5901,96 @@ for (i = 0; i < 40; i++) {
   pool.push({ g: g, halo: halo, core: core, ring: ring, age: 0, life: 0, size: 1 });
 }
 for (i = 0; i < 3; i++) { var light = new THREE.PointLight(0xff9944, 0, 95, 2); scene.add(light); lights.push({ light: light, age: 1 }); }
+
+// Two short vapor ribbons record the real articulated wingtips in world space.
+// A fixed 60 Hz history keeps their length stable across display refresh rates.
+var trails = [], trailCount = 34, trailLife = .5, trailTime = 0, trailPower = 0;
+var trailView = new THREE.Vector3(), trailTangent = new THREE.Vector3(), trailSide = new THREE.Vector3();
+for (i = 0; i < 2; i++) {
+  var trailGeo = new THREE.BufferGeometry(), trailIndices = [];
+  var trailPositions = new Float32Array((trailCount + 1) * 9), trailColors = new Float32Array((trailCount + 1) * 9);
+  for (var ti = 0; ti < trailCount; ti++) {
+    for (var edge = 0; edge < 2; edge++) {
+      var a = ti * 3 + edge, c = a + 3;
+      trailIndices.push(a, c, a + 1, a + 1, c, c + 1);
+    }
+  }
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3).setUsage(THREE.DynamicDrawUsage));
+  trailGeo.setAttribute('color', new THREE.BufferAttribute(trailColors, 3).setUsage(THREE.DynamicDrawUsage));
+  trailGeo.setIndex(trailIndices);
+  var trailMesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ color: 0xa4e7ff,
+    vertexColors: true, transparent: true, opacity: .72, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  trailMesh.name = 'wing-vapor-' + i; trailMesh.visible = false; trailMesh.frustumCulled = false;
+  scene.add(trailMesh);
+  var history = [];
+  for (ti = 0; ti < trailCount; ti++) history.push({ pos: new THREE.Vector3(), time: -10, power: 0 });
+  trails.push({ mesh: trailMesh, history: history, count: 0, previous: new THREE.Vector3(),
+    tip: new THREE.Vector3(), nextSample: 0, ready: false });
+}
+function resetTrails() {
+  trailPower = 0;
+  trails.forEach(function (t) { t.mesh.visible = false; t.count = 0; t.ready = false; });
+}
+function updateTrails(dt) {
+  if (dt <= 0) return;
+  var player = P.Player, dragon = P.dragon;
+  if (!player || !dragon || P.Game.state !== 'playing' || P.Game.cinematic || P.Game.ending || dt > .12) {
+    resetTrails(); return;
+  }
+  var wasTime = trailTime; trailTime += dt;
+  var desired = player.boosting ? 1 : player.rollT > 0 ? .8 : 0;
+  trailPower += (desired - trailPower) * (1 - Math.exp(-dt * (desired ? 8 : 5)));
+  if (!desired && trailPower < .004) { resetTrails(); return; }
+  dragon.root.updateMatrixWorld(true);
+  trails.forEach(function (t, wingIndex) {
+    var wing = dragon.wings[wingIndex], wrist = wing.userData.wrist;
+    // Outer finger tip relative to the wrist, matching the authored wing rig.
+    t.tip.set(wing.userData.side * 2.7, .12, .5).applyMatrix4(wrist.matrixWorld);
+    if (!t.ready || t.previous.distanceToSquared(t.tip) > 90 * 90) {
+      t.count = 0; t.previous.copy(t.tip); t.nextSample = wasTime; t.ready = true;
+    }
+    while (t.nextSample <= trailTime) {
+      for (var n = Math.min(t.count, trailCount - 1); n > 0; n--) {
+        t.history[n].pos.copy(t.history[n - 1].pos);
+        t.history[n].time = t.history[n - 1].time; t.history[n].power = t.history[n - 1].power;
+      }
+      var sample = t.history[0];
+      sample.pos.copy(t.previous).lerp(t.tip, Math.max(0, Math.min(1, (t.nextSample - wasTime) / Math.max(dt, .00001))));
+      sample.time = t.nextSample; sample.power = trailPower;
+      t.count = Math.min(trailCount, t.count + 1); t.nextSample += 1 / 60;
+    }
+    t.previous.copy(t.tip);
+    var positions = t.mesh.geometry.attributes.position.array, colors = t.mesh.geometry.attributes.color.array;
+    var peak = 0;
+    for (var j = 0; j <= t.count; j++) {
+      var point = j ? t.history[j - 1].pos : t.tip;
+      var age = j ? trailTime - t.history[j - 1].time : 0;
+      var power = j ? t.history[j - 1].power : trailPower;
+      var fade = Math.pow(Math.max(0, 1 - age / trailLife), 1.6) * power;
+      peak = Math.max(peak, fade);
+      var next = t.history[Math.min(j, t.count - 1)].pos;
+      var previous = j > 1 ? t.history[j - 2].pos : t.tip;
+      trailTangent.subVectors(previous, next);
+      trailView.subVectors(P.camera.position, point);
+      trailSide.crossVectors(trailTangent, trailView);
+      if (trailSide.lengthSq() < .00001) trailSide.set(1, 0, 0);
+      trailSide.normalize().multiplyScalar((.24 + power * .22) * Math.max(.15, 1 - age / trailLife));
+      for (var k = 0; k < 3; k++) {
+        var offset = j * 9 + k * 3, side = k - 1;
+        positions[offset] = point.x + trailSide.x * side;
+        positions[offset + 1] = point.y + trailSide.y * side;
+        positions[offset + 2] = point.z + trailSide.z * side;
+        // Black edges disappear under additive blending for a soft cross-section.
+        colors[offset] = colors[offset + 1] = colors[offset + 2] = k === 1 ? fade : 0;
+      }
+    }
+    t.mesh.visible = peak > .015 && t.count > 1;
+    t.mesh.geometry.setDrawRange(0, t.count * 12);
+    t.mesh.geometry.attributes.position.needsUpdate = true;
+    t.mesh.geometry.attributes.color.needsUpdate = true;
+  });
+}
 function burst(pos, size, col, small) {
   var b = pool[cursor++ % pool.length];
   b.g.position.copy(pos); b.g.visible = true; b.g.scale.setScalar(1);
@@ -5908,6 +6013,7 @@ P.fx = {
     var halo = sprite(0x49afff); halo.scale.set(7, 7, 7); mesh.add(halo); mesh.userData.energyHalo = halo;
   },
   update: function (dt) {
+    updateTrails(dt);
     pool.forEach(function (b) {
       if (!b.g.visible) return;
       b.age += dt; var u = Math.min(1, b.age / b.life);
@@ -5920,8 +6026,9 @@ P.fx = {
     });
     lights.forEach(function (l) { l.age += dt; l.light.intensity = (l.strength || 0) * Math.pow(Math.max(0, 1 - l.age / .32), 2); });
   },
-  reset: function () { pool.forEach(function (b) { b.g.visible = false; }); lights.forEach(function (l) { l.age = 1; l.light.intensity = 0; }); },
-  stats: function () { return { capacity: pool.length, active: pool.filter(function (b) { return b.g.visible; }).length, lights: lights.length }; }
+  reset: function () { resetTrails(); pool.forEach(function (b) { b.g.visible = false; }); lights.forEach(function (l) { l.age = 1; l.light.intensity = 0; }); },
+  stats: function () { return { capacity: pool.length, active: pool.filter(function (b) { return b.g.visible; }).length,
+    lights: lights.length, trails: trails.filter(function (t) { return t.mesh.visible; }).length, trailCapacity: trails.length }; }
 };
 })();
 
@@ -5955,13 +6062,20 @@ P.flight = {
   }
 };
 P.flight.reset();
-var rings = [], geo = new THREE.TorusGeometry(10, .25, 5, 48);
+var rings = [], geo = new THREE.TorusGeometry(12, .22, 5, 48);
+var haloGeo = new THREE.TorusGeometry(12, .7, 5, 48);
+var arcGeo = new THREE.TorusGeometry(14.5, .12, 4, 32, Math.PI * .8);
 for (var i = 0; i < 6; i++) {
   var ring = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x7befff, transparent: true, opacity: .8,
     blending: THREE.AdditiveBlending, depthWrite: false }));
+  var halo = new THREE.Mesh(haloGeo, new THREE.MeshBasicMaterial({ color: 0x49d6ff, transparent: true, opacity: .12,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  var arc = new THREE.Mesh(arcGeo, new THREE.MeshBasicMaterial({ color: 0xb8f7ff, transparent: true, opacity: .6,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  ring.add(halo); ring.add(arc); ring.userData.halo = halo; ring.userData.arc = arc;
   ring.visible = false; P.scene.add(ring); rings.push(ring);
 }
-var episode = null, events = {}, routeDone = false, count = 0, previousZ = 0;
+var episode = null, events = {}, routeDone = false, routeHits = 0, count = 0, previousPos = new P.V3();
 function once(id, distance, fn) {
   if (!events[id] && Game.railZ - Game.epStartZ >= distance) { events[id] = true; fn(); }
 }
@@ -5971,8 +6085,12 @@ function formation(type, x, y, z, tag) {
 }
 P.campaign = {
   enter: function (ep) {
-    episode = ep.id; events = {}; routeDone = false; count = 0; previousZ = Player.pos.z;
-    rings.forEach(function (r) { r.visible = false; r.userData.collected = false; });
+    episode = ep.id; events = {}; routeDone = false; routeHits = 0; count = 0; previousPos.copy(Player.pos);
+    rings.forEach(function (r) {
+      r.visible = false; r.userData.collected = false; r.userData.resolved = false; r.userData.fade = 0;
+      r.scale.setScalar(1); r.material.color.setHex(0x7befff); r.material.opacity = .8;
+      r.userData.halo.material.opacity = .12; r.userData.arc.material.opacity = .6;
+    });
     if (episode === 'ep1') rings.forEach(function (r, i) {
       r.position.set(i % 2 ? 54 : -54, 30, 4700 + Math.floor(i / 2) * 220); r.visible = true;
     });
@@ -5987,19 +6105,37 @@ P.campaign = {
   update: function (dt) {
     if (Game.state !== 'playing' || !episode) return;
     if (episode === 'ep1') {
-      once('fork', 3500, function () { P.toast('SPLIT CANYON AHEAD · FOLLOW THE BLUE RINGS'); });
+      once('fork', 3500, function () { P.toast('SPLIT CANYON · 3 BLUE GATES RECHARGE WING POWER'); });
       rings.forEach(function (r) {
         if (!r.visible) return;
-        r.rotation.z += dt * .25;
+        var ud = r.userData;
+        r.rotation.z += dt * .25; ud.arc.rotation.z -= dt * .8;
+        if (ud.collected) {
+          ud.fade = Math.max(0, ud.fade - dt);
+          var fade = ud.fade / .45;
+          r.scale.setScalar(1 + (1 - fade) * .8); r.material.opacity = fade * .9;
+          ud.halo.material.opacity = fade * .2; ud.arc.material.opacity = fade * .7;
+          if (ud.fade === 0) r.visible = false;
+          return;
+        }
+        ud.halo.material.opacity = .10 + Math.sin(Game.time * 2.8 + r.position.z * .01) * .035;
         // Test the swept crossing, so a boost cannot skip a narrow gate.
-        if (previousZ <= r.position.z && Player.pos.z >= r.position.z) {
-          if (Math.hypot(Player.x - r.position.x, Player.pos.y - r.position.y) < 13) {
-            r.userData.collected = true; Game.score += 350; Player.energy = Math.min(100, Player.energy + 25);
+        if (!ud.resolved && previousPos.z <= r.position.z && Player.pos.z >= r.position.z && Player.pos.z > previousPos.z) {
+          ud.resolved = true;
+          var crossing = (r.position.z - previousPos.z) / (Player.pos.z - previousPos.z);
+          var crossX = P.lerp(previousPos.x, Player.pos.x, crossing), crossY = P.lerp(previousPos.y, Player.pos.y, crossing);
+          if (Math.hypot(crossX - r.position.x, crossY - r.position.y) < 13) {
+            ud.collected = true; ud.fade = .45; routeHits++;
+            r.material.color.setHex(0xffe9a0); Game.score += 350; Player.energy = Math.min(100, Player.energy + 25);
             A.sOrb(); P.fx.burst(r.position, 2, 0x69eaff, true);
-            if (!routeDone) { routeDone = true; P.toast(Player.x < 0 ? 'EAST PASS · INTERCEPTOR PATROL' : 'WEST PASS · ARMOURED PATROL');
-              formation(Player.x < 0 ? 'ray' : 'carrier', Player.x, 14, 230); }
+            if (routeHits === 3) {
+              Game.score += 500; Player.energy = Math.min(100, Player.energy + 25);
+              P.toast('CLEAN PASS · +500 BONUS · +50 WING POWER');
+            } else P.toast('GATE ' + routeHits + ' / 3 · +350 · +25 WING POWER');
+            if (!routeDone) { routeDone = true;
+              formation(crossX < 0 ? 'ray' : 'carrier', crossX, 14, 230); }
           }
-          r.visible = false;
+          if (!ud.collected) r.visible = false;
         }
       });
       once('maneuvers', 5700, function () { P.toast('SHIFT BOOST · X AIR BRAKE · SPACE EVASIVE ROLL'); });
@@ -6008,7 +6144,7 @@ P.campaign = {
         P.toast('CROSSING SQUADRON · KEEP MOVING');
         [-1, 1].forEach(function (side) { for (var i = 0; i < 3; i++) formation('ray', side * (48 + i * 8), 10 + i * 6, 220 + i * 35); });
       });
-      once('ambush', 3800, function () { P.toast('INTERCEPTORS ASTERN · Q / E TO LOOK BACK'); formation('chaser', -24, 8, -85); formation('chaser', 24, 8, -110); });
+      once('ambush', 3800, function () { P.toast('INTERCEPTORS INBOUND · WATCH YOUR FLANKS'); formation('chaser', -24, 8, -85); formation('chaser', 24, 8, -110); });
     } else if (episode === 'foundry') {
       once('convoy', 700, function () {
         P.toast('BREAK THE CONVOY · FLANK CARRIERS FOR DOUBLE DAMAGE');
@@ -6019,7 +6155,7 @@ P.campaign = {
       once('gate', 900, function () { P.toast('THE MOUNTAIN GATE · CLIMB TO FLANK THE GUARD'); formation('carrier', -24, 0, 230); formation('carrier', 24, 0, 280); });
       once('last', 4400, function () { P.toast('THE LAST DEFENCE'); for (var i = 0; i < 4; i++) formation('wasp', (i - 1.5) * 30, 15, 190 + i * 20); });
     }
-    previousZ = Player.pos.z;
+    previousPos.copy(Player.pos);
   }
 };
 })();
@@ -6030,6 +6166,7 @@ P.campaign = {
 'use strict';
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var ringGeo = new THREE.TorusGeometry(1, .09, 4, 20);
+var flightDirection = new P.V3(), poseTarget = new THREE.Quaternion(), flightPose = new THREE.Quaternion();
 var profiles = {
   wasp: { label: 'WASP', windup: .85, count: 2, interval: .18, arc: .035, damage: 1.5 },
   ray: { label: 'SKIMMER', windup: 1.1, count: 3, interval: .24, sweep: 28, arc: 0, damage: 1.7 },
@@ -6040,11 +6177,23 @@ var profiles = {
   bomber: { label: 'HEAVY BOMBER', windup: 1.6, count: 5, arc: .16, damage: 2.1 }
 };
 function flanked(e) { return Math.abs(Player.x - e.pos.x) > 25 || Player.pos.y - e.pos.y > 18; }
-function aliveCount() { return E.enemies.filter(function (e) { return e.alive; }).length; }
+function active(e) {
+  if (e.alive && !e.arrival && (e.pos.z < Game.railZ - 300 || Math.abs(e.pos.x) > 350)) e.retired = true;
+  return e.alive && !e.retired;
+}
+function activeCount() {
+  var count = 0;
+  for (var i = 0; i < E.enemies.length; i++) if (active(E.enemies[i])) count++;
+  return count;
+}
+function combatCap() { return P.world.EPISODES[Game.epIndex].id === 'boss' ? 6 : 18; }
+function canAdd(n) { return activeCount() + n <= combatCap() && E.enemies.length + n <= 28; }
 P.enemyCombat = {
   profiles: profiles,
+  activeCount: activeCount,
   prepare: function (e) {
     e.shieldDown = 0; e.attack = null; e.volley = null; e.arrival = null; e.charge = 0; e.deployed = false;
+    e.poseBlend = 0; e.poseQuaternion = null; e.retired = false;
     if (!profiles[e.type]) return;
     if (!e.g.userData.warning) {
       var ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xff814f, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
@@ -6052,6 +6201,7 @@ P.enemyCombat = {
       e.g.add(ring); e.g.userData.warning = ring;
     }
     e.g.userData.warning.visible = false;
+    e.g.userData.warning.material.color.setHex(e.type === 'turret' ? 0xff5774 : e.type === 'ray' ? 0xffc65c : 0xff814f);
     if (e.g.userData.shield) { e.g.userData.shield.visible = true; e.g.userData.shield.material.opacity = .27; }
   },
   beginArrival: function (e) {
@@ -6062,8 +6212,10 @@ P.enemyCombat = {
       return;
     }
     e.arrival = { elapsed: 0, duration: e.type === 'chaser' ? 7 : 6,
-      target: e.pos.clone().sub(new P.V3(0, Player.railY, Game.railZ)), far: far };
+      target: e.pos.clone().sub(new P.V3(0, Player.railY, Game.railZ)), far: far,
+      previous: e.pos.clone(), oriented: false };
     e.pos.z = Game.railZ + far;
+    e.arrival.previous.copy(e.pos);
   },
   arrive: function (e, dt) {
     var a = e.arrival; a.elapsed += dt;
@@ -6072,8 +6224,44 @@ P.enemyCombat = {
     var pass = e.type === 'chaser' ? Math.sin(Math.PI * t) * (a.target.x < 0 ? -75 : 75) : 0;
     e.pos.set(a.target.x + pass, Player.railY + a.target.y + Math.sin(Math.PI * t) * 12,
       Game.railZ + a.far + (a.target.z - a.far) * ease);
-    e.g.position.copy(e.pos); e.g.lookAt(Player.pos);
-    if (t === 1) { e.arrival = null; e.t = 0; e.fireT = Math.max(e.fireT, .9); }
+    flightDirection.copy(e.pos).sub(a.previous);
+    e.g.position.copy(e.pos);
+    if (flightDirection.lengthSq() > .000001) {
+      poseTarget.copy(e.g.quaternion);
+      e.g.lookAt(flightDirection.add(e.pos));
+      flightPose.copy(e.g.quaternion);
+      if (a.oriented) e.g.quaternion.slerpQuaternions(poseTarget, flightPose, 1 - Math.exp(-5 * dt));
+      a.oriented = true;
+    }
+    a.previous.copy(e.pos);
+    if (t === 1) {
+      e.poseQuaternion = e.g.quaternion.clone(); e.poseBlend = 1.2;
+      e.arrival = null; e.t = 0; e.fireT = Math.max(e.fireT, .9);
+    }
+  },
+  finishPose: function (e, dt) {
+    if (e.poseBlend <= 0 || !e.poseQuaternion) return;
+    poseTarget.copy(e.g.quaternion);
+    e.g.quaternion.slerpQuaternions(e.poseQuaternion, poseTarget, 1 - Math.exp(-5 * dt));
+    e.poseQuaternion.copy(e.g.quaternion); e.poseBlend -= dt;
+  },
+  depart: function (e, dt) {
+    e.attack = null; e.volley = null; e.charge = 0; e.bank = 0;
+    if (e.g.userData.warning) e.g.userData.warning.visible = false;
+    // Passed ships peel away into the fog instead of resuming pursuit when the
+    // player brakes. Ground emplacements stay planted until they leave view.
+    if (e.type !== 'turret' && e.type !== 'mine') {
+      var forward = Player.forwardSpeed || P.world.EPISODES[Game.epIndex].speed;
+      if (e.departSpeed === undefined) e.departSpeed = forward - 30;
+      e.departSpeed = P.damp(e.departSpeed, -110, 3, dt);
+      e.departSpeed = Math.min(e.departSpeed, forward - 30);
+      flightDirection.set(e.pos.x < 0 ? -18 : 18, 5, e.departSpeed);
+      e.pos.addScaledVector(flightDirection, dt); e.g.position.copy(e.pos);
+      poseTarget.copy(e.g.quaternion); e.g.lookAt(flightDirection.add(e.pos));
+      flightPose.copy(e.g.quaternion);
+      e.g.quaternion.slerpQuaternions(poseTarget, flightPose, 1 - Math.exp(-5 * dt));
+    }
+    return Game.railZ - e.pos.z > 1000 || Math.abs(e.pos.x) > 1000;
   },
   damage: function (e, damage) {
     if (e.type === 'sentinel' && e.shieldDown <= 0 && !flanked(e)) {
@@ -6084,20 +6272,25 @@ P.enemyCombat = {
   },
   label: function (e) {
     if (e.arrival) return 'INCOMING';
-    if (e.attack || e.volley) return 'FIRING';
+    if (e.attack) return 'CHARGING';
+    if (e.volley) return 'FIRING';
     if (e.type === 'sentinel') return e.shieldDown > 0 || flanked(e) ? 'SHIELD OPEN' : 'SHIELD · FLANK';
     return profiles[e.type] ? profiles[e.type].label : '';
   },
   update: function (e, dt, distance) {
     if (Game.state !== 'playing' || Game.ending || !e.alive || e.openingOffset || e.arrival) return;
     var p = profiles[e.type]; if (!p) return;
+    if (!active(e)) {
+      e.attack = null; e.volley = null; e.charge = 0; e.g.userData.warning.visible = false;
+      return;
+    }
     e.shieldDown = Math.max(0, (e.shieldDown || 0) - dt);
     if (e.g.userData.shield) {
       e.g.userData.shield.visible = e.shieldDown <= 0;
       e.g.userData.shield.material.opacity = flanked(e) ? .10 : .27;
     }
     // Carriers bring two real escorts into the fight, once, within the shared cap.
-    if (e.type === 'carrier' && !e.deployed && e.t > 5 && distance < 240 && aliveCount() <= 16 && !(P.opening && P.opening.active)) {
+    if (e.type === 'carrier' && !e.deployed && e.t > 5 && distance < 240 && canAdd(2) && !(P.opening && P.opening.active)) {
       e.deployed = true;
       [-1, 1].forEach(function (side) {
         var pos = e.pos.clone().add(new P.V3(side * 12, -4, -15));
@@ -6106,18 +6299,25 @@ P.enemyCombat = {
       });
     }
     if (e.volley) {
+      var volleyCue = e.g.userData.warning;
+      volleyCue.visible = true; volleyCue.material.opacity = .75;
+      volleyCue.scale.setScalar(e.def.radius / e.bs * (1.1 + Math.sin(e.t * 35) * .12));
       e.volley.wait -= dt;
       while (e.volley && e.volley.wait <= 0) {
         var v = e.volley, aim = v.aim.clone(); aim.z += Game.railZ - v.railZ;
         if (p.sweep) aim.x += (v.index - (p.count - 1) / 2) * p.sweep;
-        if (distance < 330 && E.ebullets.length < 100)
+        if (distance > 30 && distance < 330 && E.ebullets.length < 100)
           E.enemyShoot(e, e.def.bulletSpeed * (p.speed || 1), p.damage, 0, aim, (v.index - (p.count - 1) / 2) * p.arc);
         v.index++; v.wait += p.interval || .01;
-        if (v.index >= p.count) e.volley = null;
+        if (v.index >= p.count) { e.volley = null; volleyCue.visible = false; }
       }
       return;
     }
     if (e.attack) {
+      if (distance <= 30 || distance >= 330) {
+        e.attack = null; e.charge = 0; e.fireT = .8; e.g.userData.warning.visible = false;
+        return;
+      }
       e.attack.left -= dt;
       e.charge = Math.min(1, 1 - e.attack.left / p.windup);
       var cue = e.g.userData.warning; cue.visible = true;
@@ -6132,7 +6332,7 @@ P.enemyCombat = {
           E.enemyShoot(e, e.def.bulletSpeed * (p.speed || 1), p.damage, 0, e.attack.aim, (i - (p.count - 1) / 2) * p.arc);
         }
         // Bombers release physical mines from the hull, leaving a hazard trail.
-        if (e.type === 'bomber' && !e.deployed && aliveCount() <= 16) {
+        if (e.type === 'bomber' && !e.deployed && canAdd(2)) {
           e.deployed = true;
           [-1, 1].forEach(function (side) {
             var mine = E.spawnEnemy('mine', { pos: e.pos.clone().add(new P.V3(side * 10, -5, -10)), tag: 'bomber-mine' });
@@ -6147,8 +6347,13 @@ P.enemyCombat = {
       return;
     }
     e.fireT -= dt;
-    var windingUp = E.enemies.filter(function (other) { return other.alive && (other.attack || other.volley); }).length;
-    if (e.fireT <= 0 && distance > 35 && distance < 280 && E.ebullets.length < 85 && windingUp < 3) {
+    if (e.fireT > 0 || distance <= 35 || distance >= 280 || E.ebullets.length >= 85) return;
+    var windingUp = 0;
+    for (var n = 0; n < E.enemies.length; n++) {
+      var other = E.enemies[n];
+      if (other.alive && (other.attack || other.volley)) windingUp++;
+    }
+    if (windingUp < 3) {
       e.attack = { left: p.windup, aim: Player.pos.clone(), railZ: Game.railZ };
     }
   }
@@ -6175,9 +6380,13 @@ P.encounters = {
     if (episode !== Game.epIndex) { episode = Game.epIndex; timer = .7; sequence = 0; }
     timer -= dt; if (timer > 0) return;
     var boss = P.world.EPISODES[Game.epIndex].id === 'boss';
-    var count = aliveCount(), cap = boss ? 6 : 18;
-    if (count > cap - (boss ? 2 : 5)) { timer = .65; return; }
-    var deck = decks[Math.min(Game.epIndex, 3)], shape = boss ? 'pair' : deck[sequence % deck.length]; sequence++;
+    var count = activeCount(), cap = combatCap();
+    var room = Math.min(cap - count, 28 - E.enemies.length);
+    if (room < 2) { timer = .65; return; }
+    var deck = decks[Math.min(Game.epIndex, 3)], shape = boss ? 'pair' : deck[sequence % deck.length];
+    var cost = { v: 5, cross: 4, shield: 3, bomber: 3, escort: 3, battery: 4, mines: 4, pursuit: 3, pair: 2 };
+    if (cost[shape] > room) shape = 'pair';
+    else sequence++;
     var lane = Math.max(-32, Math.min(32, Player.x * .45));
     if (shape === 'v') {
       for (var i = -2; i <= 2; i++) make('wasp', lane + i * 17, 12 + Math.abs(i) * 4, 125 + Math.abs(i) * 22, 4);
@@ -6412,6 +6621,14 @@ function txt(s, x, y, size, col, align, weight) {
   hx.fillText(s, x, y);
 }
 
+function targetHealth(t, x, y, width) {
+  if (!t.def || !t.maxHp) return;
+  hx.fillStyle = 'rgba(4,12,22,.85)'; hx.fillRect(x - width / 2 - 1, y - 1, width + 2, 5);
+  var shielded = t.type === 'sentinel' && t.shieldDown <= 0 && Math.abs(Player.x - t.pos.x) <= 25 && Player.pos.y - t.pos.y <= 18;
+  hx.fillStyle = shielded ? '#73ddff' : '#a1f4cb';
+  hx.fillRect(x - width / 2, y, width * clamp(t.hp / t.maxHp, 0, 1), 3);
+}
+
 function drawHUD(dt) {
   var w = HUD.w, h = HUD.h;
   hx.clearRect(0, 0, w, h);
@@ -6421,7 +6638,7 @@ function drawHUD(dt) {
   // Wing power and maneuver status stay near the lower edge, clear of targets.
   hx.save();
   var powerW = Math.min(240, w * 0.38), powerX = (w - powerW) / 2;
-  hx.fillStyle = 'rgba(8,12,25,.78)'; hx.fillRect(powerX - 12, h - 61, powerW + 24, 48);
+  hx.fillStyle = 'rgba(8,12,25,.78)'; hx.fillRect(powerX - 12, h - 76, powerW + 24, 63);
   hx.fillStyle = '#263b4d'; hx.fillRect(powerX, h - 36, powerW, 5);
   hx.fillStyle = Player.boosting ? '#ffcb7e' : '#7defff';
   hx.fillRect(powerX, h - 36, powerW * (Player.energy === undefined ? 1 : Player.energy / 100), 5);
@@ -6429,6 +6646,12 @@ function drawHUD(dt) {
   hx.fillText(Player.boosting ? 'BOOST' : Player.braking ? 'AIR BRAKE' : Player.rollT > 0 ? 'EVASIVE ROLL' : 'WING POWER', w / 2, h - 44);
   hx.fillStyle = '#c2d4df'; hx.font = '10px monospace';
   hx.fillText('SHIFT BOOST · X BRAKE · SPACE ROLL', w / 2, h - 18);
+  var ready = Player.energy >= 28 && Player.rollCD <= 0;
+  var rollLabel = Player.rollT > .14 ? 'ROLL · EVADING' : Player.rollT > 0 ? 'ROLL · RECOVERING'
+    : Player.rollCD > 0 ? 'ROLL READY IN ' + Player.rollCD.toFixed(1) + 's'
+    : !ready ? 'ROLL · RECHARGING' : 'ROLL READY';
+  hx.fillStyle = ready ? '#a2f5cf' : '#ffcf8d';
+  hx.fillText(Player.exhausted ? 'BOOST RECHARGING · ' + rollLabel : rollLabel, w / 2, h - 63);
   hx.restore();
 
   // ---------- lock brackets on locked targets
@@ -6441,8 +6664,11 @@ function drawHUD(dt) {
     for (var q = 0; q < i; q++) if (Locks.list[q] === t) dup++;
     var sz = clamp(1400 / Math.max(20, pp.depth), 11, 60) + dup * 5;
     bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
-    bracket(pp.x, pp.y, sz, t.attack ? '#ff9868' : '#8fffc4', 2.5);
-    if (t.attack && dup === 0) txt('FIRING', pp.x, pp.y + sz + 15, 11, '#ff9868', 'center');
+    bracket(pp.x, pp.y, sz, t.attack || t.volley ? '#ff9868' : '#8fffc4', 2.5);
+    if (dup === 0) {
+      targetHealth(t, pp.x, pp.y + sz + 6, Math.max(26, Math.min(48, sz * 2)));
+      if (t.attack || t.volley) txt(t.volley ? 'FIRING' : 'CHARGING', pp.x, pp.y + sz + 24, 11, '#ff9868', 'center');
+    }
     hx.strokeStyle = 'rgba(255,74,106,.35)';
     hx.beginPath(); hx.moveTo(Input.mx, Input.my); hx.lineTo(pp.x, pp.y); hx.stroke();
   }
@@ -6462,8 +6688,8 @@ function drawHUD(dt) {
         var lesson = e.tag === 'opening-target' || e.tag === 'opening-sentry';
         if (lesson) s2 = Math.max(s2, 20);
         bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
-        bracket(pp.x, pp.y, s2, e.attack ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
-        if (!lesson && P.enemyCombat && (e.attack || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.attack ? '#ff9868' : '#91e8ff', 'center');
+        bracket(pp.x, pp.y, s2, e.attack || e.volley ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
+        if (!lesson && P.enemyCombat && (e.attack || e.volley || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.attack || e.volley ? '#ff9868' : '#91e8ff', 'center');
         if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
         if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
       }
@@ -6480,8 +6706,12 @@ function drawHUD(dt) {
       var ax = cx + Math.cos(ang) * rr, ay = cy - Math.sin(ang) * rr * 0.75;
       hx.save();
       hx.translate(ax, ay); hx.rotate(-ang);
-      hx.fillStyle = 'rgba(255,110,80,.75)';
+      hx.fillStyle = e.attack || e.volley ? '#ff9168' : 'rgba(143,217,255,.45)';
       hx.beginPath(); hx.moveTo(12, 0); hx.lineTo(-8, 7); hx.lineTo(-8, -7); hx.closePath(); hx.fill();
+      if (e.attack || e.volley) {
+        hx.strokeStyle = '#ffe0a8'; hx.lineWidth = 2;
+        hx.beginPath(); hx.moveTo(-13, -8); hx.lineTo(-13, 8); hx.stroke();
+      }
       hx.restore();
     }
     hx.restore();
@@ -6494,6 +6724,20 @@ function drawHUD(dt) {
   hx.strokeStyle = 'rgba(255,255,255,.13)'; hx.lineWidth = 1;
   if (Input.lmb) { hx.beginPath(); hx.arc(Input.mx, Input.my, lockR, 0, TAU); hx.stroke(); }
   bracket(Input.mx, Input.my, 20, retCol, 2.5);
+  // A compact confirmation stays readable even when a homing volley hits offscreen.
+  if (Game.hitConfirmT > 0 || Game.killConfirmT > 0) {
+    var killed = Game.killConfirmT > 0, life = killed ? Game.killConfirmT / .42 : Game.hitConfirmT / .18;
+    hx.save(); hx.globalAlpha = Math.min(1, life * 2);
+    hx.strokeStyle = killed ? '#ffd280' : '#c5fff3'; hx.lineWidth = killed ? 3 : 2;
+    var inner = killed ? 10 : 8, outer = inner + 7;
+    hx.beginPath();
+    for (var corner = 0; corner < 4; corner++) {
+      var sx = corner < 2 ? -1 : 1, sy = corner % 2 ? -1 : 1;
+      hx.moveTo(Input.mx + sx * inner, Input.my + sy * inner);
+      hx.lineTo(Input.mx + sx * outer, Input.my + sy * outer);
+    }
+    hx.stroke(); hx.restore();
+  }
   hx.strokeStyle = retCol; hx.lineWidth = 2;
   hx.beginPath();
   hx.moveTo(Input.mx - 7, Input.my); hx.lineTo(Input.mx + 7, Input.my);

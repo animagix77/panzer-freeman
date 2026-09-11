@@ -12,7 +12,7 @@ var Game = {
   time: 0, railZ: 0, epIndex: 0, epStartZ: 0, epProgress: 0,
   age: 89, startAge: 89, score: 0, kills: 0, shots: 0, hits: 0,
   bestCombo: 0, combo: 0, comboT: 0,
-  hurtT: 0, invulnT: 0, shakeT: 0, shakeMag: 0,
+  hurtT: 0, invulnT: 0, shakeT: 0, shakeMag: 0, hitConfirmT: 0, killConfirmT: 0,
   ending: false, bossActive: false, orbsTaken: 0, cinematic: false
 };
 P.Game = Game;
@@ -328,7 +328,7 @@ function spawnEnemy(type, opts) {
   var g = getEnemyMesh(type);
   var bs = def.scale || 1;
   var e = {
-    type: type, def: def, g: g, hp: def.hp * (opts.hpMul || 1), bs: bs,
+    type: type, def: def, g: g, hp: def.hp * (opts.hpMul || 1), maxHp: def.hp * (opts.hpMul || 1), bs: bs,
     pos: new V3(), vel: new V3(), t: 0, fireT: rand(0.6, 2.0),
     alive: true, locked: 0, phase: rand(0, TAU), hold: rand(26, 64),
     lane: rand(-1, 1), amp: rand(6, 18), flashT: 0, tag: opts.tag || null,
@@ -391,6 +391,7 @@ function killEnemy(e, byPlayer) {
     A.sBoom(e.def.radius > 2.3, e.pos);
   }
   if (byPlayer) {
+    Game.killConfirmT = .42;
     Game.kills++;
     Game.combo++;
     Game.comboT = 2.6;
@@ -416,10 +417,12 @@ function killEnemy(e, byPlayer) {
 }
 
 function hurtEnemy(e, dmg) {
+  if (!e.alive) return;
   if (P.enemyCombat) dmg = P.enemyCombat.damage(e, dmg);
   // Carriers expose their cooling core to lateral or elevated attacks.
   if (e.type === 'carrier' && (Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18)) dmg *= 2;
   e.hp -= dmg;
+  Game.hitConfirmT = .18;
   e.flashT = 0.09;
   if (e.hp <= 0) killEnemy(e, true);
 }
@@ -506,7 +509,7 @@ function addAge(y) {
   applyVigour();
 }
 function damagePlayer(amount, hard) {
-  if ((Player.rollT > 0.14 && Player.rollT < 0.58) || Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
+  if (Player.rollT > 0.14 || Game.invulnT > 0 || Game.state !== 'playing' || Game.ending) return;
   addAge(amount);
   Game.invulnT = hard ? 1.5 : 1.15;
   Game.hurtT = 0.55;
@@ -635,8 +638,10 @@ function bossStart() {
 function bossCoreHit(c, dmg) {
   if (!c.alive) return;
   c.hp -= dmg;
+  Game.hitConfirmT = .18;
   c.shield.scale.setScalar(1.35);
   if (c.hp <= 0) {
+    Game.killConfirmT = .42;
     c.alive = false;
     var wp = new V3(); c.group.getWorldPosition(wp);
     boom(wp, 5.5, [SHARD_MATS.cyan, SHARD_MATS.white, SHARD_MATS.hot], 34);
@@ -1018,6 +1023,8 @@ function updatePlayer(dt) {
 var _lz = new V3();
 function updateProjectiles(dt) {
   var i, p;
+  Game.hitConfirmT = Math.max(0, Game.hitConfirmT - dt);
+  Game.killConfirmT = Math.max(0, Game.killConfirmT - dt);
   if (quipCD > 0) quipCD -= dt;
   // player lasers: launch wide, curl onto the target, drag a ribbon behind
   for (i = lasers.length - 1; i >= 0; i--) {
@@ -1252,6 +1259,12 @@ function updateEnemies(dt) {
       P.enemyCombat.arrive(e, dt);
       continue;
     }
+    if (e.retired && P.enemyCombat) {
+      if (P.enemyCombat.depart(e, dt)) {
+        e.alive = false; freeEnemyMesh(e.type, e.g); enemies.splice(i, 1); dropLocks(e);
+      }
+      continue;
+    }
 
     var toP = P.tmpA.copy(Player.pos).sub(e.pos);
     var dist = toP.length();
@@ -1347,6 +1360,7 @@ function updateEnemies(dt) {
     } else e.g.scale.setScalar(damp(e.g.scale.x, e.bs, 14, dt));
 
     // the enemy has moved since dist was measured; gates below want the new one
+    if (P.enemyCombat && P.enemyCombat.finishPose) P.enemyCombat.finishPose(e, dt);
     dist = P.tmpA.copy(Player.pos).sub(e.pos).length();
 
     // Telegraph and role-specific volleys, with the original fallback for isolated tools.
@@ -1435,6 +1449,7 @@ P.entities = {
   },
   reset: function () {
     var i;
+    Game.hitConfirmT = Game.killConfirmT = 0;
     for (i = enemies.length - 1; i >= 0; i--) { freeEnemyMesh(enemies[i].type, enemies[i].g); }
     enemies.length = 0;
     for (i = 0; i < lasers.length; i++) {

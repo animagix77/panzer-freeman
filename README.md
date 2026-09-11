@@ -58,6 +58,14 @@ side and rear views. Three persistent mountain silhouettes add depth beyond the
 playable landscape. Static scenery meshes are batched by material to keep the
 larger scenery buffers practical.
 
+**Sharper flight feedback.** Boosts and evasive rolls leave short, soft vapor trails
+from the animated wingtips. Target health appears while locked; pale hit markers
+and gold kill confirmations show when shots connect. The power display shows roll
+readiness, cooldown and recovery, and rolls protect immediately when triggered.
+Blue route gates glow, animate on collection and report progress. A clean three-gate
+canyon run awards an extra 500 points and 25 wing power; diagonal boost crossings
+are judged at the gate plane.
+
 **An enemy force with distinct roles.** Mixed squadrons replace the random single-type
 spawns. Squadrons emerge from beyond the fog over six seconds; interceptors take
 seven seconds to sweep around the flanks and settle astern. Target markers fade in
@@ -69,7 +77,10 @@ interceptors fire tight three-shot bursts, and turrets fire a single fast precis
 shot after a longer warning. Carriers deploy two escorts. Orange rings and brackets warn of
 incoming volleys; lateral aim commits during that warning so dodging works.
 The director and escort launches stay within 18 active enemies, with at most three
-simultaneous windups and 100 ordinary hostile shots. Scripted mission encounters can
+simultaneous attacks and 100 ordinary hostile shots. Up to 28 enemies can remain
+rendered while departing through the fog; departing actors no longer block fresh
+waves. Ships orient to their arrival paths and turn smoothly into combat. Warning
+rings persist through staggered bursts, and close-range attacks cancel if boosted past. Scripted mission encounters can
 add their own enemies. Ramming enemies does not award kill rewards.
 
 **More forgiving orbs.** Collection radius is 18 world units (previously 4.2), with
@@ -205,11 +216,15 @@ The release gate runs production-code integration checks without a browser:
 formations, route and convoy rewards, world foundations, hidden scenery recycling, enemy approaches and attack patterns,
 orb proximity collection, FX bounds and audio buffers.
 Visual review uses `tools/combat-preview.html` and `tools/motion-preview.html`.
+The combat preview's **Run gauntlet** button cycles through all five stages with
+volleys, rolls, boosts, orb pickups and view rotation, reporting frame rate, draw
+calls and browser errors.
 `tools/audio-check.html` renders the production mix through a real browser
 OfflineAudioContext and checks output headroom. The older Playwright tools below require their configured browser installation;
 they are additional developer probes, not part of the release gate:
 
 ```bash
+npm run check:gauntlet       # swept route rewards, roll response, hit feedback and wing trails
 node tools/check-enemies.js  # distant approaches, role attacks, shields, stage population and caps
 node tools/check-visibility.js # concealed recycling, side views, horizon depth and orb pickup
 node tools/check-audio.js    # audio graph lifecycle, mixing, looping, mute and cleanup

@@ -3,6 +3,7 @@
 'use strict';
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var ringGeo = new THREE.TorusGeometry(1, .09, 4, 20);
+var flightDirection = new P.V3(), poseTarget = new THREE.Quaternion(), flightPose = new THREE.Quaternion();
 var profiles = {
   wasp: { label: 'WASP', windup: .85, count: 2, interval: .18, arc: .035, damage: 1.5 },
   ray: { label: 'SKIMMER', windup: 1.1, count: 3, interval: .24, sweep: 28, arc: 0, damage: 1.7 },
@@ -13,11 +14,23 @@ var profiles = {
   bomber: { label: 'HEAVY BOMBER', windup: 1.6, count: 5, arc: .16, damage: 2.1 }
 };
 function flanked(e) { return Math.abs(Player.x - e.pos.x) > 25 || Player.pos.y - e.pos.y > 18; }
-function aliveCount() { return E.enemies.filter(function (e) { return e.alive; }).length; }
+function active(e) {
+  if (e.alive && !e.arrival && (e.pos.z < Game.railZ - 300 || Math.abs(e.pos.x) > 350)) e.retired = true;
+  return e.alive && !e.retired;
+}
+function activeCount() {
+  var count = 0;
+  for (var i = 0; i < E.enemies.length; i++) if (active(E.enemies[i])) count++;
+  return count;
+}
+function combatCap() { return P.world.EPISODES[Game.epIndex].id === 'boss' ? 6 : 18; }
+function canAdd(n) { return activeCount() + n <= combatCap() && E.enemies.length + n <= 28; }
 P.enemyCombat = {
   profiles: profiles,
+  activeCount: activeCount,
   prepare: function (e) {
     e.shieldDown = 0; e.attack = null; e.volley = null; e.arrival = null; e.charge = 0; e.deployed = false;
+    e.poseBlend = 0; e.poseQuaternion = null; e.retired = false;
     if (!profiles[e.type]) return;
     if (!e.g.userData.warning) {
       var ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xff814f, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
@@ -25,6 +38,7 @@ P.enemyCombat = {
       e.g.add(ring); e.g.userData.warning = ring;
     }
     e.g.userData.warning.visible = false;
+    e.g.userData.warning.material.color.setHex(e.type === 'turret' ? 0xff5774 : e.type === 'ray' ? 0xffc65c : 0xff814f);
     if (e.g.userData.shield) { e.g.userData.shield.visible = true; e.g.userData.shield.material.opacity = .27; }
   },
   beginArrival: function (e) {
@@ -35,8 +49,10 @@ P.enemyCombat = {
       return;
     }
     e.arrival = { elapsed: 0, duration: e.type === 'chaser' ? 7 : 6,
-      target: e.pos.clone().sub(new P.V3(0, Player.railY, Game.railZ)), far: far };
+      target: e.pos.clone().sub(new P.V3(0, Player.railY, Game.railZ)), far: far,
+      previous: e.pos.clone(), oriented: false };
     e.pos.z = Game.railZ + far;
+    e.arrival.previous.copy(e.pos);
   },
   arrive: function (e, dt) {
     var a = e.arrival; a.elapsed += dt;
@@ -45,8 +61,44 @@ P.enemyCombat = {
     var pass = e.type === 'chaser' ? Math.sin(Math.PI * t) * (a.target.x < 0 ? -75 : 75) : 0;
     e.pos.set(a.target.x + pass, Player.railY + a.target.y + Math.sin(Math.PI * t) * 12,
       Game.railZ + a.far + (a.target.z - a.far) * ease);
-    e.g.position.copy(e.pos); e.g.lookAt(Player.pos);
-    if (t === 1) { e.arrival = null; e.t = 0; e.fireT = Math.max(e.fireT, .9); }
+    flightDirection.copy(e.pos).sub(a.previous);
+    e.g.position.copy(e.pos);
+    if (flightDirection.lengthSq() > .000001) {
+      poseTarget.copy(e.g.quaternion);
+      e.g.lookAt(flightDirection.add(e.pos));
+      flightPose.copy(e.g.quaternion);
+      if (a.oriented) e.g.quaternion.slerpQuaternions(poseTarget, flightPose, 1 - Math.exp(-5 * dt));
+      a.oriented = true;
+    }
+    a.previous.copy(e.pos);
+    if (t === 1) {
+      e.poseQuaternion = e.g.quaternion.clone(); e.poseBlend = 1.2;
+      e.arrival = null; e.t = 0; e.fireT = Math.max(e.fireT, .9);
+    }
+  },
+  finishPose: function (e, dt) {
+    if (e.poseBlend <= 0 || !e.poseQuaternion) return;
+    poseTarget.copy(e.g.quaternion);
+    e.g.quaternion.slerpQuaternions(e.poseQuaternion, poseTarget, 1 - Math.exp(-5 * dt));
+    e.poseQuaternion.copy(e.g.quaternion); e.poseBlend -= dt;
+  },
+  depart: function (e, dt) {
+    e.attack = null; e.volley = null; e.charge = 0; e.bank = 0;
+    if (e.g.userData.warning) e.g.userData.warning.visible = false;
+    // Passed ships peel away into the fog instead of resuming pursuit when the
+    // player brakes. Ground emplacements stay planted until they leave view.
+    if (e.type !== 'turret' && e.type !== 'mine') {
+      var forward = Player.forwardSpeed || P.world.EPISODES[Game.epIndex].speed;
+      if (e.departSpeed === undefined) e.departSpeed = forward - 30;
+      e.departSpeed = P.damp(e.departSpeed, -110, 3, dt);
+      e.departSpeed = Math.min(e.departSpeed, forward - 30);
+      flightDirection.set(e.pos.x < 0 ? -18 : 18, 5, e.departSpeed);
+      e.pos.addScaledVector(flightDirection, dt); e.g.position.copy(e.pos);
+      poseTarget.copy(e.g.quaternion); e.g.lookAt(flightDirection.add(e.pos));
+      flightPose.copy(e.g.quaternion);
+      e.g.quaternion.slerpQuaternions(poseTarget, flightPose, 1 - Math.exp(-5 * dt));
+    }
+    return Game.railZ - e.pos.z > 1000 || Math.abs(e.pos.x) > 1000;
   },
   damage: function (e, damage) {
     if (e.type === 'sentinel' && e.shieldDown <= 0 && !flanked(e)) {
@@ -57,20 +109,25 @@ P.enemyCombat = {
   },
   label: function (e) {
     if (e.arrival) return 'INCOMING';
-    if (e.attack || e.volley) return 'FIRING';
+    if (e.attack) return 'CHARGING';
+    if (e.volley) return 'FIRING';
     if (e.type === 'sentinel') return e.shieldDown > 0 || flanked(e) ? 'SHIELD OPEN' : 'SHIELD · FLANK';
     return profiles[e.type] ? profiles[e.type].label : '';
   },
   update: function (e, dt, distance) {
     if (Game.state !== 'playing' || Game.ending || !e.alive || e.openingOffset || e.arrival) return;
     var p = profiles[e.type]; if (!p) return;
+    if (!active(e)) {
+      e.attack = null; e.volley = null; e.charge = 0; e.g.userData.warning.visible = false;
+      return;
+    }
     e.shieldDown = Math.max(0, (e.shieldDown || 0) - dt);
     if (e.g.userData.shield) {
       e.g.userData.shield.visible = e.shieldDown <= 0;
       e.g.userData.shield.material.opacity = flanked(e) ? .10 : .27;
     }
     // Carriers bring two real escorts into the fight, once, within the shared cap.
-    if (e.type === 'carrier' && !e.deployed && e.t > 5 && distance < 240 && aliveCount() <= 16 && !(P.opening && P.opening.active)) {
+    if (e.type === 'carrier' && !e.deployed && e.t > 5 && distance < 240 && canAdd(2) && !(P.opening && P.opening.active)) {
       e.deployed = true;
       [-1, 1].forEach(function (side) {
         var pos = e.pos.clone().add(new P.V3(side * 12, -4, -15));
@@ -79,18 +136,25 @@ P.enemyCombat = {
       });
     }
     if (e.volley) {
+      var volleyCue = e.g.userData.warning;
+      volleyCue.visible = true; volleyCue.material.opacity = .75;
+      volleyCue.scale.setScalar(e.def.radius / e.bs * (1.1 + Math.sin(e.t * 35) * .12));
       e.volley.wait -= dt;
       while (e.volley && e.volley.wait <= 0) {
         var v = e.volley, aim = v.aim.clone(); aim.z += Game.railZ - v.railZ;
         if (p.sweep) aim.x += (v.index - (p.count - 1) / 2) * p.sweep;
-        if (distance < 330 && E.ebullets.length < 100)
+        if (distance > 30 && distance < 330 && E.ebullets.length < 100)
           E.enemyShoot(e, e.def.bulletSpeed * (p.speed || 1), p.damage, 0, aim, (v.index - (p.count - 1) / 2) * p.arc);
         v.index++; v.wait += p.interval || .01;
-        if (v.index >= p.count) e.volley = null;
+        if (v.index >= p.count) { e.volley = null; volleyCue.visible = false; }
       }
       return;
     }
     if (e.attack) {
+      if (distance <= 30 || distance >= 330) {
+        e.attack = null; e.charge = 0; e.fireT = .8; e.g.userData.warning.visible = false;
+        return;
+      }
       e.attack.left -= dt;
       e.charge = Math.min(1, 1 - e.attack.left / p.windup);
       var cue = e.g.userData.warning; cue.visible = true;
@@ -105,7 +169,7 @@ P.enemyCombat = {
           E.enemyShoot(e, e.def.bulletSpeed * (p.speed || 1), p.damage, 0, e.attack.aim, (i - (p.count - 1) / 2) * p.arc);
         }
         // Bombers release physical mines from the hull, leaving a hazard trail.
-        if (e.type === 'bomber' && !e.deployed && aliveCount() <= 16) {
+        if (e.type === 'bomber' && !e.deployed && canAdd(2)) {
           e.deployed = true;
           [-1, 1].forEach(function (side) {
             var mine = E.spawnEnemy('mine', { pos: e.pos.clone().add(new P.V3(side * 10, -5, -10)), tag: 'bomber-mine' });
@@ -120,8 +184,13 @@ P.enemyCombat = {
       return;
     }
     e.fireT -= dt;
-    var windingUp = E.enemies.filter(function (other) { return other.alive && (other.attack || other.volley); }).length;
-    if (e.fireT <= 0 && distance > 35 && distance < 280 && E.ebullets.length < 85 && windingUp < 3) {
+    if (e.fireT > 0 || distance <= 35 || distance >= 280 || E.ebullets.length >= 85) return;
+    var windingUp = 0;
+    for (var n = 0; n < E.enemies.length; n++) {
+      var other = E.enemies[n];
+      if (other.alive && (other.attack || other.volley)) windingUp++;
+    }
+    if (windingUp < 3) {
       e.attack = { left: p.windup, aim: Player.pos.clone(), railZ: Game.railZ };
     }
   }
@@ -148,9 +217,13 @@ P.encounters = {
     if (episode !== Game.epIndex) { episode = Game.epIndex; timer = .7; sequence = 0; }
     timer -= dt; if (timer > 0) return;
     var boss = P.world.EPISODES[Game.epIndex].id === 'boss';
-    var count = aliveCount(), cap = boss ? 6 : 18;
-    if (count > cap - (boss ? 2 : 5)) { timer = .65; return; }
-    var deck = decks[Math.min(Game.epIndex, 3)], shape = boss ? 'pair' : deck[sequence % deck.length]; sequence++;
+    var count = activeCount(), cap = combatCap();
+    var room = Math.min(cap - count, 28 - E.enemies.length);
+    if (room < 2) { timer = .65; return; }
+    var deck = decks[Math.min(Game.epIndex, 3)], shape = boss ? 'pair' : deck[sequence % deck.length];
+    var cost = { v: 5, cross: 4, shield: 3, bomber: 3, escort: 3, battery: 4, mines: 4, pursuit: 3, pair: 2 };
+    if (cost[shape] > room) shape = 'pair';
+    else sequence++;
     var lane = Math.max(-32, Math.min(32, Player.x * .45));
     if (shape === 'v') {
       for (var i = -2; i <= 2; i++) make('wasp', lane + i * 17, 12 + Math.abs(i) * 4, 125 + Math.abs(i) * 22, 4);

@@ -42,16 +42,20 @@ P.Game.state='playing';
 const seen=new Set(),stats=[];
 for(let stage=0;stage<4;stage++){
  E.reset();P.Game.epIndex=stage;P.Game.railZ=0;P.Player.railY=P.world.EPISODES[stage].railY;
- let max=0,total=0,empty=0,longest=0;
+ let max=0,total=0,empty=0,longest=0,visibleTotal=0,maxActive=0;
  for(let frame=0;frame<45*30;frame++){
   P.Game.time+=1/30;P.Game.invulnT=1;E.updatePlayer(1/30);E.updateSpawner(1/30);E.updateEnemies(1/30);E.updateProjectiles(1/30);
   const live=E.enemies.filter(e=>e.alive);max=Math.max(max,live.length);total+=live.length;
-  if(frame>60){empty=live.length?0:empty+1/30;longest=Math.max(longest,empty);}
+  const visible=live.filter(e=>e.pos.z-P.Game.railZ>-240 && e.pos.z-P.Game.railZ<450 && Math.abs(e.pos.x)<200);
+  visibleTotal+=visible.length;maxActive=Math.max(maxActive,P.enemyCombat.activeCount());
+  if(frame>8*30){empty=visible.length?0:empty+1/30;longest=Math.max(longest,empty);}
   live.forEach(e=>{seen.add(e.type);assert([e.pos.x,e.pos.y,e.pos.z].every(Number.isFinite));});
-  assert(live.filter(e=>e.attack).length<=3,'bounded simultaneous attack warnings');assert(E.ebullets.length<=100,'bounded hostile projectiles');
+  assert(live.filter(e=>e.attack || e.volley).length<=3,'bounded simultaneous attack warnings and bursts');assert(E.ebullets.length<=100,'bounded hostile projectiles');
+  assert(P.enemyCombat.activeCount()<=18,'active director and deployed escort budget');
+  assert(E.enemies.length<=28,'resident limit includes departing actors and debris');
  }
- assert(max<=18,'director + carrier escort limit');assert(longest<2,'no prolonged empty sky');
- stats.push({stage:stage+1,averageEnemies:+(total/(45*30)).toFixed(1),max,longestEmpty:longest});
+ assert(longest<2,'no prolonged visibly empty sky after the opening approach');
+ stats.push({stage:stage+1,averageEnemies:+(total/(45*30)).toFixed(1),visibleAverage:+(visibleTotal/(45*30)).toFixed(1),max,maxActive,longestEmpty:longest});
 }
 for(const type of ['wasp','ray','chaser','carrier','sentinel','bomber','turret','mine'])assert(seen.has(type),type+' encountered');
 E.reset();const reused=E.spawnEnemy('sentinel');assert.equal(reused.shieldDown,0);assert.equal(reused.attack,null);assert(!reused.g.userData.warning.visible);
@@ -64,9 +68,19 @@ for (const type of ['wasp','ray','chaser','carrier','sentinel','bomber']) {
   const old=e.pos.clone();P.Game.railZ+=56/60;P.Player.pos.z=P.Game.railZ;
   E.updateEnemies(1/60);
   assert(e.pos.distanceTo(old)<5,'arrival has no position jumps');
+  if(e.arrival && e.arrival.elapsed>1.8 && e.arrival.elapsed<3.8) {
+   const nose=new P.V3(0,0,1).applyQuaternion(e.g.quaternion);
+   assert(nose.dot(e.pos.clone().sub(old).normalize())>.7,type+' nose follows incoming flight direction');
+  }
   assert.equal(E.ebullets.length,0,'no attacks while arriving');
  }
  assert.equal(e.arrival,null);assert(Math.abs(e.pos.z-P.Game.railZ-(rear?-82:140))<.01);
+ // Turning into attack attitude must be continuous after the approach completes.
+ for(let i=0;i<90;i++) {
+  const orientation=e.g.quaternion.clone();P.Game.railZ+=56/60;P.Player.pos.z=P.Game.railZ;
+  E.updateEnemies(1/60);
+  assert(orientation.angleTo(e.g.quaternion)<.3,type+' arrival-to-combat turn stays smooth');
+ }
 }
 for(const type of ['wasp','ray','turret','chaser']) {
  E.reset();P.Game.railZ=0;P.Player.pos.set(0,22,0);
@@ -75,11 +89,41 @@ for(const type of ['wasp','ray','turret','chaser']) {
  P.enemyCombat.update(e,p.windup+.01,150);
  if(p.interval) {
   assert.equal(E.ebullets.length,0);P.enemyCombat.update(e,.01,150);assert.equal(E.ebullets.length,1,'burst begins with one shot');
+  assert(e.g.userData.warning.visible,'telegraph remains visible while the burst is firing');
   for(let i=0;i<60;i++)P.enemyCombat.update(e,1/60,150);
  }
  assert.equal(E.ebullets.length,p.count,type+' shot count');
  if(type==='turret')assert(E.ebullets[0].v.length()>100,'precision turret has faster shot');
  if(type==='ray')assert(E.ebullets[0].v.x<0 && E.ebullets[2].v.x>0,'skimmer sweeps three different lanes');
 }
+// Passed enemies still fade naturally into the distance, but must not reserve
+// the entire combat budget or fire again if their old world position is revisited.
+E.reset();P.Game.epIndex=0;P.Game.railZ=0;P.Player.pos.set(0,22,0);
+for(let i=0;i<18;i++)E.spawnEnemy('wasp',{pos:new P.V3(i*2,22,-400)});
+P.encounters.update(.01);P.encounters.update(1);
+assert(E.enemies.some(e=>e.arrival),'fresh wave can enter while passed enemies remain rendered');
+assert.equal(P.enemyCombat.activeCount(),5);
+const retired=E.enemies.find(e=>e.retired);retired.pos.z=100;retired.fireT=0;
+P.enemyCombat.update(retired,1,100);assert.equal(retired.attack,null,'departed actors cannot reactivate');
+E.reset();const departing=E.spawnEnemy('wasp',{pos:new P.V3(0,22,-301)});
+P.enemyCombat.activeCount();assert(departing.retired);
+const scoreBeforeDeparture=P.Game.score, killsBeforeDeparture=P.Game.kills;
+let lastDeparture=departing.pos.z-P.Game.railZ;
+for(let i=0;i<12*60 && E.enemies.includes(departing);i++) {
+ P.Player.forwardSpeed=30;P.Game.railZ+=30/60;P.Player.pos.z=P.Game.railZ;
+ E.updateEnemies(1/60);
+ const separation=departing.pos.z-P.Game.railZ;
+ assert(separation<lastDeparture,'retired pursuit keeps leaving even under brake');lastDeparture=separation;
+}
+assert(!E.enemies.includes(departing),'departed actors are returned to the pool beyond fog');
+assert.equal(P.Game.score,scoreBeforeDeparture);assert.equal(P.Game.kills,killsBeforeDeparture);
+// At most 28 actors may remain resident, even under cap pressure from deployments.
+E.reset();for(let i=0;i<26;i++)E.spawnEnemy('mine',{pos:new P.V3(0,22,-400)});
+const limitedCarrier=E.spawnEnemy('carrier',{pos:new P.V3(0,22,140)});limitedCarrier.t=6;
+P.enemyCombat.update(limitedCarrier,.016,140);
+assert.equal(E.enemies.length,27,'carrier cannot exceed the resident budget with two escorts');
+E.reset();const closeTurret=E.spawnEnemy('turret',{pos:new P.V3(0,22,100)});closeTurret.fireT=0;
+P.enemyCombat.update(closeTurret,.01,100);assert(closeTurret.attack);
+P.enemyCombat.update(closeTurret,2,20);assert.equal(E.ebullets.length,0,'charging attack cancels at unsafe point-blank range');
 console.log('Enemy checks passed: pursuit, shields, telegraphs, committed aim, carrier escorts, pause/briefing isolation, all stage decks, actor/projectile limits and pooled reset.');
 console.log(stats);

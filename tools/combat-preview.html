@@ -1,14 +1,16 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panzer Freeman · Combat & world preview</title>
-<style>*{box-sizing:border-box}body{margin:0;background:#100c19;color:#e0edf0;font:13px system-ui}iframe{width:100%;height:calc(100vh - 84px);border:0;display:block}footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;height:84px}button,select,a{background:#253246;color:#e0edf0;border:1px solid #526176;padding:8px;border-radius:4px}#status{font-size:11px;color:#9cead8}</style>
-<iframe id="game" src="../index.html" title="Game preview"></iframe>
+<style>*{box-sizing:border-box}body{margin:0;background:#100c19;color:#e0edf0;font:13px system-ui}iframe{width:100%;height:calc(100vh - 120px);border:0;display:block}footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;min-height:120px}button,select,a{background:#253246;color:#e0edf0;border:1px solid #526176;padding:8px;border-radius:4px}#status{font-size:11px;color:#9cead8}</style>
+<iframe id="game" title="Game preview"></iframe>
 <footer><select id="scene" aria-label="Preview scene"><option value="0">Split canyon</option><option value="1">Drowned Choir</option><option value="2">Ember Foundry</option><option value="3">Mountain Citadel</option><option value="4">Chronos arena</option></select>
-<button id="arrivals">Distant squadron</button><button id="view">Rotate view</button><button id="orbs">Nearby orbs</button><button id="hostiles">New enemies</button><button id="volley">Laser volley</button><button id="boom">Explosion</button><button id="boost">Boost</button><button id="roll">Roll</button><button id="pause">Pause</button><button id="sound">Sound samples</button><a href="../index.html">Play</a><span id="status">Loading…</span></footer>
+<button id="gauntlet">Run gauntlet</button><button id="arrivals">Distant squadron</button><button id="view">Rotate view</button><button id="orbs">Nearby orbs</button><button id="hostiles">New enemies</button><button id="volley">Laser volley</button><button id="boom">Explosion</button><button id="boost">Boost</button><button id="roll">Roll</button><button id="pause">Pause</button><button id="sound">Sound samples</button><a href="../index.html">Play</a><span id="status">Loading…</span></footer>
 <script>
-let P,ready=false,boostUntil=0;
+let P,ready=false,boostUntil=0,run=null;
+const errors=[];
 const frame=document.querySelector('iframe'), status=document.getElementById('status');
-window.addEventListener('error',e=>{status.textContent='ERROR: '+e.message;});
-frame.addEventListener('load',()=>frame.contentWindow.addEventListener('error',e=>{status.textContent='ERROR: '+e.message;}));
+window.addEventListener('error',e=>{errors.push(e.message);status.textContent='ERROR: '+e.message;});
+frame.addEventListener('load',()=>frame.contentWindow.addEventListener('error',e=>{errors.push(e.message);status.textContent='ERROR: '+e.message;}));
+frame.src='../index.html?preview='+Date.now();
 function scene(){
  P.opening.reset();P.entities.reset();P.flight.reset();P.fx.reset();
  document.getElementById('pause').textContent='Pause';P.Game.state='playing';P.Game.cinematic=false;P.Game.age=60;P.Game.time=0;P.Game.railZ=0;
@@ -33,6 +35,26 @@ document.getElementById('boost').onclick=()=>{if(P){P.Player.energy=100;boostUnt
 document.getElementById('roll').onclick=()=>{if(P){P.Player.energy=100;P.flight.roll();}};
 document.getElementById('pause').onclick=e=>{if(P){P.Game.state=P.Game.state==='playing'?'preview-paused':'playing';e.target.textContent=P.Game.state==='playing'?'Pause':'Resume';}};
 document.getElementById('sound').onclick=()=>{if(!P)return;P.armAudio();['laser','impact','blast','boost','orb'].forEach((n,i)=>setTimeout(()=>P.Audio_.effect(n,.7),i*1250));};
-function tick(now){requestAnimationFrame(tick);if(!ready){const w=frame.contentWindow;if(!w.__PF?.campaign||!w.document.getElementById('loading').classList.contains('gone'))return;P=w.__PF;ready=true;scene();}P.Game.age=60;P.Game.invulnT=0;if(boostUntil&&now>boostUntil){P.Input.keys.shift=false;boostUntil=0;}}
+document.getElementById('gauntlet').onclick=()=>{
+ if(!P)return;errors.length=0;run={stage:0,previous:0,frames:0,ms:0,worst:0,maxCalls:0,actions:{},results:[]};
+ document.getElementById('scene').value='0';scene();
+};
+function gauntlet(now){
+ if(!run)return;const r=run,t=P.Game.time;
+ if(r.previous&&t>1){const dt=now-r.previous;r.frames++;r.ms+=dt;r.worst=Math.max(r.worst,dt);r.maxCalls=Math.max(r.maxCalls,P.perfInfo().calls);}r.previous=now;
+ function once(key,at,fn){if(t>=at&&!r.actions[key]){r.actions[key]=true;fn();}}
+ once('volley',5,()=>document.getElementById('volley').click());
+ once('roll',7,()=>document.getElementById('roll').click());
+ once('boost',8,()=>document.getElementById('boost').click());
+ once('orbs',11,()=>document.getElementById('orbs').click());
+ once('view',12,()=>document.getElementById('view').click());
+ status.textContent='GAUNTLET '+(r.stage+1)+'/5 · '+t.toFixed(1)+'s · '+r.maxCalls+' draw calls · '+errors.length+' errors';
+ if(t<15)return;
+ r.results.push(P.world.EPISODES[r.stage].id+': '+Math.round(r.frames*1000/r.ms)+' FPS, '+r.maxCalls+' max draws');
+ r.stage++;
+ if(r.stage===5){status.textContent='GAUNTLET COMPLETE · '+r.results.join(' | ')+' · '+errors.length+' errors';run=null;P.Input.keys={};return;}
+ document.getElementById('scene').value=''+r.stage;scene();r.previous=r.frames=r.ms=r.worst=r.maxCalls=0;r.actions={};
+}
+function tick(now){requestAnimationFrame(tick);if(!ready){const w=frame.contentWindow;if(!w.__PF?.campaign||!w.document.getElementById('loading').classList.contains('gone'))return;P=w.__PF;ready=true;scene();}P.Game.age=60;P.Game.invulnT=0;if(boostUntil&&now>boostUntil){P.Input.keys.shift=false;boostUntil=0;}gauntlet(now);}
 requestAnimationFrame(tick);
 </script></html>

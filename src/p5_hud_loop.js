@@ -195,6 +195,14 @@ function txt(s, x, y, size, col, align, weight) {
   hx.fillText(s, x, y);
 }
 
+function targetHealth(t, x, y, width) {
+  if (!t.def || !t.maxHp) return;
+  hx.fillStyle = 'rgba(4,12,22,.85)'; hx.fillRect(x - width / 2 - 1, y - 1, width + 2, 5);
+  var shielded = t.type === 'sentinel' && t.shieldDown <= 0 && Math.abs(Player.x - t.pos.x) <= 25 && Player.pos.y - t.pos.y <= 18;
+  hx.fillStyle = shielded ? '#73ddff' : '#a1f4cb';
+  hx.fillRect(x - width / 2, y, width * clamp(t.hp / t.maxHp, 0, 1), 3);
+}
+
 function drawHUD(dt) {
   var w = HUD.w, h = HUD.h;
   hx.clearRect(0, 0, w, h);
@@ -204,7 +212,7 @@ function drawHUD(dt) {
   // Wing power and maneuver status stay near the lower edge, clear of targets.
   hx.save();
   var powerW = Math.min(240, w * 0.38), powerX = (w - powerW) / 2;
-  hx.fillStyle = 'rgba(8,12,25,.78)'; hx.fillRect(powerX - 12, h - 61, powerW + 24, 48);
+  hx.fillStyle = 'rgba(8,12,25,.78)'; hx.fillRect(powerX - 12, h - 76, powerW + 24, 63);
   hx.fillStyle = '#263b4d'; hx.fillRect(powerX, h - 36, powerW, 5);
   hx.fillStyle = Player.boosting ? '#ffcb7e' : '#7defff';
   hx.fillRect(powerX, h - 36, powerW * (Player.energy === undefined ? 1 : Player.energy / 100), 5);
@@ -212,6 +220,12 @@ function drawHUD(dt) {
   hx.fillText(Player.boosting ? 'BOOST' : Player.braking ? 'AIR BRAKE' : Player.rollT > 0 ? 'EVASIVE ROLL' : 'WING POWER', w / 2, h - 44);
   hx.fillStyle = '#c2d4df'; hx.font = '10px monospace';
   hx.fillText('SHIFT BOOST · X BRAKE · SPACE ROLL', w / 2, h - 18);
+  var ready = Player.energy >= 28 && Player.rollCD <= 0;
+  var rollLabel = Player.rollT > .14 ? 'ROLL · EVADING' : Player.rollT > 0 ? 'ROLL · RECOVERING'
+    : Player.rollCD > 0 ? 'ROLL READY IN ' + Player.rollCD.toFixed(1) + 's'
+    : !ready ? 'ROLL · RECHARGING' : 'ROLL READY';
+  hx.fillStyle = ready ? '#a2f5cf' : '#ffcf8d';
+  hx.fillText(Player.exhausted ? 'BOOST RECHARGING · ' + rollLabel : rollLabel, w / 2, h - 63);
   hx.restore();
 
   // ---------- lock brackets on locked targets
@@ -224,8 +238,11 @@ function drawHUD(dt) {
     for (var q = 0; q < i; q++) if (Locks.list[q] === t) dup++;
     var sz = clamp(1400 / Math.max(20, pp.depth), 11, 60) + dup * 5;
     bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
-    bracket(pp.x, pp.y, sz, t.attack ? '#ff9868' : '#8fffc4', 2.5);
-    if (t.attack && dup === 0) txt('FIRING', pp.x, pp.y + sz + 15, 11, '#ff9868', 'center');
+    bracket(pp.x, pp.y, sz, t.attack || t.volley ? '#ff9868' : '#8fffc4', 2.5);
+    if (dup === 0) {
+      targetHealth(t, pp.x, pp.y + sz + 6, Math.max(26, Math.min(48, sz * 2)));
+      if (t.attack || t.volley) txt(t.volley ? 'FIRING' : 'CHARGING', pp.x, pp.y + sz + 24, 11, '#ff9868', 'center');
+    }
     hx.strokeStyle = 'rgba(255,74,106,.35)';
     hx.beginPath(); hx.moveTo(Input.mx, Input.my); hx.lineTo(pp.x, pp.y); hx.stroke();
   }
@@ -245,8 +262,8 @@ function drawHUD(dt) {
         var lesson = e.tag === 'opening-target' || e.tag === 'opening-sentry';
         if (lesson) s2 = Math.max(s2, 20);
         bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
-        bracket(pp.x, pp.y, s2, e.attack ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
-        if (!lesson && P.enemyCombat && (e.attack || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.attack ? '#ff9868' : '#91e8ff', 'center');
+        bracket(pp.x, pp.y, s2, e.attack || e.volley ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
+        if (!lesson && P.enemyCombat && (e.attack || e.volley || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.attack || e.volley ? '#ff9868' : '#91e8ff', 'center');
         if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
         if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
       }
@@ -263,8 +280,12 @@ function drawHUD(dt) {
       var ax = cx + Math.cos(ang) * rr, ay = cy - Math.sin(ang) * rr * 0.75;
       hx.save();
       hx.translate(ax, ay); hx.rotate(-ang);
-      hx.fillStyle = 'rgba(255,110,80,.75)';
+      hx.fillStyle = e.attack || e.volley ? '#ff9168' : 'rgba(143,217,255,.45)';
       hx.beginPath(); hx.moveTo(12, 0); hx.lineTo(-8, 7); hx.lineTo(-8, -7); hx.closePath(); hx.fill();
+      if (e.attack || e.volley) {
+        hx.strokeStyle = '#ffe0a8'; hx.lineWidth = 2;
+        hx.beginPath(); hx.moveTo(-13, -8); hx.lineTo(-13, 8); hx.stroke();
+      }
       hx.restore();
     }
     hx.restore();
@@ -277,6 +298,20 @@ function drawHUD(dt) {
   hx.strokeStyle = 'rgba(255,255,255,.13)'; hx.lineWidth = 1;
   if (Input.lmb) { hx.beginPath(); hx.arc(Input.mx, Input.my, lockR, 0, TAU); hx.stroke(); }
   bracket(Input.mx, Input.my, 20, retCol, 2.5);
+  // A compact confirmation stays readable even when a homing volley hits offscreen.
+  if (Game.hitConfirmT > 0 || Game.killConfirmT > 0) {
+    var killed = Game.killConfirmT > 0, life = killed ? Game.killConfirmT / .42 : Game.hitConfirmT / .18;
+    hx.save(); hx.globalAlpha = Math.min(1, life * 2);
+    hx.strokeStyle = killed ? '#ffd280' : '#c5fff3'; hx.lineWidth = killed ? 3 : 2;
+    var inner = killed ? 10 : 8, outer = inner + 7;
+    hx.beginPath();
+    for (var corner = 0; corner < 4; corner++) {
+      var sx = corner < 2 ? -1 : 1, sy = corner % 2 ? -1 : 1;
+      hx.moveTo(Input.mx + sx * inner, Input.my + sy * inner);
+      hx.lineTo(Input.mx + sx * outer, Input.my + sy * outer);
+    }
+    hx.stroke(); hx.restore();
+  }
   hx.strokeStyle = retCol; hx.lineWidth = 2;
   hx.beginPath();
   hx.moveTo(Input.mx - 7, Input.my); hx.lineTo(Input.mx + 7, Input.my);
