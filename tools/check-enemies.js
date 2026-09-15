@@ -134,3 +134,55 @@ console.log(stats);
 E.reset();const distantDefault=P.spawnWorldEnemy('wasp',{pos:new P.V3(0,34,100)});
 assert(distantDefault.arrival,'production spawn defaults to approach without an opt-in flag');
 assert(distantDefault.pos.z-P.Game.railZ>700,'all ordinary production spawns start far away');
+
+// Focus fire on a heavy's windup interrupts its dangerous attack and creates a
+// short offensive opening. This uses the real damage path (including shields).
+E.reset();P.Game.railZ=0;P.Player.pos.set(0,22,0);P.Player.x=0;P.Player.energy=40;
+const breakBomber=E.spawnEnemy('bomber',{pos:new P.V3(0,22,150),hpMul:10});breakBomber.fireT=0;
+P.enemyCombat.update(breakBomber,.01,150);
+E.hurtEnemy(breakBomber,2);assert(breakBomber.attack,'partial pressure does not interrupt');
+E.hurtEnemy(breakBomber,1);
+assert.equal(breakBomber.attack,null);assert.equal(breakBomber.staggerT,1.8);
+assert.equal(P.Player.energy,55,'first break recharges wing power');
+assert.equal(P.enemyCombat.label(breakBomber),'STAGGERED · +50% DAMAGE');
+const brokenHp=breakBomber.hp;E.hurtEnemy(breakBomber,1);
+assert.equal(breakBomber.hp,brokenHp-1.5,'follow-up damage benefits from exposed core');
+P.Game.state='paused';P.enemyCombat.update(breakBomber,1,150);
+assert.equal(breakBomber.staggerT,1.8,'pause preserves the vulnerability window');P.Game.state='playing';
+for(let i=0;i<109;i++)P.enemyCombat.update(breakBomber,1/60,150);
+assert.equal(E.ebullets.length,0,'interrupted bomber never releases its cancelled fan');
+assert.equal(E.enemies.filter(e=>e.tag==='bomber-mine').length,0,'interruption also prevents the mine drop');
+assert.equal(breakBomber.staggerT,0);
+const recoveredHp=breakBomber.hp;E.hurtEnemy(breakBomber,1);
+assert.equal(breakBomber.hp,recoveredHp-1,'damage bonus expires');
+breakBomber.fireT=0;P.enemyCombat.update(breakBomber,.01,150);E.hurtEnemy(breakBomber,3);
+assert.equal(P.Player.energy,55,'repeat breaks cannot farm wing power');
+
+E.reset();const chargingAgain=E.spawnEnemy('bomber',{pos:new P.V3(0,22,150),hpMul:10});chargingAgain.fireT=0;
+P.enemyCombat.update(chargingAgain,.01,150);E.hurtEnemy(chargingAgain,2);
+P.enemyCombat.update(chargingAgain,1.7,150);assert.equal(chargingAgain.attack,null);
+chargingAgain.fireT=0;P.enemyCombat.update(chargingAgain,.01,150);E.hurtEnemy(chargingAgain,1);
+assert.equal(chargingAgain.staggerT,0,'unfinished pressure does not carry between attack windups');
+
+E.reset();const breakGuard=E.spawnEnemy('sentinel',{pos:new P.V3(0,22,140)});breakGuard.fireT=0;
+P.enemyCombat.update(breakGuard,.01,140);E.hurtEnemy(breakGuard,2);
+assert.equal(breakGuard.staggerT,0,'front armor still resists charge breaking');
+P.Player.x=40;E.hurtEnemy(breakGuard,1.5);
+assert.equal(breakGuard.staggerT,1.8,'flanking supplies full break pressure');
+assert.equal(breakGuard.shieldDown,1.8);assert(!breakGuard.g.userData.shield.visible);
+P.Player.x=0;
+
+E.reset();P.Player.x=40;
+const breakCarrier=E.spawnEnemy('carrier',{pos:new P.V3(0,22,140)});breakCarrier.fireT=0;
+P.enemyCombat.update(breakCarrier,.01,140);E.hurtEnemy(breakCarrier,1);
+assert.equal(breakCarrier.hp,4);assert.equal(breakCarrier.staggerT,0,'flank damage does not multiply weapon pressure');
+E.hurtEnemy(breakCarrier,1);assert.equal(breakCarrier.hp,2);assert.equal(breakCarrier.staggerT,1.8);
+P.Player.x=0;
+
+E.reset();P.opening.active=true;const lessonHeavy=E.spawnEnemy('bomber',{pos:new P.V3(0,22,140)});lessonHeavy.fireT=0;
+P.enemyCombat.update(lessonHeavy,.01,140);const lessonEnergy=P.Player.energy;
+E.hurtEnemy(lessonHeavy,3);assert.equal(lessonHeavy.staggerT,0);assert.equal(P.Player.energy,lessonEnergy,'guided opening keeps its original rules');
+P.opening.active=false;
+E.reset();const cleanHeavy=E.spawnEnemy('bomber',{pos:new P.V3(0,22,140)});
+assert.equal(cleanHeavy.staggerT,0);assert.equal(cleanHeavy.breakRewarded,false,'pooled heavy does not inherit reward state');
+console.log('Charge-break checks passed: interrupted fan and mines, 1.8s vulnerability, shield/flank pressure, wing reward limit, recovery, pause, opening and pooled state.');

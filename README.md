@@ -71,6 +71,14 @@ readiness, cooldown and recovery, and rolls protect immediately when triggered.
 Blue route gates glow, animate on collection and report progress. A clean three-gate
 canyon run awards an extra 500 points and 25 wing power; diagonal boost crossings
 are judged at the gate plane.
+Segments around the reticle show loaded locks, with a gold cue for a full volley.
+A shrinking chain meter shows how much time remains to continue a kill streak.
+
+**Break the charge.** Focus fire while a heavy enemy winds up to cancel its attack
+and expose it for 1.8 seconds of +50% follow-up damage. The first interruption of
+each enemy restores 15 wing power. Cyan brackets and a countdown arc mark that
+window. Interrupting a bomber also prevents its mines; sentinel armor still rewards
+flanking. This mechanic is introduced after the guided opening.
 
 **An enemy force with distinct roles.** Mixed squadrons replace the random single-type
 spawns. Squadrons arrive from beyond the fog over nine seconds; interceptors take
@@ -104,6 +112,10 @@ the HUD indicates when a core is exposed.
 flare, explosions throw hot fragments and expanding shockwaves, and three pooled
 point lights illuminate nearby surfaces. Forty pooled glow bursts bound the cost.
 Clouds use soft mist sprites instead of solid polygon lumps.
+Destruction adds cooling ember streaks and textured smoke that rises after ignition.
+Shockwaves expand translucently and fade; their materials are independent of debris.
+The afterglow uses one shared spark batch and at most 18 smoke sprites, with distant
+glow and sparks fading into the stage fog.
 
 **A guided opening flight.** An optional opening teaches sweeping lock-ons with
 three non-firing targets worth one year each, shows the years actually earned,

@@ -274,13 +274,15 @@ function boom(pos, size, colorSet, count) {
   var r = ringPool.get();
   r.position.copy(pos);
   r.scale.setScalar(0.2);
-  r.material = colorSet[0];
+  r.material.color.copy(colorSet[0].color);
+  r.material.opacity = .38;
   rings.push({ m: r, life: 0.42, max: 0.42, size: size });
 }
 
-var GEO_RING = mdl.tor(1, 0.1, 3, 14);
+var GEO_RING = mdl.tor(1, 0.035, 3, 40);
 var ringPool = new Pool(function () {
-  var r = mdl.mesh(GEO_RING, G(0xffffff, { transparent: true, opacity: 0.7, depthWrite: false }));
+  var r = mdl.mesh(GEO_RING, G(0xffffff, { transparent: true, opacity: .38, depthWrite: false }));
+  r.name = 'combat-shockwave';
   return r;
 }, 48);   // a multi-kill can boom a dozen enemies in the same frame
 
@@ -1173,6 +1175,7 @@ function updateProjectiles(dt) {
     r.life -= dt;
     var t = 1 - r.life / r.max;
     r.m.scale.setScalar(0.4 + t * r.size * 3.2);
+    r.m.material.opacity = .38 * Math.pow(Math.max(0, 1 - t), 2);
     r.m.lookAt(camera.position);
     if (r.life <= 0) { ringPool.put(r.m); rings.splice(i, 1); }
   }

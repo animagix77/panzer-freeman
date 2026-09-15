@@ -313,7 +313,7 @@
         <div><span class="kbd">G</span><span class="d">cast shadows</span></div>
         <div><span class="kbd">F3</span><span class="d">performance</span></div>
       </div>
-      <p style="font-size:12px;color:#a9dfe9">Shift: boost · X: air brake · Space + direction: evasive roll<br>Wing power refills when resting. Flank carriers to strike their exposed cores.</p></details>
+      <p style="font-size:12px;color:#a9dfe9">Shift: boost · X: air brake · Space + direction: evasive roll<br>Wing power refills when resting. Flank carriers to strike their exposed cores.<br>Focus fire on charging heavy enemies to interrupt them. Cyan targets take extra damage.</p></details>
       <button class="btn" id="startBtn">Begin the Descent</button>
       <div class="tiny">A LOW-POLY TRIBUTE TO PANZER DRAGOON (SEGA SATURN, 1995)</div>
     </div>
@@ -4681,13 +4681,15 @@ function boom(pos, size, colorSet, count) {
   var r = ringPool.get();
   r.position.copy(pos);
   r.scale.setScalar(0.2);
-  r.material = colorSet[0];
+  r.material.color.copy(colorSet[0].color);
+  r.material.opacity = .38;
   rings.push({ m: r, life: 0.42, max: 0.42, size: size });
 }
 
-var GEO_RING = mdl.tor(1, 0.1, 3, 14);
+var GEO_RING = mdl.tor(1, 0.035, 3, 40);
 var ringPool = new Pool(function () {
-  var r = mdl.mesh(GEO_RING, G(0xffffff, { transparent: true, opacity: 0.7, depthWrite: false }));
+  var r = mdl.mesh(GEO_RING, G(0xffffff, { transparent: true, opacity: .38, depthWrite: false }));
+  r.name = 'combat-shockwave';
   return r;
 }, 48);   // a multi-kill can boom a dozen enemies in the same frame
 
@@ -5580,6 +5582,7 @@ function updateProjectiles(dt) {
     r.life -= dt;
     var t = 1 - r.life / r.max;
     r.m.scale.setScalar(0.4 + t * r.size * 3.2);
+    r.m.material.opacity = .38 * Math.pow(Math.max(0, 1 - t), 2);
     r.m.lookAt(camera.position);
     if (r.life <= 0) { ringPool.put(r.m); rings.splice(i, 1); }
   }
@@ -6106,7 +6109,7 @@ function sprite(col) {
     blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 }
 var pool = [], cursor = 0, lights = [], lightCursor = 0;
-var ringGeo = new THREE.TorusGeometry(1, .035, 4, 40);
+var ringGeo = new THREE.TorusGeometry(1, .014, 4, 48);
 for (i = 0; i < 40; i++) {
   var g = new THREE.Group(), halo = sprite(0xff974a), core = sprite(0xffffff);
   var ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffb878, transparent: true,
@@ -6115,6 +6118,92 @@ for (i = 0; i < 40; i++) {
   pool.push({ g: g, halo: halo, core: core, ring: ring, age: 0, life: 0, size: 1 });
 }
 for (i = 0; i < 3; i++) { var light = new THREE.PointLight(0xff9944, 0, 95, 2); scene.add(light); lights.push({ light: light, age: 1 }); }
+
+// Explosion afterglow: all hot fragments share one line batch, while a small
+// smoke pool leaves a readable silhouette after the initial flash has gone.
+var sparks = [], sparkCursor = 0, sparkCapacity = 256, smoke = [], smokeCursor = 0;
+var sparkPos = new Float32Array(sparkCapacity * 6), sparkCol = new Float32Array(sparkCapacity * 6);
+var sparkGeo = new THREE.BufferGeometry();
+sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3).setUsage(THREE.DynamicDrawUsage));
+sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkCol, 3).setUsage(THREE.DynamicDrawUsage));
+var sparkMesh = new THREE.LineSegments(sparkGeo, new THREE.LineBasicMaterial({ vertexColors: true,
+  transparent: true, opacity: .9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+sparkMesh.name = 'explosion-embers'; sparkMesh.visible = false; sparkMesh.frustumCulled = false; scene.add(sparkMesh);
+for (i = 0; i < sparkCapacity; i++) sparks.push({ pos: new THREE.Vector3(), velocity: new THREE.Vector3(), age: 10, life: 0 });
+var smokeData = new Uint8Array(64 * 64 * 4);
+for (i = 0; i < 4096; i++) {
+  var sx = (i % 64 - 31.5) / 31.5, sy = (Math.floor(i / 64) - 31.5) / 31.5;
+  var billow = Math.max(0, 1 - Math.sqrt(sx * sx + sy * sy));
+  var folds = .72 + .14 * Math.sin(sx * 13 + Math.sin(sy * 9)) + .14 * Math.cos(sy * 16 - sx * 7);
+  smokeData[i * 4] = smokeData[i * 4 + 1] = smokeData[i * 4 + 2] = 255;
+  smokeData[i * 4 + 3] = Math.round(255 * Math.pow(billow, 1.2) * folds);
+}
+var smokeTex = new THREE.DataTexture(smokeData, 64, 64, THREE.RGBAFormat);
+smokeTex.minFilter = smokeTex.magFilter = THREE.LinearFilter; smokeTex.needsUpdate = true;
+for (i = 0; i < 18; i++) {
+  var cloud = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0x594951,
+    transparent: true, opacity: 0, depthWrite: false, fog: true }));
+  cloud.name = 'explosion-smoke'; cloud.visible = false; scene.add(cloud);
+  smoke.push({ mesh: cloud, pos: new THREE.Vector3(), age: 10, life: 0, size: 1, drift: 0 });
+}
+var smokeHot = new THREE.Color(0xed965b), smokeCold = new THREE.Color(0x594951);
+function fogVisibility(pos) {
+  var fog = scene.fog;
+  if (!fog || fog.far === undefined) return 1;
+  var distance = pos.distanceTo(P.camera.position);
+  var u = Math.max(0, Math.min(1, (distance - fog.near) / Math.max(1, fog.far - fog.near)));
+  return 1 - u * u * (3 - 2 * u);
+}
+function explosionAfterglow(pos, size) {
+  var count = Math.min(30, Math.round(14 + size * 2));
+  for (var i = 0; i < count; i++) {
+    var s = sparks[sparkCursor++ % sparkCapacity], vertical = 1 - (i + .5) / count * 2;
+    var radius = Math.sqrt(1 - vertical * vertical), angle = i * 2.399963 + sparkCursor * .17;
+    s.pos.copy(pos); s.age = 0; s.life = .55 + (i % 5) * .13;
+    s.velocity.set(Math.cos(angle) * radius, vertical * .8 + .22, Math.sin(angle) * radius)
+      .multiplyScalar((20 + (i % 4) * 9) * Math.min(2.3, .65 + size * .18));
+  }
+  for (var puff = 0; puff < 3; puff++) {
+    var c = smoke[smokeCursor++ % smoke.length];
+    c.age = 0; c.life = 1.3 + puff * .18; c.size = Math.min(7, size) * (3.8 + puff * .8);
+    c.pos.copy(pos); c.pos.x += (puff - 1) * size * .7; c.pos.y += puff * size * .35;
+    c.drift = (puff - 1) * 2.8;
+    c.mesh.position.copy(c.pos); c.mesh.material.opacity = 0; c.mesh.material.rotation = puff * 2.1;
+    c.mesh.scale.setScalar(c.size); c.mesh.visible = true;
+  }
+}
+function updateAfterglow(dt) {
+  var active = 0;
+  sparks.forEach(function (s, i) {
+    var k = i * 6;
+    if (s.age >= s.life) { sparkCol.fill(0, k, k + 6); return; }
+    s.age = Math.min(s.life, s.age + dt);
+    // Closed-form drag/gravity keeps spark travel stable at low frame rates.
+    var drag = Math.exp(-dt * 1.7), travel = (1 - drag) / 1.7;
+    s.pos.addScaledVector(s.velocity, travel); s.pos.y -= 14 * (dt - travel) / 1.7;
+    s.velocity.multiplyScalar(drag); s.velocity.y -= 14 * travel;
+    var fade = Math.pow(1 - s.age / s.life, 1.4) * fogVisibility(s.pos);
+    var tail = .065 * Math.max(.3, 1 - s.age / s.life);
+    sparkPos[k] = s.pos.x; sparkPos[k + 1] = s.pos.y; sparkPos[k + 2] = s.pos.z;
+    sparkPos[k + 3] = s.pos.x - s.velocity.x * tail; sparkPos[k + 4] = s.pos.y - s.velocity.y * tail;
+    sparkPos[k + 5] = s.pos.z - s.velocity.z * tail;
+    sparkCol[k] = fade; sparkCol[k + 1] = fade * (.42 + .5 * Math.exp(-s.age * 5)); sparkCol[k + 2] = fade * .25;
+    sparkCol[k + 3] = fade * .12; sparkCol[k + 4] = fade * .025; sparkCol[k + 5] = 0;
+    if (fade > .001) active++;
+  });
+  sparkMesh.visible = active > 0;
+  sparkGeo.attributes.position.needsUpdate = true; sparkGeo.attributes.color.needsUpdate = true;
+  smoke.forEach(function (c) {
+    if (!c.mesh.visible) return;
+    c.age += dt; var u = Math.min(1, c.age / c.life);
+    c.mesh.visible = u < 1;
+    c.mesh.position.set(c.pos.x + c.drift * c.age, c.pos.y + c.age * (7 + c.size * .08), c.pos.z);
+    c.mesh.scale.setScalar(c.size * (1 + u * 1.6));
+    c.mesh.material.color.copy(smokeHot).lerp(smokeCold, Math.min(1, c.age * 3.4));
+    c.mesh.material.opacity = .42 * Math.min(1, c.age / .12) * Math.pow(1 - u, 1.5) * fogVisibility(c.mesh.position);
+    c.mesh.material.rotation += dt * c.drift * .035;
+  });
+}
 
 // Two short vapor ribbons record the real articulated wingtips in world space.
 // A fixed 60 Hz history keeps their length stable across display refresh rates.
@@ -6211,10 +6300,11 @@ function burst(pos, size, col, small) {
   b.size = size; b.age = 0; b.life = small ? .23 : .85;
   b.halo.material.color.setHex(col); b.ring.material.color.setHex(col);
   b.ring.quaternion.copy(P.camera.quaternion); b.ring.visible = !small;
-  b.halo.material.opacity = .9; b.core.material.opacity = 1; b.ring.material.opacity = .65;
+  b.halo.material.opacity = .9; b.core.material.opacity = 1; b.ring.material.opacity = .24;
   b.halo.scale.setScalar(size * 8); b.core.scale.setScalar(size * 3);
   b.ring.scale.setScalar(.2);
   if (!small) {
+    explosionAfterglow(pos, size);
     var l = lights[lightCursor++ % lights.length]; l.age = 0;
     l.light.position.copy(pos); l.light.color.setHex(col); l.light.intensity = Math.min(5, size * 1.3);
     l.strength = l.light.intensity;
@@ -6228,21 +6318,27 @@ P.fx = {
   },
   update: function (dt) {
     updateTrails(dt);
+    updateAfterglow(dt);
     pool.forEach(function (b) {
       if (!b.g.visible) return;
       b.age += dt; var u = Math.min(1, b.age / b.life);
       b.g.visible = u < 1;
       b.halo.scale.setScalar(b.size * (8 + u * 18));
       b.core.scale.setScalar(b.size * (3 + u * 5));
-      b.halo.material.opacity = Math.pow(1 - u, 2) * .85;
-      b.core.material.opacity = Math.pow(1 - u, 6);
-      b.ring.scale.setScalar(b.size * (.6 + u * 9)); b.ring.material.opacity = Math.pow(1 - u, 2) * .65;
+      var visibility = fogVisibility(b.g.position);
+      b.halo.material.opacity = Math.pow(1 - u, 2) * .85 * visibility;
+      b.core.material.opacity = Math.pow(1 - u, 6) * visibility;
+      b.ring.scale.setScalar(b.size * (.6 + u * 9)); b.ring.material.opacity = Math.pow(1 - u, 2) * .24 * visibility;
     });
     lights.forEach(function (l) { l.age += dt; l.light.intensity = (l.strength || 0) * Math.pow(Math.max(0, 1 - l.age / .32), 2); });
   },
-  reset: function () { resetTrails(); pool.forEach(function (b) { b.g.visible = false; }); lights.forEach(function (l) { l.age = 1; l.light.intensity = 0; }); },
+  reset: function () { resetTrails(); pool.forEach(function (b) { b.g.visible = false; }); lights.forEach(function (l) { l.age = 1; l.light.intensity = 0; });
+    sparks.forEach(function (s) { s.age = s.life; }); sparkCol.fill(0); sparkMesh.visible = false;
+    smoke.forEach(function (c) { c.mesh.visible = false; }); },
   stats: function () { return { capacity: pool.length, active: pool.filter(function (b) { return b.g.visible; }).length,
-    lights: lights.length, trails: trails.filter(function (t) { return t.mesh.visible; }).length, trailCapacity: trails.length }; }
+    lights: lights.length, trails: trails.filter(function (t) { return t.mesh.visible; }).length, trailCapacity: trails.length,
+    sparks: sparks.filter(function (s) { return s.age < s.life; }).length, sparkCapacity: sparkCapacity,
+    smoke: smoke.filter(function (c) { return c.mesh.visible; }).length, smokeCapacity: smoke.length }; }
 };
 })();
 
@@ -6381,6 +6477,9 @@ P.campaign = {
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var ringGeo = new THREE.TorusGeometry(1, .09, 4, 20);
 var flightDirection = new P.V3(), poseTarget = new THREE.Quaternion(), flightPose = new THREE.Quaternion();
+var breakPressure = { turret: 2, carrier: 2, sentinel: 2, bomber: 3 };
+var staggerDuration = 1.8, chargeTipShown = false;
+function warningColor(e) { return e.type === 'turret' ? 0xff5774 : e.type === 'ray' ? 0xffc65c : 0xff814f; }
 var profiles = {
   wasp: { label: 'WASP', windup: .85, count: 2, interval: .18, arc: .035, damage: 1.5 },
   ray: { label: 'SKIMMER', windup: 1.1, count: 3, interval: .24, sweep: 28, arc: 0, damage: 1.7 },
@@ -6417,9 +6516,11 @@ function combatCap() { return P.world.EPISODES[Game.epIndex].id === 'boss' ? 6 :
 function canAdd(n) { return activeCount() + n <= combatCap() && E.enemies.length + n <= 28; }
 P.enemyCombat = {
   profiles: profiles,
+  staggerDuration: staggerDuration,
   activeCount: activeCount,
   prepare: function (e) {
     e.shieldDown = 0; e.attack = null; e.volley = null; e.arrival = null; e.charge = 0; e.deployed = false;
+    e.staggerT = 0; e.breakRewarded = false;
     e.visibleAge = 0;
     if (e.type !== 'turret' && e.type !== 'mine' && !e.g.userData.beacon) {
       var beacon = new THREE.Sprite(new THREE.SpriteMaterial({map:beaconMap,color:0xffac72,transparent:true,opacity:0,depthWrite:false,fog:false,blending:THREE.AdditiveBlending}));
@@ -6434,7 +6535,7 @@ P.enemyCombat = {
       e.g.add(ring); e.g.userData.warning = ring;
     }
     e.g.userData.warning.visible = false;
-    e.g.userData.warning.material.color.setHex(e.type === 'turret' ? 0xff5774 : e.type === 'ray' ? 0xffc65c : 0xff814f);
+    e.g.userData.warning.material.color.setHex(warningColor(e));
     if (e.g.userData.shield) { e.g.userData.shield.visible = true; e.g.userData.shield.material.opacity = .27; }
   },
   beginArrival: function (e) {
@@ -6489,7 +6590,7 @@ P.enemyCombat = {
     e.poseQuaternion.copy(e.g.quaternion); e.poseBlend -= dt;
   },
   depart: function (e, dt) {
-    e.attack = null; e.volley = null; e.charge = 0; e.bank = 0;
+    e.attack = null; e.volley = null; e.charge = 0; e.bank = 0; e.staggerT = 0;
     if (e.g.userData.warning) e.g.userData.warning.visible = false;
     // Passed ships peel away into the fog instead of resuming pursuit when the
     // player brakes. Ground emplacements stay planted until they leave view.
@@ -6509,12 +6610,38 @@ P.enemyCombat = {
   damage: function (e, damage) {
     if (e.type === 'sentinel' && e.shieldDown <= 0 && !flanked(e)) {
       if (P.fx) P.fx.burst(e.pos, 1.1, 0x67dcff, true);
-      return damage * .25;
+      damage *= .25;
+    }
+    if (e.staggerT > 0) return damage * 1.5;
+    if (e.attack && breakPressure[e.type] && damage > 0 && Game.state === 'playing' && !Game.ending &&
+        !e.arrival && !e.retired && !e.openingOffset && !(P.opening && P.opening.active)) {
+      // Pressure counts weapon damage after shields, before carrier flank bonuses.
+      // Each new charge starts fresh, so ordinary chip damage cannot bank a break.
+      e.attack.pressure = (e.attack.pressure || 0) + damage;
+      if (e.attack.pressure >= breakPressure[e.type]) {
+        e.attack = null; e.volley = null; e.charge = 0; e.staggerT = staggerDuration;
+        e.fireT = Math.max(e.fireT, .8);
+        if (e.type === 'sentinel') {
+          e.shieldDown = staggerDuration;
+          if (e.g.userData.shield) e.g.userData.shield.visible = false;
+        }
+        var cue = e.g.userData.warning;
+        cue.visible = true; cue.material.color.setHex(0x73fff0); cue.material.opacity = .9;
+        cue.scale.setScalar(e.def.radius / e.bs * 1.35);
+        if (!e.breakRewarded) {
+          e.breakRewarded = true;
+          Player.energy = Math.min(100, (Player.energy === undefined ? 100 : Player.energy) + 15);
+          P.toast('CHARGE BROKEN · +15 WING POWER · +50% DAMAGE');
+        } else P.toast('CHARGE BROKEN · +50% DAMAGE');
+        if (P.fx) P.fx.burst(e.pos, 2.1, 0x73fff0, true);
+        P.Audio_.sZap(e.pos);
+      }
     }
     return damage;
   },
   label: function (e) {
     if (e.arrival) return 'INCOMING';
+    if (e.staggerT > 0) return 'STAGGERED · +50% DAMAGE';
     if (e.attack) return 'CHARGING';
     if (e.volley) return 'FIRING';
     if (e.type === 'sentinel') return e.shieldDown > 0 || flanked(e) ? 'SHIELD OPEN' : 'SHIELD · FLANK';
@@ -6531,6 +6658,14 @@ P.enemyCombat = {
     if (e.g.userData.shield) {
       e.g.userData.shield.visible = e.shieldDown <= 0;
       e.g.userData.shield.material.opacity = flanked(e) ? .10 : .27;
+    }
+    if (e.staggerT > 0) {
+      e.staggerT = Math.max(0, e.staggerT - dt);
+      var staggerCue = e.g.userData.warning;
+      staggerCue.visible = e.staggerT > 0;
+      staggerCue.material.opacity = .25 + .5 * e.staggerT / staggerDuration;
+      staggerCue.scale.setScalar(e.def.radius / e.bs * (1.35 + Math.sin(e.t * 14) * .08));
+      return;
     }
     // Carriers bring two real escorts into the fight, once, within the shared cap.
     if (e.type === 'carrier' && !e.deployed && e.t > 5 && distance < 240 && canAdd(2) && !(P.opening && P.opening.active)) {
@@ -6598,6 +6733,10 @@ P.enemyCombat = {
     }
     if (windingUp < 3) {
       e.attack = { left: p.windup, aim: Player.pos.clone(), railZ: Game.railZ };
+      e.g.userData.warning.material.color.setHex(warningColor(e));
+      if (breakPressure[e.type] && !chargeTipShown && !(P.opening && P.opening.active)) {
+        chargeTipShown = true; P.toast('CHARGE BREAK · HIT CHARGING HEAVIES TO INTERRUPT');
+      }
     }
   }
 };
@@ -6617,7 +6756,7 @@ function make(type, x, y, z, hold) {
   return e;
 }
 P.encounters = {
-  reset: function () { timer = 0; sequence = 0; episode = -1; },
+  reset: function () { timer = 0; sequence = 0; episode = -1; chargeTipShown = false; },
   update: function (dt) {
     if (Game.state !== 'playing' || Game.ending || Game.cinematic || (P.opening && P.opening.active)) return;
     if (episode !== Game.epIndex) { episode = Game.epIndex; timer = .7; sequence = 0; }
@@ -6872,6 +7011,12 @@ function targetHealth(t, x, y, width) {
   hx.fillRect(x - width / 2, y, width * clamp(t.hp / t.maxHp, 0, 1), 3);
 }
 
+function staggerArc(target, x, y, radius) {
+  if (!(target.staggerT > 0)) return;
+  hx.save(); hx.strokeStyle = '#80f7ff'; hx.lineWidth = 2;
+  hx.beginPath(); hx.arc(x, y, radius, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(target.staggerT / (P.enemyCombat.staggerDuration || 1.8), 0, 1));
+  hx.stroke(); hx.restore();
+}
 function drawHUD(dt) {
   var w = HUD.w, h = HUD.h;
   hx.clearRect(0, 0, w, h);
@@ -6907,10 +7052,11 @@ function drawHUD(dt) {
     for (var q = 0; q < i; q++) if (Locks.list[q] === t) dup++;
     var sz = clamp(1400 / Math.max(20, pp.depth), 11, 60) + dup * 5;
     bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
-    bracket(pp.x, pp.y, sz, t.attack || t.volley ? '#ff9868' : '#8fffc4', 2.5);
+    bracket(pp.x, pp.y, sz, t.staggerT > 0 ? '#80f7ff' : t.attack || t.volley ? '#ff9868' : '#8fffc4', 2.5);
     if (dup === 0) {
       targetHealth(t, pp.x, pp.y + sz + 6, Math.max(26, Math.min(48, sz * 2)));
-      if (t.attack || t.volley) txt(t.volley ? 'FIRING' : 'CHARGING', pp.x, pp.y + sz + 24, 11, '#ff9868', 'center');
+      if (t.staggerT > 0 || t.attack || t.volley) txt(P.enemyCombat ? P.enemyCombat.label(t) : t.volley ? 'FIRING' : 'CHARGING', pp.x, pp.y + sz + 24, 11, t.staggerT > 0 ? '#80f7ff' : '#ff9868', 'center');
+      staggerArc(t, pp.x, pp.y, sz + 10);
     }
     hx.strokeStyle = 'rgba(255,74,106,.35)';
     hx.beginPath(); hx.moveTo(Input.mx, Input.my); hx.lineTo(pp.x, pp.y); hx.stroke();
@@ -6931,8 +7077,9 @@ function drawHUD(dt) {
         var lesson = e.tag === 'opening-target' || e.tag === 'opening-sentry';
         if (lesson) s2 = Math.max(s2, 20);
         bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
-        bracket(pp.x, pp.y, s2, e.attack || e.volley ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
-        if (!lesson && P.enemyCombat && (e.attack || e.volley || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.attack || e.volley ? '#ff9868' : '#91e8ff', 'center');
+        bracket(pp.x, pp.y, s2, e.staggerT > 0 ? '#80f7ff' : e.attack || e.volley ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
+        if (!lesson && P.enemyCombat && (e.staggerT > 0 || e.attack || e.volley || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.staggerT > 0 ? '#80f7ff' : e.attack || e.volley ? '#ff9868' : '#91e8ff', 'center');
+        staggerArc(e, pp.x, pp.y, s2 + 9);
         if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
         if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
       }
@@ -6966,6 +7113,15 @@ function drawHUD(dt) {
   var retCol = Input.lmb ? (nLock ? '#8fffc4' : '#ffd25e') : '#8fd9ff';
   hx.strokeStyle = 'rgba(255,255,255,.13)'; hx.lineWidth = 1;
   if (Input.lmb) { hx.beginPath(); hx.arc(Input.mx, Input.my, lockR, 0, TAU); hx.stroke(); }
+  // Filled segments make a loaded volley readable without reading a number.
+  if (Input.lmb || nLock) {
+    hx.lineWidth = 3;
+    for (var slot = 0; slot < Locks.max; slot++) {
+      var start = -Math.PI / 2 + slot * TAU / Locks.max;
+      hx.strokeStyle = slot < nLock ? nLock === Locks.max ? '#ffe0a0' : '#8fffc4' : 'rgba(143,217,255,.2)';
+      hx.beginPath(); hx.arc(Input.mx, Input.my, 30, start + .045, start + TAU / Locks.max - .045); hx.stroke();
+    }
+  }
   bracket(Input.mx, Input.my, 20, retCol, 2.5);
   // A compact confirmation stays readable even when a homing volley hits offscreen.
   if (Game.hitConfirmT > 0 || Game.killConfirmT > 0) {
@@ -6986,7 +7142,7 @@ function drawHUD(dt) {
   hx.moveTo(Input.mx - 7, Input.my); hx.lineTo(Input.mx + 7, Input.my);
   hx.moveTo(Input.mx, Input.my - 7); hx.lineTo(Input.mx, Input.my + 7);
   hx.stroke();
-  if (nLock) txt(nLock + '/' + Locks.max + ' · RELEASE', Input.mx + 28, Input.my - 24, 15, '#8fffc4');
+  if (nLock) txt(nLock + '/' + Locks.max + (nLock === Locks.max ? ' · FULL VOLLEY' : ' · RELEASE'), Input.mx + 38, Input.my - 30, 14, nLock === Locks.max ? '#ffe0a0' : '#8fffc4');
 
   if (P.opening.phase === 'dodge' && P.opening.shot && E.ebullets.indexOf(P.opening.shot) >= 0) {
     pp = project(P.opening.shot.m.position);
@@ -7026,6 +7182,9 @@ function drawHUD(dt) {
   }
   if (Game.combo > 1) {
     txt('×' + Game.combo + ' CHAIN', w - pad, gy + 66, 17, '#8fffc4', 'right');
+    hx.fillStyle = 'rgba(143,255,196,.18)'; hx.fillRect(w - pad - 120, gy + 71, 120, 3);
+    hx.fillStyle = Game.comboT < .7 ? '#ffcb7e' : '#8fffc4';
+    hx.fillRect(w - pad - 120, gy + 71, 120 * clamp(Game.comboT / 2.6, 0, 1), 3);
   }
 
   // ---------- episode + progress (top centre)

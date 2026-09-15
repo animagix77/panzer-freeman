@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const { flight } = require('./check-motion');
+const THREE = require('three');
 const distances = [];
 for (const fps of [30, 60, 120]) {
   const { P, context } = flight();
@@ -57,4 +58,44 @@ for (const fps of [30, 60, 120]) {
   assert.equal(P.fx.stats().trails, 0, 'cinematics should not emit flight trails');
 }
 assert(Math.max(...distances) - Math.min(...distances) < 1.2, 'visible tail length should agree across 30/60/120 fps');
-console.log('VFX checks passed: articulated wingtip attachment, bounded geometry/lights, 30/60/120 fps trail length, fade, cinematic and teleport resets.');
+// Repeated explosions must reuse geometry, cool into smoke, then fully clean up.
+{
+  const { P, context } = flight();
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/p4c_effects.js'), 'utf8'), context);
+  P.scene.fog = new THREE.Fog(0x80909a, 100, 640);
+  const mesh = P.scene.children.find(o => o.name === 'explosion-embers');
+  const geometry = mesh.geometry, storage = geometry.attributes.position.array;
+  const sceneCount = P.scene.children.length;
+  P.fx.burst(new P.V3(0, 20, 120), 1, 0x67ddff, true);
+  assert.equal(P.fx.stats().sparks, 0, 'ordinary laser hits should not fill the screen with smoke');
+  for (let i = 0; i < 80; i++) P.fx.burst(new P.V3(i % 5, 20, 120), 4, 0xff9944, false);
+  assert(P.fx.stats().sparks <= 256 && P.fx.stats().smoke <= 18, 'dense combat keeps its fixed afterglow budget');
+  P.fx.update(.2);
+  assert(mesh.visible && geometry.attributes.color.array.some(n => n > .1), 'explosions throw bright radial streaks');
+  assert(P.scene.children.filter(o => o.name === 'explosion-smoke').some(o => o.visible && o.material.opacity > .1),
+    'smoke blooms after ignition');
+  assert.equal(mesh.geometry, geometry); assert.equal(geometry.attributes.position.array, storage);
+  assert.equal(P.scene.children.length, sceneCount, 'dense explosions allocate no extra scene objects');
+  assert(storage.every(Number.isFinite));
+  P.fx.update(2);
+  assert.equal(P.fx.stats().sparks, 0); assert.equal(P.fx.stats().smoke, 0); assert(!mesh.visible);
+  P.fx.burst(new P.V3(0, 20, 1000), 4, 0xff9944, false); P.fx.update(.1);
+  assert(!mesh.visible, 'far-away sparks disappear into the same fog as enemies');
+  assert(P.scene.children.filter(o => o.name === 'explosion-smoke').every(o => o.material.opacity === 0 || !o.visible));
+  const farBurst = P.scene.children.find(o => o.isGroup && o.visible && o.position.z === 1000);
+  assert(farBurst && farBurst.children.filter(o => o.isMesh).every(o => o.material.opacity === 0),
+    'additive shock rings must not leave fog-colored light beyond far fog');
+  P.fx.reset();
+  assert.equal(P.fx.stats().sparks, 0); assert.equal(P.fx.stats().smoke, 0);
+}
+const emberPositions = [];
+for (const fps of [30, 60, 120]) {
+  const { P, context } = flight();
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/p4c_effects.js'), 'utf8'), context);
+  P.fx.burst(new P.V3(0, 20, 120), 4, 0xff9944, false);
+  for (let i = 0; i < fps / 2; i++) P.fx.update(1 / fps);
+  const mesh = P.scene.children.find(o => o.name === 'explosion-embers');
+  emberPositions.push(new P.V3().fromBufferAttribute(mesh.geometry.attributes.position, 0));
+}
+assert(emberPositions.every(pos => pos.distanceTo(emberPositions[0]) < .0001), 'spark drag and gravity agree across refresh rates');
+console.log('VFX checks passed: articulated trails and explosion afterglow, fixed geometry/light budgets, fog, decay/reset, and 30/60/120 fps motion.');

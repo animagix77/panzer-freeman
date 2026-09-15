@@ -203,6 +203,12 @@ function targetHealth(t, x, y, width) {
   hx.fillRect(x - width / 2, y, width * clamp(t.hp / t.maxHp, 0, 1), 3);
 }
 
+function staggerArc(target, x, y, radius) {
+  if (!(target.staggerT > 0)) return;
+  hx.save(); hx.strokeStyle = '#80f7ff'; hx.lineWidth = 2;
+  hx.beginPath(); hx.arc(x, y, radius, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(target.staggerT / (P.enemyCombat.staggerDuration || 1.8), 0, 1));
+  hx.stroke(); hx.restore();
+}
 function drawHUD(dt) {
   var w = HUD.w, h = HUD.h;
   hx.clearRect(0, 0, w, h);
@@ -238,10 +244,11 @@ function drawHUD(dt) {
     for (var q = 0; q < i; q++) if (Locks.list[q] === t) dup++;
     var sz = clamp(1400 / Math.max(20, pp.depth), 11, 60) + dup * 5;
     bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
-    bracket(pp.x, pp.y, sz, t.attack || t.volley ? '#ff9868' : '#8fffc4', 2.5);
+    bracket(pp.x, pp.y, sz, t.staggerT > 0 ? '#80f7ff' : t.attack || t.volley ? '#ff9868' : '#8fffc4', 2.5);
     if (dup === 0) {
       targetHealth(t, pp.x, pp.y + sz + 6, Math.max(26, Math.min(48, sz * 2)));
-      if (t.attack || t.volley) txt(t.volley ? 'FIRING' : 'CHARGING', pp.x, pp.y + sz + 24, 11, '#ff9868', 'center');
+      if (t.staggerT > 0 || t.attack || t.volley) txt(P.enemyCombat ? P.enemyCombat.label(t) : t.volley ? 'FIRING' : 'CHARGING', pp.x, pp.y + sz + 24, 11, t.staggerT > 0 ? '#80f7ff' : '#ff9868', 'center');
+      staggerArc(t, pp.x, pp.y, sz + 10);
     }
     hx.strokeStyle = 'rgba(255,74,106,.35)';
     hx.beginPath(); hx.moveTo(Input.mx, Input.my); hx.lineTo(pp.x, pp.y); hx.stroke();
@@ -262,8 +269,9 @@ function drawHUD(dt) {
         var lesson = e.tag === 'opening-target' || e.tag === 'opening-sentry';
         if (lesson) s2 = Math.max(s2, 20);
         bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
-        bracket(pp.x, pp.y, s2, e.attack || e.volley ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
-        if (!lesson && P.enemyCombat && (e.attack || e.volley || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.attack || e.volley ? '#ff9868' : '#91e8ff', 'center');
+        bracket(pp.x, pp.y, s2, e.staggerT > 0 ? '#80f7ff' : e.attack || e.volley ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
+        if (!lesson && P.enemyCombat && (e.staggerT > 0 || e.attack || e.volley || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.staggerT > 0 ? '#80f7ff' : e.attack || e.volley ? '#ff9868' : '#91e8ff', 'center');
+        staggerArc(e, pp.x, pp.y, s2 + 9);
         if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
         if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
       }
@@ -297,6 +305,15 @@ function drawHUD(dt) {
   var retCol = Input.lmb ? (nLock ? '#8fffc4' : '#ffd25e') : '#8fd9ff';
   hx.strokeStyle = 'rgba(255,255,255,.13)'; hx.lineWidth = 1;
   if (Input.lmb) { hx.beginPath(); hx.arc(Input.mx, Input.my, lockR, 0, TAU); hx.stroke(); }
+  // Filled segments make a loaded volley readable without reading a number.
+  if (Input.lmb || nLock) {
+    hx.lineWidth = 3;
+    for (var slot = 0; slot < Locks.max; slot++) {
+      var start = -Math.PI / 2 + slot * TAU / Locks.max;
+      hx.strokeStyle = slot < nLock ? nLock === Locks.max ? '#ffe0a0' : '#8fffc4' : 'rgba(143,217,255,.2)';
+      hx.beginPath(); hx.arc(Input.mx, Input.my, 30, start + .045, start + TAU / Locks.max - .045); hx.stroke();
+    }
+  }
   bracket(Input.mx, Input.my, 20, retCol, 2.5);
   // A compact confirmation stays readable even when a homing volley hits offscreen.
   if (Game.hitConfirmT > 0 || Game.killConfirmT > 0) {
@@ -317,7 +334,7 @@ function drawHUD(dt) {
   hx.moveTo(Input.mx - 7, Input.my); hx.lineTo(Input.mx + 7, Input.my);
   hx.moveTo(Input.mx, Input.my - 7); hx.lineTo(Input.mx, Input.my + 7);
   hx.stroke();
-  if (nLock) txt(nLock + '/' + Locks.max + ' · RELEASE', Input.mx + 28, Input.my - 24, 15, '#8fffc4');
+  if (nLock) txt(nLock + '/' + Locks.max + (nLock === Locks.max ? ' · FULL VOLLEY' : ' · RELEASE'), Input.mx + 38, Input.my - 30, 14, nLock === Locks.max ? '#ffe0a0' : '#8fffc4');
 
   if (P.opening.phase === 'dodge' && P.opening.shot && E.ebullets.indexOf(P.opening.shot) >= 0) {
     pp = project(P.opening.shot.m.position);
@@ -357,6 +374,9 @@ function drawHUD(dt) {
   }
   if (Game.combo > 1) {
     txt('×' + Game.combo + ' CHAIN', w - pad, gy + 66, 17, '#8fffc4', 'right');
+    hx.fillStyle = 'rgba(143,255,196,.18)'; hx.fillRect(w - pad - 120, gy + 71, 120, 3);
+    hx.fillStyle = Game.comboT < .7 ? '#ffcb7e' : '#8fffc4';
+    hx.fillRect(w - pad - 120, gy + 71, 120 * clamp(Game.comboT / 2.6, 0, 1), 3);
   }
 
   // ---------- episode + progress (top centre)

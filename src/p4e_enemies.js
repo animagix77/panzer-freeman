@@ -4,6 +4,9 @@
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var ringGeo = new THREE.TorusGeometry(1, .09, 4, 20);
 var flightDirection = new P.V3(), poseTarget = new THREE.Quaternion(), flightPose = new THREE.Quaternion();
+var breakPressure = { turret: 2, carrier: 2, sentinel: 2, bomber: 3 };
+var staggerDuration = 1.8, chargeTipShown = false;
+function warningColor(e) { return e.type === 'turret' ? 0xff5774 : e.type === 'ray' ? 0xffc65c : 0xff814f; }
 var profiles = {
   wasp: { label: 'WASP', windup: .85, count: 2, interval: .18, arc: .035, damage: 1.5 },
   ray: { label: 'SKIMMER', windup: 1.1, count: 3, interval: .24, sweep: 28, arc: 0, damage: 1.7 },
@@ -40,9 +43,11 @@ function combatCap() { return P.world.EPISODES[Game.epIndex].id === 'boss' ? 6 :
 function canAdd(n) { return activeCount() + n <= combatCap() && E.enemies.length + n <= 28; }
 P.enemyCombat = {
   profiles: profiles,
+  staggerDuration: staggerDuration,
   activeCount: activeCount,
   prepare: function (e) {
     e.shieldDown = 0; e.attack = null; e.volley = null; e.arrival = null; e.charge = 0; e.deployed = false;
+    e.staggerT = 0; e.breakRewarded = false;
     e.visibleAge = 0;
     if (e.type !== 'turret' && e.type !== 'mine' && !e.g.userData.beacon) {
       var beacon = new THREE.Sprite(new THREE.SpriteMaterial({map:beaconMap,color:0xffac72,transparent:true,opacity:0,depthWrite:false,fog:false,blending:THREE.AdditiveBlending}));
@@ -57,7 +62,7 @@ P.enemyCombat = {
       e.g.add(ring); e.g.userData.warning = ring;
     }
     e.g.userData.warning.visible = false;
-    e.g.userData.warning.material.color.setHex(e.type === 'turret' ? 0xff5774 : e.type === 'ray' ? 0xffc65c : 0xff814f);
+    e.g.userData.warning.material.color.setHex(warningColor(e));
     if (e.g.userData.shield) { e.g.userData.shield.visible = true; e.g.userData.shield.material.opacity = .27; }
   },
   beginArrival: function (e) {
@@ -112,7 +117,7 @@ P.enemyCombat = {
     e.poseQuaternion.copy(e.g.quaternion); e.poseBlend -= dt;
   },
   depart: function (e, dt) {
-    e.attack = null; e.volley = null; e.charge = 0; e.bank = 0;
+    e.attack = null; e.volley = null; e.charge = 0; e.bank = 0; e.staggerT = 0;
     if (e.g.userData.warning) e.g.userData.warning.visible = false;
     // Passed ships peel away into the fog instead of resuming pursuit when the
     // player brakes. Ground emplacements stay planted until they leave view.
@@ -132,12 +137,38 @@ P.enemyCombat = {
   damage: function (e, damage) {
     if (e.type === 'sentinel' && e.shieldDown <= 0 && !flanked(e)) {
       if (P.fx) P.fx.burst(e.pos, 1.1, 0x67dcff, true);
-      return damage * .25;
+      damage *= .25;
+    }
+    if (e.staggerT > 0) return damage * 1.5;
+    if (e.attack && breakPressure[e.type] && damage > 0 && Game.state === 'playing' && !Game.ending &&
+        !e.arrival && !e.retired && !e.openingOffset && !(P.opening && P.opening.active)) {
+      // Pressure counts weapon damage after shields, before carrier flank bonuses.
+      // Each new charge starts fresh, so ordinary chip damage cannot bank a break.
+      e.attack.pressure = (e.attack.pressure || 0) + damage;
+      if (e.attack.pressure >= breakPressure[e.type]) {
+        e.attack = null; e.volley = null; e.charge = 0; e.staggerT = staggerDuration;
+        e.fireT = Math.max(e.fireT, .8);
+        if (e.type === 'sentinel') {
+          e.shieldDown = staggerDuration;
+          if (e.g.userData.shield) e.g.userData.shield.visible = false;
+        }
+        var cue = e.g.userData.warning;
+        cue.visible = true; cue.material.color.setHex(0x73fff0); cue.material.opacity = .9;
+        cue.scale.setScalar(e.def.radius / e.bs * 1.35);
+        if (!e.breakRewarded) {
+          e.breakRewarded = true;
+          Player.energy = Math.min(100, (Player.energy === undefined ? 100 : Player.energy) + 15);
+          P.toast('CHARGE BROKEN · +15 WING POWER · +50% DAMAGE');
+        } else P.toast('CHARGE BROKEN · +50% DAMAGE');
+        if (P.fx) P.fx.burst(e.pos, 2.1, 0x73fff0, true);
+        P.Audio_.sZap(e.pos);
+      }
     }
     return damage;
   },
   label: function (e) {
     if (e.arrival) return 'INCOMING';
+    if (e.staggerT > 0) return 'STAGGERED · +50% DAMAGE';
     if (e.attack) return 'CHARGING';
     if (e.volley) return 'FIRING';
     if (e.type === 'sentinel') return e.shieldDown > 0 || flanked(e) ? 'SHIELD OPEN' : 'SHIELD · FLANK';
@@ -154,6 +185,14 @@ P.enemyCombat = {
     if (e.g.userData.shield) {
       e.g.userData.shield.visible = e.shieldDown <= 0;
       e.g.userData.shield.material.opacity = flanked(e) ? .10 : .27;
+    }
+    if (e.staggerT > 0) {
+      e.staggerT = Math.max(0, e.staggerT - dt);
+      var staggerCue = e.g.userData.warning;
+      staggerCue.visible = e.staggerT > 0;
+      staggerCue.material.opacity = .25 + .5 * e.staggerT / staggerDuration;
+      staggerCue.scale.setScalar(e.def.radius / e.bs * (1.35 + Math.sin(e.t * 14) * .08));
+      return;
     }
     // Carriers bring two real escorts into the fight, once, within the shared cap.
     if (e.type === 'carrier' && !e.deployed && e.t > 5 && distance < 240 && canAdd(2) && !(P.opening && P.opening.active)) {
@@ -221,6 +260,10 @@ P.enemyCombat = {
     }
     if (windingUp < 3) {
       e.attack = { left: p.windup, aim: Player.pos.clone(), railZ: Game.railZ };
+      e.g.userData.warning.material.color.setHex(warningColor(e));
+      if (breakPressure[e.type] && !chargeTipShown && !(P.opening && P.opening.active)) {
+        chargeTipShown = true; P.toast('CHARGE BREAK · HIT CHARGING HEAVIES TO INTERRUPT');
+      }
     }
   }
 };
@@ -240,7 +283,7 @@ function make(type, x, y, z, hold) {
   return e;
 }
 P.encounters = {
-  reset: function () { timer = 0; sequence = 0; episode = -1; },
+  reset: function () { timer = 0; sequence = 0; episode = -1; chargeTipShown = false; },
   update: function (dt) {
     if (Game.state !== 'playing' || Game.ending || Game.cinematic || (P.opening && P.opening.active)) return;
     if (episode !== Game.epIndex) { episode = Game.epIndex; timer = .7; sequence = 0; }

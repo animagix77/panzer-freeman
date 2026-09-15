@@ -3,7 +3,7 @@
 <style>*{box-sizing:border-box}body{margin:0;background:#100c19;color:#e0edf0;font:13px system-ui}iframe{width:100%;height:calc(100vh - 120px);border:0;display:block}footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;min-height:120px}button,select,a{background:#253246;color:#e0edf0;border:1px solid #526176;padding:8px;border-radius:4px}#status{font-size:11px;color:#9cead8}</style>
 <iframe id="game" title="Game preview"></iframe>
 <footer><select id="scene" aria-label="Preview scene"><option value="0">Split canyon</option><option value="1">Drowned Choir</option><option value="2">Ember Foundry</option><option value="3">Mountain Citadel</option><option value="4">Chronos arena</option></select>
-<button id="gauntlet">Run gauntlet</button><button id="arrivals">Distant squadron</button><button id="view">Rotate view</button><button id="orbs">Nearby orbs</button><button id="hostiles">New enemies</button><button id="volley">Laser volley</button><button id="boom">Explosion</button><button id="boost">Boost</button><button id="roll">Roll</button><button id="pause">Pause</button><button id="sound">Sound samples</button><a href="../index.html">Play</a><span id="status">Loading…</span></footer>
+<button id="gauntlet">Run gauntlet</button><button id="break">Charge break</button><button id="arrivals">Distant squadron</button><button id="view">Rotate view</button><button id="orbs">Nearby orbs</button><button id="hostiles">New enemies</button><button id="volley">Laser volley</button><button id="boom">Explosion</button><button id="boost">Boost</button><button id="roll">Roll</button><button id="pause">Pause</button><button id="sound">Sound samples</button><a href="../index.html">Play</a><span id="status">Loading…</span></footer>
 <script>
 let P,ready=false,boostUntil=0,run=null;
 const errors=[];
@@ -23,6 +23,16 @@ function scene(){
  frame.contentDocument.getElementById('hud').style.display='block';
  status.textContent='Live production scene · invulnerable preview';
 }
+document.getElementById('break').onclick=()=>{
+ if(!P)return;P.entities.reset();P.fx.reset();P.Game.state='playing';P.Player.energy=45;
+ P.Player.camYaw=P.Player.camYawTarget=P.Player.viewIndex=0;
+ const e=P.entities.spawnEnemy('bomber',{hpMul:3,entry:false,
+  pos:new P.V3(P.Player.x,P.Player.pos.y+12,P.Game.railZ+110),
+  formation:new P.V3(P.Player.x,P.Player.pos.y+12-P.Player.railY,110),holdFor:15});
+ e.fireT=0;P.entities.updateEnemies(1/60);P.entities.hurtEnemy(e,3);
+ P.Locks.list=[e,e,e];P.Input.ndx=P.Input.ndy=0;
+ status.textContent='Charge break · '+P.enemyCombat.label(e)+' · wing power '+P.Player.energy.toFixed(0);
+};
 document.getElementById('arrivals').onclick=()=>{if(!P)return;P.entities.reset();P.Game.state='playing';document.getElementById('pause').textContent='Pause';['wasp','sentinel','bomber'].forEach((type,i)=>P.entities.spawnEnemy(type,{pos:new P.V3((i-1)*35,P.Player.pos.y+12,P.Game.railZ+140),formation:new P.V3((i-1)*35,12,140),holdFor:12,entry:true}));};
 document.getElementById('view').onclick=()=>{if(P){P.Player.viewIndex=(P.Player.viewIndex+1)%4;P.Player.camYawTarget=P.Player.viewIndex*Math.PI/2;}};
 document.getElementById('orbs').onclick=()=>{if(P)[-15,15].forEach(x=>P.entities.spawnOrb(P.Player.pos.clone().add(new P.V3(x,0,5)),true));};
