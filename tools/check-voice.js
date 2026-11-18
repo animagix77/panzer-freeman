@@ -4,13 +4,18 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../src/p1d_voice.js'), 'utf8');
-function setup(files = {}) {
-  const audio = [], ducks = [], nodes = [];
+function setup(files = {}, deferPlay = false) {
+  const audio = [], ducks = [], nodes = [], pendingPlays = [];
   const node = () => { const n = { hidden: true, children: [], classList: { add() {}, remove() {} }, setAttribute() {}, appendChild(child) { this.children.push(child); }, textContent: '' }; nodes.push(n); return n; };
   const document = { hidden: false, head: node(), body: node(), getElementById: () => null, createElement: node };
   class FakeAudio {
     constructor(url) { this.src = url; this.paused = true; this.duration = 5; this.playCalls = 0; audio.push(this); }
-    play() { this.paused = false; this.playCalls++; }
+    set src(value) { this.url = value; this.paused = true; }
+    get src() { return this.url; }
+    play() {
+      this.paused = false; this.playCalls++;
+      if (deferPlay) return { then(resolve, reject) { pendingPlays.push({ resolve, reject }); } };
+    }
     pause() { this.paused = true; }
     removeAttribute() { this.src = ''; }
   }
@@ -18,7 +23,7 @@ function setup(files = {}) {
     sound: { settings: { effects: .7, voice: 1 } }, world: { EPISODES: ['ep1','ep2','foundry','ep3','boss'].map(id => ({id})) } };
   vm.runInNewContext(source, { window: { __PF: P, __PF_VOICE_FILES: files, Audio: FakeAudio, document }, console });
   function tick(seconds) { for (let i = 0; i < Math.ceil(seconds * 60); i++) P.voice.update(1 / 60); }
-  return { P, audio, ducks, document, tick, nodes };
+  return { P, audio, ducks, document, tick, nodes, pendingPlays };
 }
 {
   const { P, audio, tick } = setup();
@@ -84,6 +89,30 @@ function setup(files = {}) {
   assert(!caption.hidden && caption.children[1].textContent.length > 0, 'voice zero retains captions');
   P.sound.settings.voice = 1; P.Audio_.muted = true; tick(.01); assert(audio[0].muted, 'master mute wins over voice volume');
   P.Audio_.muted = false; tick(.01); assert(!audio[0].muted, 'voice returns after global unmute');
+}
+// Safari restricts playback to the player's launch gesture. Delayed callbacks
+// from one recording must never stop the next recording on that same element.
+{
+  const { P, audio, pendingPlays, tick } = setup({ counter: 'counter.mp3', citadel: 'citadel.mp3', victory: 'victory.mp3' }, true);
+  P.voice.arm();
+  assert.equal(audio.length, 1); assert(audio[0].src.startsWith('data:audio/wav;'));
+  pendingPlays[0].resolve(); P.voice.arm(); assert.equal(audio[0].playCalls, 1);
+  P.voice.reset(); P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
+  P.voice.react('counter'); tick(.02);
+  const oldEnd = audio[0].onended, oldError = audio[0].onerror;
+  assert.equal(audio[0].src, 'counter.mp3');
+  P.Game.epIndex = 3; tick(4.8);
+  oldEnd(); oldError(); pendingPlays[1].reject(new Error('obsolete'));
+  assert.equal(audio.length, 1); assert.equal(audio[0].src, 'citadel.mp3');
+  assert(!audio[0].paused && P.voice.state().hasAudio, 'an old error cannot stop the new sector clip');
+  P.Game.state = 'win'; tick(.6); pendingPlays[2].resolve();
+  assert.equal(audio[0].src, 'victory.mp3'); assert(!audio[0].paused, 'an old successful play cannot pause victory');
+  P.Game.state = 'paused'; tick(.2); P.Game.state = 'win'; tick(.02);
+  pendingPlays[3].reject({ name: 'AbortError' }); tick(.02);
+  assert(P.voice.state().hasAudio && !audio[0].paused, 'a late pause interruption retries the same cue after resuming');
+  assert.equal(audio.length, 1); assert.equal(audio[0].playCalls, 5);
+  pendingPlays[4].resolve();
+  const empty = setup(); empty.P.voice.arm(); assert.equal(empty.audio.length, 0, 'caption-only builds never prime an audio element');
 }
 // A direct salvage launch collects the trail during the sector introduction.
 // The rider makes one pickup remark once the briefing has had room to land.

@@ -749,6 +749,7 @@ function startGame() {
   P.armAudio();
   P.playMusic('title');
   resetGame();
+  if (P.voice) P.voice.arm();
   Game.state = 'intro';
   Game.cinematic = true;
   introT = 0;

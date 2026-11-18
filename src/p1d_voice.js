@@ -18,6 +18,7 @@ var sectorCue = { ep1: 'opening', ep2: 'salvage', foundry: 'foundry', ep3: 'cita
 var seen = {}, active = null, pending = null, duck = 0, lastSector = null;
 var reactionPriority = { pickup: 1, streak: 2, chargebreak: 3, counter: 3, gates: 4 };
 var reaction = null, quietTime = 0;
+var narrator = null, unlocked = false;
 var document = window.document, caption = null, captionText = null, credit = null, wrap = null;
 if (document && document.createElement) {
   wrap = document.getElementById('wrap') || document.body;
@@ -33,12 +34,24 @@ if (document && document.createElement) {
 }
 function stop() {
   if (active && active.media) {
-    active.media.pause(); active.media.onended = active.media.onerror = null;
+    active.media.onended = active.media.onerror = null; active.media.pause();
     if (active.media.removeAttribute) active.media.removeAttribute('src');
   }
   active = null;
   if (caption) caption.hidden = true;
   if (wrap) wrap.classList.remove('voice-speaking');
+}
+function arm() {
+  if (unlocked || active || !P.voice.hasAudio || typeof window.Audio !== 'function') return;
+  // Safari grants delayed playback to the media element used in the launch
+  // gesture. Play 16 ms of silent PCM on that element before any timed line.
+  if (!narrator) narrator = new window.Audio();
+  narrator.src = 'data:audio/wav;base64,UklGRiQBAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQABAAAA' + 'AAAA'.repeat(85);
+  try {
+    var result = narrator.play();
+    if (result && result.then) result.then(function () { unlocked = true; }, function () {});
+    else unlocked = true;
+  } catch (e) {}
 }
 function start(id) {
   stop();
@@ -46,12 +59,12 @@ function start(id) {
     media: null, playPending: false, failed: false, endAt: null };
   // Missing clips deliberately remain caption-only; no placeholder audio URL.
   if (files[id] && typeof window.Audio === 'function') {
-    cue.media = new window.Audio(files[id]); cue.media.preload = 'metadata';
+    cue.media = narrator || new window.Audio(); cue.media.preload = 'metadata'; cue.media.src = files[id];
     cue.media.onended = function () {
-      cue.media.pause();
-      if (active === cue) cue.endAt = Math.max(cue.duration, cue.elapsed + .65);
+      if (active !== cue) return;
+      cue.media.pause(); cue.endAt = Math.max(cue.duration, cue.elapsed + .65);
     };
-    cue.media.onerror = function () { cue.failed = true; cue.media.pause(); };
+    cue.media.onerror = function () { if (active === cue) { cue.failed = true; cue.media.pause(); } };
   }
   if (caption) {
     captionText.textContent = text;
@@ -61,17 +74,20 @@ function start(id) {
 }
 function play(cue) {
   if (!cue.media || cue.failed || cue.playPending || !cue.media.paused || cue.endAt !== null) return;
-  cue.playPending = true;
+  cue.playPending = true; cue.interrupted = false;
   try {
     var result = cue.media.play();
     if (result && result.then) result.then(function () {
       cue.playPending = false;
-      if (active !== cue || (P.Game.state !== 'playing' && P.Game.state !== 'win') || (document && document.hidden)) cue.media.pause();
-    }, function () {
+      if (active !== cue) return;
+      if ((P.Game.state !== 'playing' && P.Game.state !== 'win') || (document && document.hidden)) cue.media.pause();
+    }, function (error) {
       cue.playPending = false;
+      if (active !== cue) return;
       // Pausing may abort a pending play promise: retry that clip on resume,
       // but keep genuine autoplay/decoding failures caption-only.
-      cue.failed = active === cue && (P.Game.state === 'playing' || P.Game.state === 'win') && !(document && document.hidden);
+      var interrupted = cue.interrupted && error && error.name === 'AbortError';
+      cue.failed = !interrupted && (P.Game.state === 'playing' || P.Game.state === 'win') && !(document && document.hidden);
       cue.media.pause();
     });
     else cue.playPending = false;
@@ -79,6 +95,7 @@ function play(cue) {
 }
 P.voice = {
   lines: lines,
+  arm: arm,
   hasAudio: Object.keys(lines).some(function (id) { return !!files[id]; }),
   isSpeaking: function () { return !!active; },
   react: function (id) {
@@ -134,7 +151,8 @@ P.voice = {
         // a zero voice setting is silent while the captions keep their timing.
         media.muted = !!A.muted || voiceLevel === 0;
         try { media.volume = .88 * voiceLevel; } catch (e) {}
-        if (!running) media.pause(); else play(cue);
+        if (!running) { if (cue.playPending) cue.interrupted = true; media.pause(); }
+        else play(cue);
       }
       if (running) {
         cue.elapsed += dt;
@@ -154,6 +172,7 @@ P.voice = {
 };
 if (document && document.addEventListener) document.addEventListener('visibilitychange', function () {
   if (document.hidden && active) {
+    if (active.playPending) active.interrupted = true;
     if (active.media) active.media.pause();
     if (caption) caption.hidden = true;
   }
