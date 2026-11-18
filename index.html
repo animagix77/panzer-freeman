@@ -494,7 +494,7 @@
 </script>
 <script>__PFLOAD.set(0.30, 'LOADING THE RENDERER');</script>
 <script>
-window.__PF_VOICE_FILES = {"opening":"sound/voice-opening.mp3","salvage":"sound/voice-salvage.mp3","foundry":"sound/voice-foundry.mp3","citadel":"sound/voice-citadel.mp3","victory":"sound/voice-victory.mp3"};
+window.__PF_VOICE_FILES = {"opening":"sound/voice-opening.mp3","salvage":"sound/voice-salvage.mp3","foundry":"sound/voice-foundry.mp3","citadel":"sound/voice-citadel.mp3","victory":"sound/voice-victory.mp3","counter":"sound/voice-counter.mp3","chargebreak":"sound/voice-chargebreak.mp3","gates":"sound/voice-gates.mp3","pickup":"sound/voice-pickup.mp3","streak":"sound/voice-streak.mp3"};
 /* =========================================================================
    PANZER FREEMAN — CHRONOS REQUIEM
    A low-poly Sega-Saturn-flavoured rail shooter.
@@ -1346,10 +1346,17 @@ var lines = {
   salvage: 'Five lights in the water. Someone went to a lot of trouble to lose those years.',
   foundry: 'Three carriers. The trick is getting them to show you the soft side.',
   citadel: 'The castle had stairs, once. I prefer the dragon.',
-  victory: 'I came all this way for another year. I think I will spend it flying.'
+  victory: 'I came all this way for another year. I think I will spend it flying.',
+  counter: 'Return to sender. No forwarding address.',
+  chargebreak: 'He had a whole speech prepared. Then I shot the microphone.',
+  gates: 'Three gates. Not one of them validated parking.',
+  pickup: 'That was my left knee in nineteen eighty-six. I would know it anywhere.',
+  streak: 'At my age, a hot streak usually means the electric blanket is on.'
 };
 var sectorCue = { ep1: 'opening', ep2: 'salvage', foundry: 'foundry', ep3: 'citadel' };
 var seen = {}, active = null, pending = null, duck = 0, lastSector = null;
+var reactionPriority = { pickup: 1, streak: 2, chargebreak: 3, counter: 3, gates: 4 };
+var reaction = null, quietTime = 0;
 var document = window.document, caption = null, captionText = null, credit = null, wrap = null;
 if (document && document.createElement) {
   wrap = document.getElementById('wrap') || document.body;
@@ -1412,26 +1419,49 @@ function play(cue) {
 P.voice = {
   lines: lines,
   hasAudio: Object.keys(lines).some(function (id) { return !!files[id]; }),
-  reset: function () { stop(); pending = null; seen = {}; duck = 0; lastSector = null; },
+  isSpeaking: function () { return !!active; },
+  react: function (id) {
+    if (!reactionPriority[id] || seen[id] || P.Game.state !== 'playing' ||
+        P.Game.ending || P.Game.cinematic || (document && document.hidden)) return;
+    // A single short-lived reaction can wait for the current line. A trick
+    // shot takes precedence over an orb picked up by the same volley.
+    if (!reaction || reactionPriority[id] >= reactionPriority[reaction.id]) {
+      var sectorSpeaking = pending || (active && !reactionPriority[active.id]);
+      reaction = { id: id, remaining: sectorSpeaking ? 16 : 8 };
+    }
+  },
+  reset: function () {
+    stop(); pending = reaction = null; seen = {}; duck = quietTime = 0; lastSector = null;
+  },
   update: function (dt) {
     if (!P.Game) return;
     var state = P.Game.state, visible = !document || !document.hidden;
     var running = visible && (state === 'playing' || state === 'win');
-    if (state === 'title' || state === 'over') { stop(); pending = null; }
+    if (state === 'title' || state === 'over') { stop(); pending = reaction = null; }
     var ep = P.world && P.world.EPISODES[P.Game.epIndex];
     if (state === 'playing' && ep && lastSector !== ep.id) {
-      if (lastSector !== null) { stop(); pending = null; }
+      if (lastSector !== null) { stop(); pending = reaction = null; }
       lastSector = ep.id;
     }
     var id = state === 'win' ? 'victory' : state === 'playing' && ep ? sectorCue[ep.id] : null;
     if (id && !seen[id]) {
       seen[id] = true; stop(); pending = { id: id, delay: id === 'victory' ? .5 : 4.6 };
     }
+    if (state === 'win' || (P.Game.ending && state === 'playing')) reaction = null;
+    if (running) quietTime = Math.max(0, quietTime - dt);
+    var cardVisible = P.el && P.el.card && P.el.card.classList.contains('on');
     if (running && pending) {
       pending.delay -= dt;
-      var cardVisible = P.el && P.el.card && P.el.card.classList.contains('on');
       if (pending.delay <= 0 && (pending.id === 'victory' || !cardVisible)) {
         var next = pending.id; pending = null; start(next);
+      }
+    }
+    if (running && reaction) {
+      reaction.remaining -= dt;
+      if (reaction.remaining <= 0) reaction = null;
+      else if (!pending && !active && !cardVisible && quietTime === 0) {
+        seen[reaction.id] = true;
+        start(reaction.id); reaction = null;
       }
     }
     if (active) {
@@ -1448,7 +1478,10 @@ P.voice = {
       if (running) {
         cue.elapsed += dt;
         var duration = media && !cue.failed ? Math.max(cue.duration, Number.isFinite(media.duration) ? media.duration + 1 : cue.duration + 6) : cue.duration;
-        if (cue.elapsed >= (cue.endAt === null ? duration : cue.endAt)) stop();
+        if (cue.elapsed >= (cue.endAt === null ? duration : cue.endAt)) {
+          quietTime = reactionPriority[cue.id] ? 6 : 2;
+          stop();
+        }
       }
     }
     var audible = running && active && active.media && !active.failed && !active.media.paused && !active.media.muted && voiceLevel > 0;
@@ -2895,9 +2928,7 @@ function buildDragon() {
   var wPrev = 0, wingV = 0;
   var effort = 0.25, bob = 0, bobV = 0, surge = 0, surgeV = 0;
   var pitchAim = 0, turn = 0, strokePitch = 0;
-  // maneuver dynamics: pitch and roll are sprung (they overshoot and settle
-  // instead of easing), and gLoad is the low-passed vertical acceleration —
-  // the "pull" you feel hauling out of a dive.
+  // Pitch and bank carry angular momentum through changes in direction.
   var pitchAimV = 0, rollV = 0, gLoad = 0, prevVyG = 0;
 
   // ---- tail: a lagging spring chain ------------------------------------
@@ -2907,7 +2938,7 @@ function buildDragon() {
   var TN = tailSegs.length;
   var tY = new Float32Array(TN), tVY = new Float32Array(TN);
   var tX = new Float32Array(TN), tVX = new Float32Array(TN);
-  var prevRootYaw = 0, prevBodyYaw = 0, prevBodyPitch = 0, prevBodyRoll = 0;
+  var prevRootYaw = 0, prevBodyYaw = 0, prevBodyPitch = 0;
 
   function sm(t) { return t * t * (3 - 2 * t); }
   // One flap, normalised 0..1. Begins and ends at 0 = wings held out level,
@@ -2941,7 +2972,7 @@ function buildDragon() {
     rider.rotation.set(0, 0, 0);
     tY.fill(0); tVY.fill(0); tX.fill(0); tVX.fill(0);
     prevRootYaw = root.rotation.y;
-    prevBodyYaw = prevBodyPitch = prevBodyRoll = 0;
+    prevBodyYaw = prevBodyPitch = 0;
     for (var wi = 0; wi < wJ.length; wi++) {
       for (var key in wJ[wi]) wJ[wi][key] = 0;
     }
@@ -2949,7 +2980,8 @@ function buildDragon() {
   };
 
   api.update = function (dt, t, st) {
-    turn = damp(turn, st.strafeX || 0, 6, dt);
+    var strafe = st.strafeX || 0;
+    turn = damp(turn, st.bankDemand === undefined ? strafe : st.bankDemand, 13, dt);
     var vy = st.vy || 0;
     var vyN = clamp(vy / 44, -1, 1);              // -1 diving .. +1 climbing
     var boost = st.boost || 0;
@@ -3004,7 +3036,7 @@ function buildDragon() {
     var rest = 0.20 - eN * 0.16;                  // gliding wings sit flatter
     var sweep = (1 - eN) * 0.17;                  // and sweep back
     var flutter = (1 - eN) * 0.014;               // airflow judder in a glide
-    var bank = turn * 0.07;
+    var bank = turn * 0.14;
 
     // stroke velocity, signed: negative on the downstroke (wing driving down)
     var wV = (w - wPrev) / Math.max(dt, 1e-4); wPrev = w;
@@ -3022,7 +3054,7 @@ function buildDragon() {
     var sweepT = sweep + diveN * 0.34;
 
     for (var wi = 0; wi < 2; wi++) {
-      var W = wi ? wR : wL, sgn = wi ? -1 : 1, J = wJ[wi];
+      var W = wi ? wR : wL, side = wi ? 1 : -1, J = wJ[wi];
 
       // the wing INSIDE a turn folds and sweeps back while the outer one
       // stretches — a bird steers by killing lift on one side, and the span
@@ -3032,14 +3064,14 @@ function buildDragon() {
       // (looking +Z) shows on screen-RIGHT — so the sign here is the reverse
       // of what the variable names suggest. strafeX>0 = turning screen-right
       // = fold the -X wing.
-      var tuck = Math.max(0, turn * sgn);
-      var extend = Math.max(0, turn * -sgn) * 0.20;
+      var tuck = Math.max(0, -turn * side);
+      var extend = Math.max(0, turn * side) * 0.20;
 
       // --- driven shoulder
       var flutterN = Math.sin(t * (wi ? 21.7 : 21.0)) * flutter;
-      W.rotation.z = sgn * (rest + w * amp) + bank + sgn * flutterN;
+      W.rotation.z = side * (rest + w * amp + flutterN) + bank;
       W.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06 + climbN * 0.09;
-      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * (sweepT + tuck * 0.12);
+      W.rotation.y = side * (-0.10 + w * 0.10 + sweepT + tuck * 0.28);
 
       // --- sprung elbow and wrist.  a'' = -k(a - target) - c*a'
       var eT = -fold * 0.65 + wingV * 0.018 - tuck * 0.30 + extend * 0.35 - diveN * 0.30;
@@ -3063,12 +3095,12 @@ function buildDragon() {
 
       // All folding goes through the joints' springs, with enough remaining
       // span to carry the dragon through the turn.
-      W.userData.elbow.rotation.y = sgn * J.e * 0.72;
+      W.userData.elbow.rotation.y = -side * J.e * 0.72;
       W.userData.elbow.rotation.x = J.e * 0.34;
-      W.userData.elbow.rotation.z = sgn * J.z;
-      W.userData.wrist.rotation.y = sgn * J.r * 0.85;
+      W.userData.elbow.rotation.z = side * J.z;
+      W.userData.wrist.rotation.y = -side * J.r * 0.85;
       W.userData.wrist.rotation.x = J.r * 0.30;
-      W.userData.wrist.rotation.z = sgn * J.rz;
+      W.userData.wrist.rotation.z = side * J.rz;
 
       // --- quasi-steady aerodynamic load on the membrane.
       // Lift on a thin sail goes as (relative airspeed)^2 times angle of attack.
@@ -3085,12 +3117,13 @@ function buildDragon() {
     // pushing over into one floats him up off the saddle line
     body.position.y = bob - gLoad * 0.30;
     body.position.z = surge;
-    // roll is a spring, not an ease — it overshoots a few degrees and settles,
-    // which is what a real roll input does
-    var rollT = turn * 0.42 + w * eN * 0.016;
-    rollV += ((rollT - body.rotation.z) * 26 - rollV * 7.5) * dt;
-    body.rotation.z += rollV * dt;
-    // nose up on the climb, nose down in the dive
+    // Exact critically damped spring step. Keeping angular velocity means a
+    // reversal rolls through level, while a held course eases out of the bank.
+    var rollT = turn * 0.74 + w * eN * 0.016;
+    var rollError = body.rotation.z - rollT, rollDecay = Math.exp(-13 * dt);
+    var rollSlope = rollV + 13 * rollError;
+    body.rotation.z = rollT + (rollError + rollSlope * dt) * rollDecay;
+    rollV = (rollV - 13 * rollSlope * dt) * rollDecay;
     // ---- legs: tucked hard when working, dangling loose in a glide --------
     // A bird pulls its feet up under power and lets them hang when it coasts;
     // pulling g swings them aft. Whole-group rotation — the joints are baked.
@@ -3101,12 +3134,15 @@ function buildDragon() {
       legs[li].rotation.x = damp(legs[li].rotation.x, legT, 5, dt);
     }
 
-    // pitch: sprung with mild overshoot, target steeper than before, and a
-    // banked turn drops the nose a touch (the coordinated-turn pitch coupling)
-    var pitchT = -vyN * 0.46 + body.rotation.z * body.rotation.z * 0.35;
-    pitchAimV += ((pitchT - pitchAim) * 20 - pitchAimV * 6.5) * dt;
-    pitchAim += pitchAimV * dt;
-    pitchAim = clamp(pitchAim, -0.62, 0.55);
+    // Wing incidence starts the pitch; the sustained pose follows the actual
+    // climb angle, which shallows under boost or when crossing the corridor.
+    var pathPitch = st.pathPitch === undefined ? Math.atan2(vy, 56) : st.pathPitch;
+    var pitchT = clamp(-pathPitch * 0.82 - (st.liftDemand || 0) * 0.24
+                       - body.rotation.z * body.rotation.z * 0.08, -0.80, 0.69);
+    var pitchError = pitchAim - pitchT, pitchDecay = Math.exp(-10 * dt);
+    var pitchSlope = pitchAimV + 10 * pitchError;
+    pitchAim = pitchT + (pitchError + pitchSlope * dt) * pitchDecay;
+    pitchAimV = (pitchAimV - 10 * pitchSlope * dt) * pitchDecay;
     strokePitch = damp(strokePitch, stroking ? -0.025 : 0.01, 8, dt);
     body.rotation.x = pitchAim + strokePitch;
     // no body yaw: the camera pans the turn, the dragon holds its line
@@ -3131,12 +3167,12 @@ function buildDragon() {
     var dRoot  = P.angDelta(prevRootYaw, root.rotation.y);   prevRootYaw  = root.rotation.y;
     var dYaw   = body.rotation.y - prevBodyYaw;              prevBodyYaw  = body.rotation.y;
     var dPitch = body.rotation.x - prevBodyPitch;            prevBodyPitch = body.rotation.x;
-    var dRoll  = body.rotation.z - prevBodyRoll;             prevBodyRoll = body.rotation.z;
 
     // rotation handed down the chain, plus drag from sideways/vertical travel
-    var wY = clamp(dRoot + dYaw, -0.2, 0.2) + turn * dt * 0.35;
+    var wY = clamp(dRoot + dYaw, -0.2, 0.2) + strafe * dt * 0.35;
     var wX = clamp(dPitch, -0.2, 0.2) + vyN * dt * 0.45 - bobV * dt * 0.05;
     var K = 48, D = 8, INER = 0.75;
+    var tailTwist = -clamp(rollV * 0.055, -0.12, 0.12);
 
     for (var j = 0; j < TN; j++) {
       var oy = tY[j], ox = tX[j];
@@ -3155,7 +3191,8 @@ function buildDragon() {
       var amp = (0.030 + eN * 0.045) * (0.55 + j / TN);   // freer toward the tip
       tailSegs[j].rotation.y = tY[j] + wav1 * amp;
       tailSegs[j].rotation.x = tX[j] + wav2 * amp * 0.7 + 0.014;  // hangs a little
-      tailSegs[j].rotation.z = -dRoll * 0.5 * (1 - j / TN);       // lags the roll too
+      tailSegs[j].rotation.z = tailTwist;
+      tailTwist *= 0.63;
       // Include the inertial counter-rotation in the inherited delta. Omitting
       // it applied the body's full turn at every joint and curled the whole tail.
       wY += tY[j] - oy;
@@ -5103,18 +5140,32 @@ var lasers = [], bullets = [], ebullets = [], shards = [], orbs = [], rings = []
 
 var SHARD_MATS = {
   hot:   G(0xffd25e), fire: G(0xff7a2a), smoke: G(0x5a4a5a),
-  cyan:  G(0x8ffff0), violet: G(0xb98cff), white: G(0xfff6dd)
+  cyan:  G(0x35efff), violet: G(0x9648ff), white: G(0xfff6dd),
+  pink: G(0xff287e), lime: G(0xb3ff39), blue: G(0x3077ff)
+};
+var blastColors = {
+  wasp: [SHARD_MATS.hot, SHARD_MATS.pink, SHARD_MATS.fire],
+  ray: [SHARD_MATS.cyan, SHARD_MATS.lime, SHARD_MATS.white],
+  chaser: [SHARD_MATS.pink, SHARD_MATS.violet, SHARD_MATS.white],
+  sentinel: [SHARD_MATS.cyan, SHARD_MATS.blue, SHARD_MATS.violet],
+  carrier: [SHARD_MATS.fire, SHARD_MATS.hot, SHARD_MATS.white],
+  turret: [SHARD_MATS.fire, SHARD_MATS.pink, SHARD_MATS.hot],
+  bomber: [SHARD_MATS.violet, SHARD_MATS.pink, SHARD_MATS.fire],
+  mine: [SHARD_MATS.lime, SHARD_MATS.cyan, SHARD_MATS.white],
+  core: [SHARD_MATS.cyan, SHARD_MATS.violet, SHARD_MATS.white]
 };
 
-function boom(pos, size, colorSet, count) {
-  if (P.fx && size >= 1) P.fx.burst(pos, size, 0xff944c, false);
-  var n = count || Math.round(10 + size * 5);
+function boom(pos, size, colorSet, count, smallFx) {
+  if (P.fx && size >= 1) P.fx.burst(pos, size, colorSet[0].color.getHex(), !!smallFx,
+    (colorSet[1] || colorSet[0]).color.getHex());
+  var n = count || Math.round(6 + size * 2.8);
   for (var i = 0; i < n; i++) {
     if (shards.length > 200) break;
     var s = shardPool.get();
     s.position.copy(pos);
     s.material = colorSet[i % colorSet.length];
-    s.scale.setScalar(rand(0.4, 1.5) * size * 0.5);
+    var fragment = rand(.28, .95) * Math.min(size, 6) * .32;
+    s.scale.set(fragment, fragment * .50, fragment * 1.55);
     shards.push({
       m: s,
       v: new V3(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(6, 26) * (0.5 + size * 0.2)),
@@ -5123,7 +5174,8 @@ function boom(pos, size, colorSet, count) {
     });
     shards[shards.length - 1].maxLife = shards[shards.length - 1].life;
   }
-  // shockwave ring
+  // The full detonation already draws a pressure wave. Smaller effects use the simple ring.
+  if (P.fx && size >= 1 && !smallFx) return;
   var r = ringPool.get();
   r.position.copy(pos);
   r.scale.setScalar(0.2);
@@ -5134,7 +5186,9 @@ function boom(pos, size, colorSet, count) {
 
 var GEO_RING = mdl.tor(1, 0.035, 3, 40);
 var ringPool = new Pool(function () {
-  var r = mdl.mesh(GEO_RING, G(0xffffff, { transparent: true, opacity: .38, depthWrite: false }));
+  // Simultaneous kills keep independent shockwave color and fade.
+  var r = mdl.mesh(GEO_RING, new THREE.MeshBasicMaterial({ color: 0xffffff,
+    transparent: true, opacity: .38, depthWrite: false }));
   r.name = 'combat-shockwave';
   return r;
 }, 48);   // a multi-kill can boom a dozen enemies in the same frame
@@ -5225,9 +5279,7 @@ function spawnEnemy(type, opts) {
 }
 
 function enemyCols(e) {
-  return e.type === 'carrier' ? [SHARD_MATS.hot, SHARD_MATS.white, SHARD_MATS.fire]
-       : e.type === 'ray' ? [SHARD_MATS.cyan, SHARD_MATS.white, SHARD_MATS.smoke]
-       : [SHARD_MATS.fire, SHARD_MATS.hot, SHARD_MATS.smoke];
+  return blastColors[e.type] || blastColors.wasp;
 }
 function killEnemy(e, byPlayer) {
   if (!e.alive) return;
@@ -5239,7 +5291,7 @@ function killEnemy(e, byPlayer) {
     e.dying = 0.55 + Math.random() * 0.3;
     e.spinA = rand(7, 12) * (Math.random() < 0.5 ? -1 : 1);
     e.fallV = rand(2, 7);
-    spawnImpact(e.pos, 0xffa050, 1.3);
+    spawnImpact(e.pos, enemyCols(e)[0].color.getHex(), 1.3);
     A.sBoom(false, e.pos);
   } else {
     boom(e.pos, e.def.radius * 1.4, enemyCols(e));
@@ -5260,7 +5312,8 @@ function killEnemy(e, byPlayer) {
     deAge(e.deAge * (e.tag === 'opening-target' ? 1 : 2 + Math.min(Game.combo, 15) * 0.06));
     if (P.opening) P.opening.onKill(e);
     if (P.campaign) P.campaign.onKill(e);
-    killQuip();
+    if (Game.combo === 3 && P.voice) P.voice.react('streak');
+    else killQuip(e.type);
   }
   if (e.def.drops) for (var i = 0; i < e.def.drops; i++) spawnOrb(e.pos, true);
   else if (e.tag !== 'opening-target' && Math.random() < 0.055) spawnOrb(e.pos, false);
@@ -5458,6 +5511,7 @@ function reflectShot(shot) {
     life: 2.5, dmg: 2, delay: 0, age: .5, reflected: true });
   spawnImpact(origin, 0xffdc80, 1.45);
   Game.reflections++;
+  if (P.voice) P.voice.react('counter');
   Game.score += 180;
   toast('RETURN FIRE · +180');
   A.sReflect();
@@ -5536,7 +5590,7 @@ function bossCoreHit(c, dmg) {
     Game.killConfirmT = .42;
     c.alive = false;
     var wp = new V3(); c.group.getWorldPosition(wp);
-    boom(wp, 5.5, [SHARD_MATS.cyan, SHARD_MATS.white, SHARD_MATS.hot], 34);
+    boom(wp, 5.5, blastColors.core, 34);
     A.sBoom(true);
     Game.score += 3000;
     deAge(3.0);
@@ -5554,6 +5608,7 @@ function bossCoreHit(c, dmg) {
 
 function bossDie() {
   Boss.dead = true; Boss.deathT = 4.2; Game.ending = true;
+  Boss.blastTimer = 0; Boss.blastNumber = 0;
   A.sBoom(true);
   toast('THE FOUNTAIN OPENS');
 }
@@ -5589,15 +5644,20 @@ function updateBoss(dt) {
   if (B.dead) {
     B.deathT -= dt;
     var wp = new V3(); B.group.getWorldPosition(wp);
-    if (Math.random() < 0.55) {
+    B.blastTimer = (B.blastTimer || 0) - dt;
+    if (B.deathT > 0 && B.blastTimer <= 0) {
+      B.blastTimer = .16 + .13 * B.deathT / 4.2;
+      var cycle = (B.blastNumber || 0) % 3;
+      B.blastNumber = (B.blastNumber || 0) + 1;
       boom(wp.clone().add(new V3(rand(-14, 14), rand(-10, 10), rand(-10, 10))), rand(2, 6),
-           [SHARD_MATS.fire, SHARD_MATS.hot, SHARD_MATS.white]);
+           cycle === 0 ? blastColors.wasp : cycle === 1 ? blastColors.core : blastColors.bomber);
       if (Math.random() < 0.4) A.sBoom(true);
     }
     B.group.rotation.z += dt * 1.4;
     B.group.scale.multiplyScalar(1 - dt * 0.13);
     Game.shakeT = 0.3; Game.shakeMag = 1.6;
     if (B.deathT <= 0) {
+      boom(wp, 8, blastColors.core, 46);
       B.active = false; restoreBossPose(); B.group.visible = false;
       endGame(true);
     }
@@ -5747,17 +5807,32 @@ var CHAIN_QUIPS = {
   14: 'At this rate he would arrive at the Fountain as a teenager.',
   20: 'Twenty. Whatever the empire had feared, it had underestimated it.'
 };
+var ENEMY_QUIPS = {
+  wasp: 'Last summer he had used a rolled-up newspaper. Things had escalated.',
+  ray: 'A stingray with a gun. He remembered when you could swim here.',
+  turret: 'He had told that turret to get out more.',
+  chaser: 'It followed him for miles. Probably wanted to talk about his warranty.',
+  carrier: 'Two little ships came with it. Batteries, presumably, sold separately.',
+  mine: 'He used to own a clock that ticked like that. It lasted longer.',
+  sentinel: 'His dentist wore a shield just like that.',
+  bomber: 'So that was what kept dropping parcels on his roof.'
+};
+var heardEnemyQuips = {};
 var quipT = 0, quipCD = 0, lastQuip = -1;
 function sayQuip(txt, force) {
-  if (Game.state !== 'playing' || Game.cinematic) return;
+  if (Game.state !== 'playing' || Game.cinematic || (P.voice && P.voice.isSpeaking())) return;
   if (!force && quipCD > 0) return;
   P.el.quip.textContent = txt;
   quipT = 3.6; quipCD = force ? 2.2 : 4.4;
 }
-function killQuip() {
+function killQuip(type) {
   var c = CHAIN_QUIPS[Game.combo];
   if (c) { sayQuip(c, true); return; }
-  if (Math.random() > 0.42) return;
+  if (quipCD > 0 || Game.cinematic || (P.voice && P.voice.isSpeaking()) || Math.random() > 0.42) return;
+  if (ENEMY_QUIPS[type] && !heardEnemyQuips[type]) {
+    sayQuip(ENEMY_QUIPS[type]); heardEnemyQuips[type] = true;
+    return;
+  }
   var i = Math.floor(Math.random() * QUIPS.length);
   if (i === lastQuip) i = (i + 1) % QUIPS.length;
   lastQuip = i;
@@ -5813,9 +5888,11 @@ function updatePlayer(dt) {
   function corridorSpeed(want, pos, lo, hi) {
     return clamp(want, -Math.max(0, pos - lo) * 4, Math.max(0, hi - pos) * 4);
   }
-  Player.vx = damp(Player.vx, corridorSpeed(ix * rx * accel * 0.42, Player.x, -corridor, corridor), 7, dt);
+  var targetVX = corridorSpeed(ix * rx * accel * 0.42, Player.x, -corridor, corridor);
+  var targetVY = corridorSpeed(iy * accel * 0.36, Player.y, -16, ceiling);
+  Player.vx = damp(Player.vx, targetVX, 7, dt);
   Player.vz = damp(Player.vz, corridorSpeed(ix * rz * accel * 0.42, Player.zOff, -26, 26), 7, dt);
-  Player.vy = damp(Player.vy, corridorSpeed(iy * accel * 0.36, Player.y, -16, ceiling), 7, dt);
+  Player.vy = damp(Player.vy, targetVY, 7, dt);
   var oldX = Player.x, oldY = Player.y, oldZ = Player.zOff;
   Player.x += Player.vx * dt;
   Player.zOff += Player.vz * dt;
@@ -5855,17 +5932,29 @@ function updatePlayer(dt) {
   var screenStrafe = (Player.motionX * rx + Player.motionZ * rz) / (accel * 0.42);
   Player.lean = damp(Player.lean || 0, screenStrafe, 5, dt);
   dragon.root.position.copy(Player.pos);
-  var heading = Math.atan2(Player.motionX, Math.max(20, forwardSpeed + Player.motionZ));
+  var trackZ = Math.max(20, forwardSpeed + Player.motionZ);
+  var heading = Math.atan2(Player.motionX, trackZ);
+  var strafe = clamp(-Player.motionX / (accel * 0.42), -1, 1);
+  // Tip into the acceleration, then open the wings as the new course settles.
+  // Braking and reversing require a brief bank back across the current course.
+  var lateralLoad = (Player.motionX - targetVX) / (accel * 0.42);
+  var liftDemand = (targetVY - Player.motionY) / 44;
   dragon.root.rotation.y = damp(dragon.root.rotation.y, heading * 0.72, 6, dt);
   dragon.update(dt, Game.time, {
-    strafeX: clamp(-Player.motionX / (accel * 0.42), -1, 1),
+    strafeX: strafe,
+    bankDemand: clamp(lateralLoad * 1.45 + strafe * 0.44, -1, 1),
+    pathPitch: Math.atan2(Player.motionY, Math.hypot(Player.motionX, trackZ)),
+    liftDemand: clamp(liftDemand, -1, 1),
     strafeY: clamp(Player.motionY / 44, -1, 1),
     vy: Player.motionY,
     aimX: Player.aimX, aimY: Player.aimY, boost: Player.boosting ? 1 : 0
   });
 
-  var rollProgress = Player.rollT > 0 ? 1 - Player.rollT / 0.65 : 0;
-  dragon.root.rotation.z = Player.rollT > 0 ? -Player.rollDir * TAU * (rollProgress * rollProgress * (3 - 2 * rollProgress)) : 0;
+  if (Player.rollT > 0) {
+    var rollProgress = 1 - Player.rollT / 0.65;
+    dragon.root.rotation.z = Player.rollFacing * Player.rollDir * TAU *
+                             rollProgress * rollProgress * (3 - 2 * rollProgress);
+  } else dragon.root.rotation.z = 0;
 
   // blink while invulnerable
   if (Game.invulnT > 0) {
@@ -5882,7 +5971,7 @@ function updatePlayer(dt) {
   var camYawV = yaw + lean * 0.12;
   var fwd = new V3(Math.sin(camYawV), 0, Math.cos(camYawV));
   var camPos = Player.pos.clone().addScaledVector(fwd, -26);
-  camPos.y += 6.2 + dragon.getBob() * 0.32;
+  camPos.y += 6.2 + dragon.getBob() * 0.32 - clamp(Player.motionY * 0.035, -1.5, 1.5);
   camPos.addScaledVector(fwd, dragon.getSurge() * 0.5);
   // lateral lag: the boom hangs behind the sideways motion
   var rX = -Math.cos(yaw), rZ = Math.sin(yaw);           // screen-right
@@ -6071,7 +6160,7 @@ function updateProjectiles(dt) {
     s.m.position.addScaledVector(s.v, dt);
     s.m.rotation.x += s.spin.x * dt; s.m.rotation.y += s.spin.y * dt; s.m.rotation.z += s.spin.z * dt;
     var f = clamp(s.life / s.maxLife, 0, 1);
-    s.m.scale.setScalar(Math.max(0.02, s.m.scale.x * (1 - dt * 0.8)));
+    s.m.scale.multiplyScalar(Math.exp(-dt * 1.25));
     if (s.life <= 0) { shardPool.put(s.m); shards.splice(i, 1); }
   }
   // shockwave rings
@@ -6103,9 +6192,9 @@ function updateProjectiles(dt) {
     if (dist < 18 || segPointD2(oldOrbPos, o.pos, Player.pos) < 18 * 18) {
       deAge(1.0); Game.score += 250; Game.orbsTaken++;
       A.sOrb(); flashScreen(0.28, '#8ffff0');
-      sayQuip('A year, handed back to him without ceremony.', true);
+      if (P.voice) P.voice.react('pickup');
       toast('CHRONO ORB  −1 YEAR');
-      boom(o.pos, 1.4, [SHARD_MATS.cyan, SHARD_MATS.white], 10);
+      boom(o.pos, 1.4, [SHARD_MATS.cyan, SHARD_MATS.white], 10, true);
       o.g.visible = false; orbPool.push(o.g); orbs.splice(i, 1); continue;
     }
     if (o.life <= 0 || o.pos.z < Game.railZ - 90) {
@@ -6362,6 +6451,7 @@ P.entities = {
   },
   reset: function () {
     var i;
+    heardEnemyQuips = {}; quipT = quipCD = 0; lastQuip = -1;
     Game.hitConfirmT = Game.killConfirmT = Game.reflections = 0;
     reflectedThisRoll = false;
     for (i = enemies.length - 1; i >= 0; i--) { freeEnemyMesh(enemies[i].type, enemies[i].g); }
@@ -6616,13 +6706,80 @@ function sprite(col) {
     blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 }
 var pool = [], cursor = 0, lights = [], lightCursor = 0;
-var ringGeo = new THREE.TorusGeometry(1, .014, 4, 48);
+// A tileable two-channel noise field gives each detonation a rolling edge
+// and hot pockets inside the flame. All bursts share this one texture.
+var noiseSize = 64, noisePixels = new Uint8Array(noiseSize * noiseSize * 4);
+var lattice = new Uint8Array(noiseSize * noiseSize), seed = 73013;
+for (i = 0; i < lattice.length; i++) {
+  seed = (Math.imul(seed, 1664525) + 1013904223) | 0; lattice[i] = seed >>> 24;
+}
+function tiledNoise(x, y, period, offset) {
+  var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  fx *= fx * (3 - 2 * fx); fy *= fy * (3 - 2 * fy);
+  var x0 = (ix % period) + offset, x1 = ((ix + 1) % period) + offset;
+  var y0 = (iy % period) * noiseSize, y1 = ((iy + 1) % period) * noiseSize;
+  return (1 - fy) * ((1 - fx) * lattice[y0 + x0] + fx * lattice[y0 + x1])
+    + fy * ((1 - fx) * lattice[y1 + x0] + fx * lattice[y1 + x1]);
+}
+for (i = 0; i < lattice.length; i++) {
+  var nx = (i % noiseSize) / noiseSize, ny = Math.floor(i / noiseSize) / noiseSize;
+  for (var channel = 0; channel < 2; channel++) {
+    var offset = channel * 32;
+    noisePixels[i * 4 + channel] = .62 * tiledNoise(nx * 4, ny * 4, 4, offset)
+      + .28 * tiledNoise(nx * 8, ny * 8, 8, offset) + .10 * tiledNoise(nx * 16, ny * 16, 16, offset);
+  }
+  noisePixels[i * 4 + 3] = 255;
+}
+var noiseMap = new THREE.DataTexture(noisePixels, noiseSize, noiseSize, THREE.RGBAFormat);
+noiseMap.wrapS = noiseMap.wrapT = THREE.RepeatWrapping;
+noiseMap.minFilter = noiseMap.magFilter = THREE.LinearFilter; noiseMap.needsUpdate = true;
+var flameGeo = new THREE.PlaneGeometry(1, 1);
+var flameVertex = [
+  'varying vec2 p;',
+  'void main(){ p=uv*2.0-1.0; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }'
+].join('\n');
+var flameFragment = [
+  'uniform sampler2D turbulence;',
+  'uniform vec3 bodyColor, edgeColor;',
+  'uniform float age, variant, visibility;',
+  'varying vec2 p;',
+  'void main(){',
+  '  vec2 uv = p*.95+vec2(variant,variant*.77);',
+  '  vec2 flow = texture2D(turbulence,uv+vec2(.12,-.31)*age).rg;',
+  '  float fold = texture2D(turbulence,uv*1.65+flow*.71-vec2(.04,.23)*age).g;',
+  '  float wisps = texture2D(turbulence,uv*3.3+flow*.86+fold*.33).r;',
+  '  float r = length(p);',
+  '  float angle = atan(p.y,p.x+.00001);',
+  '  float jet = pow(.5+.5*cos(angle*6.+1.7*sin(angle*3.+variant*6.)+8.*flow.g+3.*r),2.7);',
+  '  float reach = .055+.54*(1.-exp(-age*7.));',
+  '  float depth = reach*(.70+.62*jet)-r+(flow.r-.5)*.52+(fold-.5)*.23;',
+  '  float cloud = smoothstep(-.025,.075,depth)*(1.-smoothstep(.24,.93,age));',
+  '  float layers = (flow.g-.5)*.84+(fold-.5)*1.55+(wisps-.5)*.88;',
+  '  cloud *= mix(1.,smoothstep(-.17,.32,layers),smoothstep(.10,.75,age));',
+  '  float heat = clamp(.39+depth*1.03+layers*1.55-age*.57,0.,1.);',
+  '  vec3 flame = mix(edgeColor*.66,bodyColor,smoothstep(.15,.72,heat));',
+  '  flame = mix(flame,vec3(1.,.96,.79),smoothstep(.60,.97,heat)*(1.-smoothstep(.23,.67,age)));',
+  // A few shearing arcs race beyond the rolling flame.
+  '  float wave = .12+.82*(1.-exp(-age*4.));',
+  '  float shell = 1.-smoothstep(.003,.018,abs(r-wave-(flow.r-.5)*.034));',
+  '  shell *= smoothstep(.14,.86,.5+.5*sin(angle*3.+flow.g*5.))* .62*(1.-smoothstep(.06,.45,age));',
+  '  float echo = 1.-smoothstep(.002,.014,abs(length(p*vec2(.98,1.36))-wave*.89));',
+  '  shell += echo*smoothstep(.36,.71,flow.g)*.33*(1.-smoothstep(.04,.35,age));',
+  '  float alpha = min(1.,cloud+shell)*visibility;',
+  '  if(alpha<.008) discard;',
+  '  vec3 color = mix(flame,mix(edgeColor,vec3(1.),.33),shell/max(.001,cloud+shell));',
+  '  gl_FragColor=vec4(color,alpha);',
+  '}'
+].join('\n');
 for (i = 0; i < 40; i++) {
   var g = new THREE.Group(), halo = sprite(0xff974a), core = sprite(0xffffff);
-  var ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffb878, transparent: true,
-    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-  g.add(halo, core, ring); g.visible = false; scene.add(g);
-  pool.push({ g: g, halo: halo, core: core, ring: ring, age: 0, life: 0, size: 1 });
+  var flame = new THREE.Mesh(flameGeo, new THREE.ShaderMaterial({
+    uniforms: { turbulence: { value: noiseMap }, bodyColor: { value: new THREE.Color() },
+      edgeColor: { value: new THREE.Color() }, age: { value: 0 }, variant: { value: 0 }, visibility: { value: 1 } },
+    vertexShader: flameVertex, fragmentShader: flameFragment, transparent: true, depthWrite: false }));
+  flame.name = 'plasma-detonation'; flame.renderOrder = 2; core.renderOrder = 3;
+  g.add(halo, core, flame); g.visible = false; scene.add(g);
+  pool.push({ g: g, halo: halo, core: core, flame: flame, age: 0, life: 0, size: 1 });
 }
 for (i = 0; i < 3; i++) { var light = new THREE.PointLight(0xff9944, 0, 95, 2); scene.add(light); lights.push({ light: light, age: 1 }); }
 
@@ -6636,7 +6793,11 @@ sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkCol, 3).setUsage(T
 var sparkMesh = new THREE.LineSegments(sparkGeo, new THREE.LineBasicMaterial({ vertexColors: true,
   transparent: true, opacity: .9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 sparkMesh.name = 'explosion-embers'; sparkMesh.visible = false; sparkMesh.frustumCulled = false; scene.add(sparkMesh);
-for (i = 0; i < sparkCapacity; i++) sparks.push({ pos: new THREE.Vector3(), velocity: new THREE.Vector3(), age: 10, life: 0 });
+var emberTips = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ map: tex, size: 1.65, vertexColors: true,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+emberTips.visible = false; emberTips.frustumCulled = false; emberTips.renderOrder = 3; scene.add(emberTips);
+for (i = 0; i < sparkCapacity; i++) sparks.push({ pos: new THREE.Vector3(), velocity: new THREE.Vector3(),
+  tint: new THREE.Color(), age: 10, life: 0 });
 var smokeData = new Uint8Array(64 * 64 * 4);
 for (i = 0; i < 4096; i++) {
   var sx = (i % 64 - 31.5) / 31.5, sy = (Math.floor(i / 64) - 31.5) / 31.5;
@@ -6651,9 +6812,9 @@ for (i = 0; i < 18; i++) {
   var cloud = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0x594951,
     transparent: true, opacity: 0, depthWrite: false, fog: true }));
   cloud.name = 'explosion-smoke'; cloud.visible = false; scene.add(cloud);
-  smoke.push({ mesh: cloud, pos: new THREE.Vector3(), age: 10, life: 0, size: 1, drift: 0 });
+  smoke.push({ mesh: cloud, pos: new THREE.Vector3(), hot: new THREE.Color(), age: 10, life: 0, size: 1, drift: 0 });
 }
-var smokeHot = new THREE.Color(0xed965b), smokeCold = new THREE.Color(0x594951);
+var smokeCold = new THREE.Color(0x594951);
 function fogVisibility(pos) {
   var fog = scene.fog;
   if (!fog || fog.far === undefined) return 1;
@@ -6661,17 +6822,19 @@ function fogVisibility(pos) {
   var u = Math.max(0, Math.min(1, (distance - fog.near) / Math.max(1, fog.far - fog.near)));
   return 1 - u * u * (3 - 2 * u);
 }
-function explosionAfterglow(pos, size) {
+function explosionAfterglow(pos, size, body, edge) {
   var count = Math.min(30, Math.round(14 + size * 2));
   for (var i = 0; i < count; i++) {
     var s = sparks[sparkCursor++ % sparkCapacity], vertical = 1 - (i + .5) / count * 2;
     var radius = Math.sqrt(1 - vertical * vertical), angle = i * 2.399963 + sparkCursor * .17;
     s.pos.copy(pos); s.age = 0; s.life = .55 + (i % 5) * .13;
+    s.tint.copy(i % 3 ? edge : body);
     s.velocity.set(Math.cos(angle) * radius, vertical * .8 + .22, Math.sin(angle) * radius)
       .multiplyScalar((20 + (i % 4) * 9) * Math.min(2.3, .65 + size * .18));
   }
   for (var puff = 0; puff < 3; puff++) {
     var c = smoke[smokeCursor++ % smoke.length];
+    c.hot.copy(puff === 1 ? body : edge);
     c.age = 0; c.life = 1.3 + puff * .18; c.size = Math.min(7, size) * (3.8 + puff * .8);
     c.pos.copy(pos); c.pos.x += (puff - 1) * size * .7; c.pos.y += puff * size * .35;
     c.drift = (puff - 1) * 2.8;
@@ -6690,15 +6853,20 @@ function updateAfterglow(dt) {
     s.pos.addScaledVector(s.velocity, travel); s.pos.y -= 14 * (dt - travel) / 1.7;
     s.velocity.multiplyScalar(drag); s.velocity.y -= 14 * travel;
     var fade = Math.pow(1 - s.age / s.life, 1.4) * fogVisibility(s.pos);
-    var tail = .065 * Math.max(.3, 1 - s.age / s.life);
+    var tail = .105 * Math.max(.3, 1 - s.age / s.life);
     sparkPos[k] = s.pos.x; sparkPos[k + 1] = s.pos.y; sparkPos[k + 2] = s.pos.z;
     sparkPos[k + 3] = s.pos.x - s.velocity.x * tail; sparkPos[k + 4] = s.pos.y - s.velocity.y * tail;
     sparkPos[k + 5] = s.pos.z - s.velocity.z * tail;
-    sparkCol[k] = fade; sparkCol[k + 1] = fade * (.42 + .5 * Math.exp(-s.age * 5)); sparkCol[k + 2] = fade * .25;
-    sparkCol[k + 3] = fade * .12; sparkCol[k + 4] = fade * .025; sparkCol[k + 5] = 0;
+    var white = .64 * Math.exp(-s.age * 8);
+    sparkCol[k] = fade * (white + (1 - white) * s.tint.r);
+    sparkCol[k + 1] = fade * (white + (1 - white) * s.tint.g);
+    sparkCol[k + 2] = fade * (white + (1 - white) * s.tint.b);
+    sparkCol[k + 3] = fade * s.tint.r * .25;
+    sparkCol[k + 4] = fade * s.tint.g * .25;
+    sparkCol[k + 5] = fade * s.tint.b * .25;
     if (fade > .001) active++;
   });
-  sparkMesh.visible = active > 0;
+  sparkMesh.visible = emberTips.visible = active > 0;
   sparkGeo.attributes.position.needsUpdate = true; sparkGeo.attributes.color.needsUpdate = true;
   smoke.forEach(function (c) {
     if (!c.mesh.visible) return;
@@ -6706,7 +6874,7 @@ function updateAfterglow(dt) {
     c.mesh.visible = u < 1;
     c.mesh.position.set(c.pos.x + c.drift * c.age, c.pos.y + c.age * (7 + c.size * .08), c.pos.z);
     c.mesh.scale.setScalar(c.size * (1 + u * 1.6));
-    c.mesh.material.color.copy(smokeHot).lerp(smokeCold, Math.min(1, c.age * 3.4));
+    c.mesh.material.color.copy(c.hot).lerp(smokeCold, Math.min(1, c.age * 2.1));
     c.mesh.material.opacity = .42 * Math.min(1, c.age / .12) * Math.pow(1 - u, 1.5) * fogVisibility(c.mesh.position);
     c.mesh.material.rotation += dt * c.drift * .035;
   });
@@ -6801,19 +6969,28 @@ function updateTrails(dt) {
     t.mesh.geometry.attributes.color.needsUpdate = true;
   });
 }
-function burst(pos, size, col, small) {
+function poseFlame(b) {
+  b.flame.quaternion.copy(P.camera.quaternion); b.flame.rotateZ(b.twist);
+  b.flame.scale.setScalar(Math.min(b.size * 12, b.g.position.distanceTo(P.camera.position) * .68));
+}
+function burst(pos, size, col, small, accent) {
   var b = pool[cursor++ % pool.length];
-  b.g.position.copy(pos); b.g.visible = true; b.g.scale.setScalar(1);
-  b.size = size; b.age = 0; b.life = small ? .23 : .85;
-  b.halo.material.color.setHex(col); b.ring.material.color.setHex(col);
-  b.ring.quaternion.copy(P.camera.quaternion); b.ring.visible = !small;
-  b.halo.material.opacity = .9; b.core.material.opacity = 1; b.ring.material.opacity = .24;
-  b.halo.scale.setScalar(size * 8); b.core.scale.setScalar(size * 3);
-  b.ring.scale.setScalar(.2);
+  b.g.position.copy(pos); b.g.visible = true;
+  b.size = size; b.age = 0; b.life = small ? .23 : 1.05;
+  var visibility = fogVisibility(pos);
+  b.halo.material.color.setHex(col);
+  b.halo.material.opacity = .9 * visibility; b.core.material.opacity = visibility;
+  b.halo.scale.setScalar(size * 8); b.core.scale.setScalar(size * (small ? 3 : 5));
+  b.flame.visible = !small;
   if (!small) {
-    explosionAfterglow(pos, size);
+    var uniforms = b.flame.material.uniforms;
+    uniforms.bodyColor.value.setHex(col); uniforms.edgeColor.value.setHex(accent === undefined ? col : accent);
+    uniforms.age.value = 0; uniforms.visibility.value = visibility;
+    uniforms.variant.value = (cursor * .618034) % 1; b.twist = cursor * 2.399963;
+    poseFlame(b);
+    explosionAfterglow(pos, size, uniforms.bodyColor.value, uniforms.edgeColor.value);
     var l = lights[lightCursor++ % lights.length]; l.age = 0;
-    l.light.position.copy(pos); l.light.color.setHex(col); l.light.intensity = Math.min(5, size * 1.3);
+    l.light.position.copy(pos); l.light.color.setHex(col); l.light.intensity = Math.min(7, size * 1.7);
     l.strength = l.light.intensity;
   }
 }
@@ -6830,17 +7007,21 @@ P.fx = {
       if (!b.g.visible) return;
       b.age += dt; var u = Math.min(1, b.age / b.life);
       b.g.visible = u < 1;
-      b.halo.scale.setScalar(b.size * (8 + u * 18));
-      b.core.scale.setScalar(b.size * (3 + u * 5));
+      b.halo.scale.setScalar(b.size * (8 + u * 14));
+      b.core.scale.setScalar(b.size * ((b.flame.visible ? 5 : 3) + u * 4));
       var visibility = fogVisibility(b.g.position);
       b.halo.material.opacity = Math.pow(1 - u, 2) * .85 * visibility;
       b.core.material.opacity = Math.pow(1 - u, 6) * visibility;
-      b.ring.scale.setScalar(b.size * (.6 + u * 9)); b.ring.material.opacity = Math.pow(1 - u, 2) * .24 * visibility;
+      if (b.flame.visible) {
+        poseFlame(b);
+        b.flame.material.uniforms.age.value = u;
+        b.flame.material.uniforms.visibility.value = visibility;
+      }
     });
     lights.forEach(function (l) { l.age += dt; l.light.intensity = (l.strength || 0) * Math.pow(Math.max(0, 1 - l.age / .32), 2); });
   },
   reset: function () { resetTrails(); pool.forEach(function (b) { b.g.visible = false; }); lights.forEach(function (l) { l.age = 1; l.light.intensity = 0; });
-    sparks.forEach(function (s) { s.age = s.life; }); sparkCol.fill(0); sparkMesh.visible = false;
+    sparks.forEach(function (s) { s.age = s.life; }); sparkCol.fill(0); sparkMesh.visible = emberTips.visible = false;
     smoke.forEach(function (c) { c.mesh.visible = false; }); },
   stats: function () { return { capacity: pool.length, active: pool.filter(function (b) { return b.g.visible; }).length,
     lights: lights.length, trails: trails.filter(function (t) { return t.mesh.visible; }).length, trailCapacity: trails.length,
@@ -6863,6 +7044,8 @@ P.flight = {
     if (Game.state !== 'playing' || Game.cinematic || Player.energy < 28 || Player.rollCD > 0) return false;
     Player.energy -= 28; Player.rollT = .65; Player.rollCD = 1.4;
     Player.rollDir = P.Input.keys.a || P.Input.keys.arrowleft ? -1 : 1;
+    // Hold the spin axis even if the pilot looks around during the dodge.
+    Player.rollFacing = Math.cos(Player.camYaw) < -0.001 ? -1 : 1;
     A.sRoll(); return true;
   },
   update: function (dt) {
@@ -6903,6 +7086,7 @@ function finish(success, detail) {
     if (mission.years) P.deAge(mission.years);
     A.sOrb(); P.toast(mission.id === 'gates' ? 'CLEAN PASS · +500 BONUS · +50 WING POWER'
       : 'OBJECTIVE COMPLETE · ' + mission.rewardLabel);
+    if (mission.id === 'gates' && P.voice) P.voice.react('gates');
   } else P.toast('OBJECTIVE MISSED · ' + mission.title);
   P.campaign.results.push({ id: mission.id, title: mission.title, sector: episode, status: mission.status,
     current: mission.current, target: mission.target, score: success ? mission.score : 0 });
@@ -7220,6 +7404,7 @@ P.enemyCombat = {
         } else P.toast('CHARGE BROKEN · +50% DAMAGE');
         if (P.fx) P.fx.burst(e.pos, 2.1, 0x73fff0, true);
         P.Audio_.sZap(e.pos);
+        if (P.voice) P.voice.react('chargebreak');
         if (P.campaign && P.campaign.onChargeBreak) P.campaign.onChargeBreak(e);
       }
     }

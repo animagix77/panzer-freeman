@@ -79,14 +79,42 @@ assert(Math.max(...distances) - Math.min(...distances) < 1.2, 'visible tail leng
   assert(storage.every(Number.isFinite));
   P.fx.update(2);
   assert.equal(P.fx.stats().sparks, 0); assert.equal(P.fx.stats().smoke, 0); assert(!mesh.visible);
-  P.fx.burst(new P.V3(0, 20, 1000), 4, 0xff9944, false); P.fx.update(.1);
+  P.fx.burst(new P.V3(0, 20, 1000), 4, 0xff9944, false);
+  const farBurst = P.scene.children.find(o => o.isGroup && o.visible && o.position.z === 1000);
+  const farFlame = farBurst.getObjectByName('plasma-detonation');
+  assert.equal(farFlame.material.uniforms.visibility.value, 0, 'shock front respects far fog on its first frame');
+  assert(farBurst.children.filter(o => o.isSprite).every(o => o.material.opacity === 0), 'ignition respects far fog');
+  P.fx.update(.1);
   assert(!mesh.visible, 'far-away sparks disappear into the same fog as enemies');
   assert(P.scene.children.filter(o => o.name === 'explosion-smoke').every(o => o.material.opacity === 0 || !o.visible));
-  const farBurst = P.scene.children.find(o => o.isGroup && o.visible && o.position.z === 1000);
-  assert(farBurst && farBurst.children.filter(o => o.isMesh).every(o => o.material.opacity === 0),
-    'additive shock rings must not leave fog-colored light beyond far fog');
+  assert.equal(farFlame.material.uniforms.visibility.value, 0);
   P.fx.reset();
   assert.equal(P.fx.stats().sparks, 0); assert.equal(P.fx.stats().smoke, 0);
+}
+// Check real immediate and delayed enemy deaths, including simultaneous bursts.
+{
+  const { P, context } = flight();
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/p4c_effects.js'), 'utf8'), context);
+  const E = P.entities;
+  P.terrain.heightAt = () => 0;
+  const types = ['turret', 'mine', 'chaser'];
+  for (const [i, type] of types.entries()) {
+    const enemy = E.spawnEnemy(type, { pos: new P.V3(i * 20, 80, 100), entry: false });
+    E.killEnemy(enemy, false);
+  }
+  E.updateEnemies(.9);
+  P.fx.update(.18);
+  const flames = P.scene.children.filter(o => o.isGroup && o.visible)
+    .map(o => o.getObjectByName('plasma-detonation')).filter(o => o && o.visible);
+  assert.equal(flames.length, 3, 'each kill must reach the large detonation effect');
+  assert.equal(new Set(flames.map(m => m.material.uniforms.bodyColor.value.getHex())).size, 3,
+    'overlapping deaths retain their enemy-specific palette');
+  for (const flame of flames) {
+    const uniforms = flame.material.uniforms;
+    assert.notEqual(uniforms.bodyColor.value.getHex(), uniforms.edgeColor.value.getHex());
+    assert(uniforms.age.value > 0 && uniforms.age.value < .25, 'visible pressure fronts advance with the burst');
+    assert(flame.scale.x >= 20, 'normal enemy deaths have a readable world-space silhouette');
+  }
 }
 const emberPositions = [];
 for (const fps of [30, 60, 120]) {

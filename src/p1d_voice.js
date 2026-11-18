@@ -7,10 +7,17 @@ var lines = {
   salvage: 'Five lights in the water. Someone went to a lot of trouble to lose those years.',
   foundry: 'Three carriers. The trick is getting them to show you the soft side.',
   citadel: 'The castle had stairs, once. I prefer the dragon.',
-  victory: 'I came all this way for another year. I think I will spend it flying.'
+  victory: 'I came all this way for another year. I think I will spend it flying.',
+  counter: 'Return to sender. No forwarding address.',
+  chargebreak: 'He had a whole speech prepared. Then I shot the microphone.',
+  gates: 'Three gates. Not one of them validated parking.',
+  pickup: 'That was my left knee in nineteen eighty-six. I would know it anywhere.',
+  streak: 'At my age, a hot streak usually means the electric blanket is on.'
 };
 var sectorCue = { ep1: 'opening', ep2: 'salvage', foundry: 'foundry', ep3: 'citadel' };
 var seen = {}, active = null, pending = null, duck = 0, lastSector = null;
+var reactionPriority = { pickup: 1, streak: 2, chargebreak: 3, counter: 3, gates: 4 };
+var reaction = null, quietTime = 0;
 var document = window.document, caption = null, captionText = null, credit = null, wrap = null;
 if (document && document.createElement) {
   wrap = document.getElementById('wrap') || document.body;
@@ -73,26 +80,49 @@ function play(cue) {
 P.voice = {
   lines: lines,
   hasAudio: Object.keys(lines).some(function (id) { return !!files[id]; }),
-  reset: function () { stop(); pending = null; seen = {}; duck = 0; lastSector = null; },
+  isSpeaking: function () { return !!active; },
+  react: function (id) {
+    if (!reactionPriority[id] || seen[id] || P.Game.state !== 'playing' ||
+        P.Game.ending || P.Game.cinematic || (document && document.hidden)) return;
+    // A single short-lived reaction can wait for the current line. A trick
+    // shot takes precedence over an orb picked up by the same volley.
+    if (!reaction || reactionPriority[id] >= reactionPriority[reaction.id]) {
+      var sectorSpeaking = pending || (active && !reactionPriority[active.id]);
+      reaction = { id: id, remaining: sectorSpeaking ? 16 : 8 };
+    }
+  },
+  reset: function () {
+    stop(); pending = reaction = null; seen = {}; duck = quietTime = 0; lastSector = null;
+  },
   update: function (dt) {
     if (!P.Game) return;
     var state = P.Game.state, visible = !document || !document.hidden;
     var running = visible && (state === 'playing' || state === 'win');
-    if (state === 'title' || state === 'over') { stop(); pending = null; }
+    if (state === 'title' || state === 'over') { stop(); pending = reaction = null; }
     var ep = P.world && P.world.EPISODES[P.Game.epIndex];
     if (state === 'playing' && ep && lastSector !== ep.id) {
-      if (lastSector !== null) { stop(); pending = null; }
+      if (lastSector !== null) { stop(); pending = reaction = null; }
       lastSector = ep.id;
     }
     var id = state === 'win' ? 'victory' : state === 'playing' && ep ? sectorCue[ep.id] : null;
     if (id && !seen[id]) {
       seen[id] = true; stop(); pending = { id: id, delay: id === 'victory' ? .5 : 4.6 };
     }
+    if (state === 'win' || (P.Game.ending && state === 'playing')) reaction = null;
+    if (running) quietTime = Math.max(0, quietTime - dt);
+    var cardVisible = P.el && P.el.card && P.el.card.classList.contains('on');
     if (running && pending) {
       pending.delay -= dt;
-      var cardVisible = P.el && P.el.card && P.el.card.classList.contains('on');
       if (pending.delay <= 0 && (pending.id === 'victory' || !cardVisible)) {
         var next = pending.id; pending = null; start(next);
+      }
+    }
+    if (running && reaction) {
+      reaction.remaining -= dt;
+      if (reaction.remaining <= 0) reaction = null;
+      else if (!pending && !active && !cardVisible && quietTime === 0) {
+        seen[reaction.id] = true;
+        start(reaction.id); reaction = null;
       }
     }
     if (active) {
@@ -109,7 +139,10 @@ P.voice = {
       if (running) {
         cue.elapsed += dt;
         var duration = media && !cue.failed ? Math.max(cue.duration, Number.isFinite(media.duration) ? media.duration + 1 : cue.duration + 6) : cue.duration;
-        if (cue.elapsed >= (cue.endAt === null ? duration : cue.endAt)) stop();
+        if (cue.elapsed >= (cue.endAt === null ? duration : cue.endAt)) {
+          quietTime = reactionPriority[cue.id] ? 6 : 2;
+          stop();
+        }
       }
     }
     var audible = running && active && active.media && !active.failed && !active.media.paused && !active.media.muted && voiceLevel > 0;

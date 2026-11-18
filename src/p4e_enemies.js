@@ -162,6 +162,7 @@ P.enemyCombat = {
         } else P.toast('CHARGE BROKEN · +50% DAMAGE');
         if (P.fx) P.fx.burst(e.pos, 2.1, 0x73fff0, true);
         P.Audio_.sZap(e.pos);
+        if (P.voice) P.voice.react('chargebreak');
         if (P.campaign && P.campaign.onChargeBreak) P.campaign.onChargeBreak(e);
       }
     }

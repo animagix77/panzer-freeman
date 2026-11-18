@@ -4,9 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { flight } = require('./check-motion');
-function setup(stage, startZ = 0) {
+function setup(stage, startZ = 0, reactions = []) {
   const { P, context } = flight();
   P.fx = { burst() {} };
+  P.voice = { react(id) { reactions.push(id); }, isSpeaking() { return false; } };
   for (const file of ['p3_world.js', 'p4d_campaign.js', 'p4e_enemies.js'])
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src', file), 'utf8'), context);
   P.Game.epIndex = stage; P.Game.epStartZ = P.Game.railZ = startZ; P.Game.invulnT = 100;
@@ -38,7 +39,7 @@ for (const guided of [false, true]) {
 }
 // The authored salvage trail is physically collectible, including during boost.
 for (const boost of [false, true]) {
-  const P = setup(1, 9000); P.Input.keys = boost ? { shift: true } : {};
+  const reactions = [], P = setup(1, 9000, reactions); P.Input.keys = boost ? { shift: true } : {};
   P.Game.state = 'intro'; P.Game.railZ += 450; P.Player.pos.z = P.Game.railZ; P.campaign.update(7.4);
   assert.equal(P.entities.orbs.length, 0, 'salvage waits until the opening camera gives control');
   P.Game.state = 'playing';
@@ -47,24 +48,27 @@ for (const boost of [false, true]) {
   }
   assert.equal(P.campaign.objective.status, 'success', 'salvage route is reachable at cruise and boost speed');
   assert(P.Game.orbsTaken >= 5); assert.equal(P.campaign.results[0].score, 1000);
+  assert.equal(reactions.filter(id => id === 'pickup').length, P.Game.orbsTaken);
 }
 // Gate placements and objective closure are relative to the selected sector.
 {
-  const P = setup(0, 12000); P.Player.x = 54;
+  const reactions = [], P = setup(0, 12000, reactions); P.Player.x = 54;
   P.Game.railZ = 16600; P.Player.pos.set(54, 30, 16600); P.campaign.update(.01);
   assert.equal(P.campaign.objective.id, 'gates');
   for (const z of [16710, 16930, 17150]) { P.Game.railZ = z; P.Player.pos.z = z; P.campaign.update(.01); }
   assert.equal(P.campaign.objective.status, 'success'); assert.equal(P.Game.score, 1550);
+  assert.deepEqual(reactions, ['gates'], 'only the completed three-gate run requests commentary');
 }
 {
-  const P = setup(0); P.Game.railZ = 5300; P.Player.pos.z = 5300; P.campaign.update(.01);
+  const reactions = [], P = setup(0, 0, reactions); P.Game.railZ = 5300; P.Player.pos.z = 5300; P.campaign.update(.01);
   assert.equal(P.campaign.objective.status, 'failed');
   assert.equal(P.campaign.results.filter(r => r.id === 'gates').length, 1);
+  assert.deepEqual(reactions, [], 'a missed gate never gets the success line');
 }
 // Marked objectives ignore ambient kills, count each target once, and retain
 // the original earned convoy score/years reward.
 {
-  const P = setup(2, 5000), E = P.entities;
+  const reactions = [], P = setup(2, 5000, reactions), E = P.entities;
   P.Game.railZ = 5800; P.campaign.update(.01);
   const convoy = E.enemies.filter(e => e.tag === 'foundry-convoy');
   assert.equal(convoy.length, 3); assert(convoy.every(e => e.arrival && e.arrival.duration === 9));
@@ -83,6 +87,7 @@ for (const boost of [false, true]) {
   assert.equal(P.campaign.objective.status, 'success');
   bombers.forEach(e => E.killEnemy(e, true));
   assert.equal(P.campaign.results.filter(r => r.id === 'breach').length, 1, 'break then kill cannot double-credit');
+  assert.deepEqual(reactions, ['chargebreak', 'chargebreak', 'streak'], 'react to interrupted attacks and the third credited kill');
 }
 // Every sector supports direct entry and carries outcomes into the finale.
 {

@@ -1409,9 +1409,7 @@ function buildDragon() {
   var wPrev = 0, wingV = 0;
   var effort = 0.25, bob = 0, bobV = 0, surge = 0, surgeV = 0;
   var pitchAim = 0, turn = 0, strokePitch = 0;
-  // maneuver dynamics: pitch and roll are sprung (they overshoot and settle
-  // instead of easing), and gLoad is the low-passed vertical acceleration —
-  // the "pull" you feel hauling out of a dive.
+  // Pitch and bank carry angular momentum through changes in direction.
   var pitchAimV = 0, rollV = 0, gLoad = 0, prevVyG = 0;
 
   // ---- tail: a lagging spring chain ------------------------------------
@@ -1421,7 +1419,7 @@ function buildDragon() {
   var TN = tailSegs.length;
   var tY = new Float32Array(TN), tVY = new Float32Array(TN);
   var tX = new Float32Array(TN), tVX = new Float32Array(TN);
-  var prevRootYaw = 0, prevBodyYaw = 0, prevBodyPitch = 0, prevBodyRoll = 0;
+  var prevRootYaw = 0, prevBodyYaw = 0, prevBodyPitch = 0;
 
   function sm(t) { return t * t * (3 - 2 * t); }
   // One flap, normalised 0..1. Begins and ends at 0 = wings held out level,
@@ -1455,7 +1453,7 @@ function buildDragon() {
     rider.rotation.set(0, 0, 0);
     tY.fill(0); tVY.fill(0); tX.fill(0); tVX.fill(0);
     prevRootYaw = root.rotation.y;
-    prevBodyYaw = prevBodyPitch = prevBodyRoll = 0;
+    prevBodyYaw = prevBodyPitch = 0;
     for (var wi = 0; wi < wJ.length; wi++) {
       for (var key in wJ[wi]) wJ[wi][key] = 0;
     }
@@ -1463,7 +1461,8 @@ function buildDragon() {
   };
 
   api.update = function (dt, t, st) {
-    turn = damp(turn, st.strafeX || 0, 6, dt);
+    var strafe = st.strafeX || 0;
+    turn = damp(turn, st.bankDemand === undefined ? strafe : st.bankDemand, 13, dt);
     var vy = st.vy || 0;
     var vyN = clamp(vy / 44, -1, 1);              // -1 diving .. +1 climbing
     var boost = st.boost || 0;
@@ -1518,7 +1517,7 @@ function buildDragon() {
     var rest = 0.20 - eN * 0.16;                  // gliding wings sit flatter
     var sweep = (1 - eN) * 0.17;                  // and sweep back
     var flutter = (1 - eN) * 0.014;               // airflow judder in a glide
-    var bank = turn * 0.07;
+    var bank = turn * 0.14;
 
     // stroke velocity, signed: negative on the downstroke (wing driving down)
     var wV = (w - wPrev) / Math.max(dt, 1e-4); wPrev = w;
@@ -1536,7 +1535,7 @@ function buildDragon() {
     var sweepT = sweep + diveN * 0.34;
 
     for (var wi = 0; wi < 2; wi++) {
-      var W = wi ? wR : wL, sgn = wi ? -1 : 1, J = wJ[wi];
+      var W = wi ? wR : wL, side = wi ? 1 : -1, J = wJ[wi];
 
       // the wing INSIDE a turn folds and sweeps back while the outer one
       // stretches — a bird steers by killing lift on one side, and the span
@@ -1546,14 +1545,14 @@ function buildDragon() {
       // (looking +Z) shows on screen-RIGHT — so the sign here is the reverse
       // of what the variable names suggest. strafeX>0 = turning screen-right
       // = fold the -X wing.
-      var tuck = Math.max(0, turn * sgn);
-      var extend = Math.max(0, turn * -sgn) * 0.20;
+      var tuck = Math.max(0, -turn * side);
+      var extend = Math.max(0, turn * side) * 0.20;
 
       // --- driven shoulder
       var flutterN = Math.sin(t * (wi ? 21.7 : 21.0)) * flutter;
-      W.rotation.z = sgn * (rest + w * amp) + bank + sgn * flutterN;
+      W.rotation.z = side * (rest + w * amp + flutterN) + bank;
       W.rotation.x = w * (0.10 + eN * 0.06) + (1 - eN) * 0.06 + climbN * 0.09;
-      W.rotation.y = sgn * (-0.10 + w * 0.10) + sgn * (sweepT + tuck * 0.12);
+      W.rotation.y = side * (-0.10 + w * 0.10 + sweepT + tuck * 0.28);
 
       // --- sprung elbow and wrist.  a'' = -k(a - target) - c*a'
       var eT = -fold * 0.65 + wingV * 0.018 - tuck * 0.30 + extend * 0.35 - diveN * 0.30;
@@ -1577,12 +1576,12 @@ function buildDragon() {
 
       // All folding goes through the joints' springs, with enough remaining
       // span to carry the dragon through the turn.
-      W.userData.elbow.rotation.y = sgn * J.e * 0.72;
+      W.userData.elbow.rotation.y = -side * J.e * 0.72;
       W.userData.elbow.rotation.x = J.e * 0.34;
-      W.userData.elbow.rotation.z = sgn * J.z;
-      W.userData.wrist.rotation.y = sgn * J.r * 0.85;
+      W.userData.elbow.rotation.z = side * J.z;
+      W.userData.wrist.rotation.y = -side * J.r * 0.85;
       W.userData.wrist.rotation.x = J.r * 0.30;
-      W.userData.wrist.rotation.z = sgn * J.rz;
+      W.userData.wrist.rotation.z = side * J.rz;
 
       // --- quasi-steady aerodynamic load on the membrane.
       // Lift on a thin sail goes as (relative airspeed)^2 times angle of attack.
@@ -1599,12 +1598,13 @@ function buildDragon() {
     // pushing over into one floats him up off the saddle line
     body.position.y = bob - gLoad * 0.30;
     body.position.z = surge;
-    // roll is a spring, not an ease — it overshoots a few degrees and settles,
-    // which is what a real roll input does
-    var rollT = turn * 0.42 + w * eN * 0.016;
-    rollV += ((rollT - body.rotation.z) * 26 - rollV * 7.5) * dt;
-    body.rotation.z += rollV * dt;
-    // nose up on the climb, nose down in the dive
+    // Exact critically damped spring step. Keeping angular velocity means a
+    // reversal rolls through level, while a held course eases out of the bank.
+    var rollT = turn * 0.74 + w * eN * 0.016;
+    var rollError = body.rotation.z - rollT, rollDecay = Math.exp(-13 * dt);
+    var rollSlope = rollV + 13 * rollError;
+    body.rotation.z = rollT + (rollError + rollSlope * dt) * rollDecay;
+    rollV = (rollV - 13 * rollSlope * dt) * rollDecay;
     // ---- legs: tucked hard when working, dangling loose in a glide --------
     // A bird pulls its feet up under power and lets them hang when it coasts;
     // pulling g swings them aft. Whole-group rotation — the joints are baked.
@@ -1615,12 +1615,15 @@ function buildDragon() {
       legs[li].rotation.x = damp(legs[li].rotation.x, legT, 5, dt);
     }
 
-    // pitch: sprung with mild overshoot, target steeper than before, and a
-    // banked turn drops the nose a touch (the coordinated-turn pitch coupling)
-    var pitchT = -vyN * 0.46 + body.rotation.z * body.rotation.z * 0.35;
-    pitchAimV += ((pitchT - pitchAim) * 20 - pitchAimV * 6.5) * dt;
-    pitchAim += pitchAimV * dt;
-    pitchAim = clamp(pitchAim, -0.62, 0.55);
+    // Wing incidence starts the pitch; the sustained pose follows the actual
+    // climb angle, which shallows under boost or when crossing the corridor.
+    var pathPitch = st.pathPitch === undefined ? Math.atan2(vy, 56) : st.pathPitch;
+    var pitchT = clamp(-pathPitch * 0.82 - (st.liftDemand || 0) * 0.24
+                       - body.rotation.z * body.rotation.z * 0.08, -0.80, 0.69);
+    var pitchError = pitchAim - pitchT, pitchDecay = Math.exp(-10 * dt);
+    var pitchSlope = pitchAimV + 10 * pitchError;
+    pitchAim = pitchT + (pitchError + pitchSlope * dt) * pitchDecay;
+    pitchAimV = (pitchAimV - 10 * pitchSlope * dt) * pitchDecay;
     strokePitch = damp(strokePitch, stroking ? -0.025 : 0.01, 8, dt);
     body.rotation.x = pitchAim + strokePitch;
     // no body yaw: the camera pans the turn, the dragon holds its line
@@ -1645,12 +1648,12 @@ function buildDragon() {
     var dRoot  = P.angDelta(prevRootYaw, root.rotation.y);   prevRootYaw  = root.rotation.y;
     var dYaw   = body.rotation.y - prevBodyYaw;              prevBodyYaw  = body.rotation.y;
     var dPitch = body.rotation.x - prevBodyPitch;            prevBodyPitch = body.rotation.x;
-    var dRoll  = body.rotation.z - prevBodyRoll;             prevBodyRoll = body.rotation.z;
 
     // rotation handed down the chain, plus drag from sideways/vertical travel
-    var wY = clamp(dRoot + dYaw, -0.2, 0.2) + turn * dt * 0.35;
+    var wY = clamp(dRoot + dYaw, -0.2, 0.2) + strafe * dt * 0.35;
     var wX = clamp(dPitch, -0.2, 0.2) + vyN * dt * 0.45 - bobV * dt * 0.05;
     var K = 48, D = 8, INER = 0.75;
+    var tailTwist = -clamp(rollV * 0.055, -0.12, 0.12);
 
     for (var j = 0; j < TN; j++) {
       var oy = tY[j], ox = tX[j];
@@ -1669,7 +1672,8 @@ function buildDragon() {
       var amp = (0.030 + eN * 0.045) * (0.55 + j / TN);   // freer toward the tip
       tailSegs[j].rotation.y = tY[j] + wav1 * amp;
       tailSegs[j].rotation.x = tX[j] + wav2 * amp * 0.7 + 0.014;  // hangs a little
-      tailSegs[j].rotation.z = -dRoll * 0.5 * (1 - j / TN);       // lags the roll too
+      tailSegs[j].rotation.z = tailTwist;
+      tailTwist *= 0.63;
       // Include the inertial counter-rotation in the inherited delta. Omitting
       // it applied the body's full turn at every joint and curled the whole tail.
       wY += tY[j] - oy;

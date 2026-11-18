@@ -85,6 +85,63 @@ function setup(files = {}) {
   P.sound.settings.voice = 1; P.Audio_.muted = true; tick(.01); assert(audio[0].muted, 'master mute wins over voice volume');
   P.Audio_.muted = false; tick(.01); assert(!audio[0].muted, 'voice returns after global unmute');
 }
+// A direct salvage launch collects the trail during the sector introduction.
+// The rider makes one pickup remark once the briefing has had room to land.
+{
+  const { P, audio, tick } = setup({ salvage: 'salvage.mp3', pickup: 'pickup.mp3' });
+  P.Game.state = 'playing'; P.Game.epIndex = 1; tick(.05);
+  for (let orb = 0; orb < 6; orb++) P.voice.react('pickup');
+  tick(4.65); assert.equal(P.voice.state().id, 'salvage');
+  tick(6.1); assert.equal(P.voice.state().id, null);
+  tick(1.65); assert.equal(P.voice.state().id, null, 'leave a gap after the briefing');
+  tick(.4); assert.equal(P.voice.state().id, 'pickup');
+  assert.equal(audio[1].src, 'pickup.mp3');
+  tick(7); P.voice.react('pickup'); tick(20);
+  assert.equal(audio.length, 2, 'repeated pickups produce one reaction per flight');
+}
+{
+  const { P, audio, tick } = setup({ opening: 'opening.mp3', pickup: 'pickup.mp3' });
+  P.Game.state = 'playing'; tick(4.8);
+  assert.equal(P.voice.state().id, 'opening');
+  P.voice.react('pickup'); tick(8.5);
+  assert.equal(P.voice.state().id, 'pickup', 'one orb during active narration still earns the joke');
+  assert.equal(audio[1].src, 'pickup.mp3');
+}
+{
+  const ids = ['counter', 'chargebreak', 'gates', 'pickup', 'streak'];
+  const { P, audio, document, tick } = setup(Object.fromEntries(ids.map(id => [id, id + '.mp3'])));
+  P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
+  for (const id of ['pickup', 'streak', 'chargebreak', 'gates', 'pickup']) P.voice.react(id);
+  tick(.02); assert.equal(P.voice.state().id, 'gates', 'a simultaneous gate completion takes priority');
+  tick(6.1); P.voice.react('counter'); tick(3);
+  assert.equal(P.voice.state().id, null, 'leave six seconds of quiet after a reaction');
+  P.Game.state = 'paused'; tick(30); P.voice.react('gates');
+  P.Game.state = 'playing'; tick(3.1); assert.equal(P.voice.state().id, 'counter', 'pause keeps a pending counter in time');
+  P.voice.react('streak'); tick(15); assert.equal(audio.length, 2, 'stale reactions expire');
+  P.voice.react('streak'); tick(.02); assert.equal(P.voice.state().id, 'streak', 'a fresh streak can be earned');
+  P.voice.react('chargebreak'); P.Game.epIndex = 3; tick(4.7);
+  assert.equal(P.voice.state().id, 'citadel', 'sector handover preempts combat commentary');
+  tick(20); assert.equal(audio.length, 3, 'combat reactions stay with their sector');
+  document.hidden = true; P.voice.react('chargebreak'); document.hidden = false; tick(.02);
+  assert.equal(P.voice.state().id, null);
+  P.voice.react('chargebreak'); tick(.02); assert.equal(P.voice.state().id, 'chargebreak');
+  P.Game.state = 'win'; tick(.6); assert.equal(P.voice.state().id, 'victory');
+  assert(audio[3].paused, 'victory stops the reaction clip');
+  P.voice.reset(); P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
+  P.voice.react('counter'); tick(.02); assert.equal(P.voice.state().id, 'counter', 'a new flight resets reactions');
+}
+{
+  const { P, document, nodes, tick } = setup();
+  P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
+  P.Game.cinematic = true; P.voice.react('pickup'); P.Game.cinematic = false; tick(.02);
+  P.Game.ending = true; P.voice.react('counter'); P.Game.ending = false; tick(.02);
+  assert.equal(P.voice.state().id, null, 'camera flights and ending shots do not queue remarks');
+  P.voice.react('chargebreak'); tick(.02);
+  const caption = nodes.find(n => n.id === 'voice-caption');
+  assert.equal(caption.children[0].textContent, 'THE RIDER');
+  assert.equal(caption.children[1].textContent, P.voice.lines.chargebreak, 'missing event audio is still captioned');
+  document.hidden = true; tick(.2); assert(caption.hidden);
+}
 // Existing pf-audio-v1 saves gain the new default without losing their mix.
 const soundscape = fs.readFileSync(path.join(__dirname, '../src/p1c_soundscape.js'), 'utf8');
 function mixer(saved, hasVoice) {
@@ -116,4 +173,4 @@ for (const saved of [null, '{broken', '{"voice":"0"}']) {
   assert(nodes['audio-voice-row'].hidden && nodes['audio-voice-credit'].hidden, 'voice controls and credit stay hidden without files');
 }
 assert.equal(mixer('{"voice":0}', true).P.sound.settings.voice, 0, 'saved silence is preserved');
-console.log('Voice checks passed: exact sector mapping, caption-only missing assets, single playback, music duck, mute/mix, pause/visibility, replay, victory and failure fallback.');
+console.log('Voice checks passed: sector and action cues, event priority and expiry, quiet intervals, single playback, captions, mix, pause, replay and victory.');

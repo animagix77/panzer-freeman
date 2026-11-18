@@ -250,18 +250,32 @@ var lasers = [], bullets = [], ebullets = [], shards = [], orbs = [], rings = []
 
 var SHARD_MATS = {
   hot:   G(0xffd25e), fire: G(0xff7a2a), smoke: G(0x5a4a5a),
-  cyan:  G(0x8ffff0), violet: G(0xb98cff), white: G(0xfff6dd)
+  cyan:  G(0x35efff), violet: G(0x9648ff), white: G(0xfff6dd),
+  pink: G(0xff287e), lime: G(0xb3ff39), blue: G(0x3077ff)
+};
+var blastColors = {
+  wasp: [SHARD_MATS.hot, SHARD_MATS.pink, SHARD_MATS.fire],
+  ray: [SHARD_MATS.cyan, SHARD_MATS.lime, SHARD_MATS.white],
+  chaser: [SHARD_MATS.pink, SHARD_MATS.violet, SHARD_MATS.white],
+  sentinel: [SHARD_MATS.cyan, SHARD_MATS.blue, SHARD_MATS.violet],
+  carrier: [SHARD_MATS.fire, SHARD_MATS.hot, SHARD_MATS.white],
+  turret: [SHARD_MATS.fire, SHARD_MATS.pink, SHARD_MATS.hot],
+  bomber: [SHARD_MATS.violet, SHARD_MATS.pink, SHARD_MATS.fire],
+  mine: [SHARD_MATS.lime, SHARD_MATS.cyan, SHARD_MATS.white],
+  core: [SHARD_MATS.cyan, SHARD_MATS.violet, SHARD_MATS.white]
 };
 
-function boom(pos, size, colorSet, count) {
-  if (P.fx && size >= 1) P.fx.burst(pos, size, 0xff944c, false);
-  var n = count || Math.round(10 + size * 5);
+function boom(pos, size, colorSet, count, smallFx) {
+  if (P.fx && size >= 1) P.fx.burst(pos, size, colorSet[0].color.getHex(), !!smallFx,
+    (colorSet[1] || colorSet[0]).color.getHex());
+  var n = count || Math.round(6 + size * 2.8);
   for (var i = 0; i < n; i++) {
     if (shards.length > 200) break;
     var s = shardPool.get();
     s.position.copy(pos);
     s.material = colorSet[i % colorSet.length];
-    s.scale.setScalar(rand(0.4, 1.5) * size * 0.5);
+    var fragment = rand(.28, .95) * Math.min(size, 6) * .32;
+    s.scale.set(fragment, fragment * .50, fragment * 1.55);
     shards.push({
       m: s,
       v: new V3(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(6, 26) * (0.5 + size * 0.2)),
@@ -270,7 +284,8 @@ function boom(pos, size, colorSet, count) {
     });
     shards[shards.length - 1].maxLife = shards[shards.length - 1].life;
   }
-  // shockwave ring
+  // The full detonation already draws a pressure wave. Smaller effects use the simple ring.
+  if (P.fx && size >= 1 && !smallFx) return;
   var r = ringPool.get();
   r.position.copy(pos);
   r.scale.setScalar(0.2);
@@ -281,7 +296,9 @@ function boom(pos, size, colorSet, count) {
 
 var GEO_RING = mdl.tor(1, 0.035, 3, 40);
 var ringPool = new Pool(function () {
-  var r = mdl.mesh(GEO_RING, G(0xffffff, { transparent: true, opacity: .38, depthWrite: false }));
+  // Simultaneous kills keep independent shockwave color and fade.
+  var r = mdl.mesh(GEO_RING, new THREE.MeshBasicMaterial({ color: 0xffffff,
+    transparent: true, opacity: .38, depthWrite: false }));
   r.name = 'combat-shockwave';
   return r;
 }, 48);   // a multi-kill can boom a dozen enemies in the same frame
@@ -372,9 +389,7 @@ function spawnEnemy(type, opts) {
 }
 
 function enemyCols(e) {
-  return e.type === 'carrier' ? [SHARD_MATS.hot, SHARD_MATS.white, SHARD_MATS.fire]
-       : e.type === 'ray' ? [SHARD_MATS.cyan, SHARD_MATS.white, SHARD_MATS.smoke]
-       : [SHARD_MATS.fire, SHARD_MATS.hot, SHARD_MATS.smoke];
+  return blastColors[e.type] || blastColors.wasp;
 }
 function killEnemy(e, byPlayer) {
   if (!e.alive) return;
@@ -386,7 +401,7 @@ function killEnemy(e, byPlayer) {
     e.dying = 0.55 + Math.random() * 0.3;
     e.spinA = rand(7, 12) * (Math.random() < 0.5 ? -1 : 1);
     e.fallV = rand(2, 7);
-    spawnImpact(e.pos, 0xffa050, 1.3);
+    spawnImpact(e.pos, enemyCols(e)[0].color.getHex(), 1.3);
     A.sBoom(false, e.pos);
   } else {
     boom(e.pos, e.def.radius * 1.4, enemyCols(e));
@@ -407,7 +422,8 @@ function killEnemy(e, byPlayer) {
     deAge(e.deAge * (e.tag === 'opening-target' ? 1 : 2 + Math.min(Game.combo, 15) * 0.06));
     if (P.opening) P.opening.onKill(e);
     if (P.campaign) P.campaign.onKill(e);
-    killQuip();
+    if (Game.combo === 3 && P.voice) P.voice.react('streak');
+    else killQuip(e.type);
   }
   if (e.def.drops) for (var i = 0; i < e.def.drops; i++) spawnOrb(e.pos, true);
   else if (e.tag !== 'opening-target' && Math.random() < 0.055) spawnOrb(e.pos, false);
@@ -605,6 +621,7 @@ function reflectShot(shot) {
     life: 2.5, dmg: 2, delay: 0, age: .5, reflected: true });
   spawnImpact(origin, 0xffdc80, 1.45);
   Game.reflections++;
+  if (P.voice) P.voice.react('counter');
   Game.score += 180;
   toast('RETURN FIRE · +180');
   A.sReflect();
@@ -683,7 +700,7 @@ function bossCoreHit(c, dmg) {
     Game.killConfirmT = .42;
     c.alive = false;
     var wp = new V3(); c.group.getWorldPosition(wp);
-    boom(wp, 5.5, [SHARD_MATS.cyan, SHARD_MATS.white, SHARD_MATS.hot], 34);
+    boom(wp, 5.5, blastColors.core, 34);
     A.sBoom(true);
     Game.score += 3000;
     deAge(3.0);
@@ -701,6 +718,7 @@ function bossCoreHit(c, dmg) {
 
 function bossDie() {
   Boss.dead = true; Boss.deathT = 4.2; Game.ending = true;
+  Boss.blastTimer = 0; Boss.blastNumber = 0;
   A.sBoom(true);
   toast('THE FOUNTAIN OPENS');
 }
@@ -736,15 +754,20 @@ function updateBoss(dt) {
   if (B.dead) {
     B.deathT -= dt;
     var wp = new V3(); B.group.getWorldPosition(wp);
-    if (Math.random() < 0.55) {
+    B.blastTimer = (B.blastTimer || 0) - dt;
+    if (B.deathT > 0 && B.blastTimer <= 0) {
+      B.blastTimer = .16 + .13 * B.deathT / 4.2;
+      var cycle = (B.blastNumber || 0) % 3;
+      B.blastNumber = (B.blastNumber || 0) + 1;
       boom(wp.clone().add(new V3(rand(-14, 14), rand(-10, 10), rand(-10, 10))), rand(2, 6),
-           [SHARD_MATS.fire, SHARD_MATS.hot, SHARD_MATS.white]);
+           cycle === 0 ? blastColors.wasp : cycle === 1 ? blastColors.core : blastColors.bomber);
       if (Math.random() < 0.4) A.sBoom(true);
     }
     B.group.rotation.z += dt * 1.4;
     B.group.scale.multiplyScalar(1 - dt * 0.13);
     Game.shakeT = 0.3; Game.shakeMag = 1.6;
     if (B.deathT <= 0) {
+      boom(wp, 8, blastColors.core, 46);
       B.active = false; restoreBossPose(); B.group.visible = false;
       endGame(true);
     }
@@ -894,17 +917,32 @@ var CHAIN_QUIPS = {
   14: 'At this rate he would arrive at the Fountain as a teenager.',
   20: 'Twenty. Whatever the empire had feared, it had underestimated it.'
 };
+var ENEMY_QUIPS = {
+  wasp: 'Last summer he had used a rolled-up newspaper. Things had escalated.',
+  ray: 'A stingray with a gun. He remembered when you could swim here.',
+  turret: 'He had told that turret to get out more.',
+  chaser: 'It followed him for miles. Probably wanted to talk about his warranty.',
+  carrier: 'Two little ships came with it. Batteries, presumably, sold separately.',
+  mine: 'He used to own a clock that ticked like that. It lasted longer.',
+  sentinel: 'His dentist wore a shield just like that.',
+  bomber: 'So that was what kept dropping parcels on his roof.'
+};
+var heardEnemyQuips = {};
 var quipT = 0, quipCD = 0, lastQuip = -1;
 function sayQuip(txt, force) {
-  if (Game.state !== 'playing' || Game.cinematic) return;
+  if (Game.state !== 'playing' || Game.cinematic || (P.voice && P.voice.isSpeaking())) return;
   if (!force && quipCD > 0) return;
   P.el.quip.textContent = txt;
   quipT = 3.6; quipCD = force ? 2.2 : 4.4;
 }
-function killQuip() {
+function killQuip(type) {
   var c = CHAIN_QUIPS[Game.combo];
   if (c) { sayQuip(c, true); return; }
-  if (Math.random() > 0.42) return;
+  if (quipCD > 0 || Game.cinematic || (P.voice && P.voice.isSpeaking()) || Math.random() > 0.42) return;
+  if (ENEMY_QUIPS[type] && !heardEnemyQuips[type]) {
+    sayQuip(ENEMY_QUIPS[type]); heardEnemyQuips[type] = true;
+    return;
+  }
   var i = Math.floor(Math.random() * QUIPS.length);
   if (i === lastQuip) i = (i + 1) % QUIPS.length;
   lastQuip = i;
@@ -960,9 +998,11 @@ function updatePlayer(dt) {
   function corridorSpeed(want, pos, lo, hi) {
     return clamp(want, -Math.max(0, pos - lo) * 4, Math.max(0, hi - pos) * 4);
   }
-  Player.vx = damp(Player.vx, corridorSpeed(ix * rx * accel * 0.42, Player.x, -corridor, corridor), 7, dt);
+  var targetVX = corridorSpeed(ix * rx * accel * 0.42, Player.x, -corridor, corridor);
+  var targetVY = corridorSpeed(iy * accel * 0.36, Player.y, -16, ceiling);
+  Player.vx = damp(Player.vx, targetVX, 7, dt);
   Player.vz = damp(Player.vz, corridorSpeed(ix * rz * accel * 0.42, Player.zOff, -26, 26), 7, dt);
-  Player.vy = damp(Player.vy, corridorSpeed(iy * accel * 0.36, Player.y, -16, ceiling), 7, dt);
+  Player.vy = damp(Player.vy, targetVY, 7, dt);
   var oldX = Player.x, oldY = Player.y, oldZ = Player.zOff;
   Player.x += Player.vx * dt;
   Player.zOff += Player.vz * dt;
@@ -1002,17 +1042,29 @@ function updatePlayer(dt) {
   var screenStrafe = (Player.motionX * rx + Player.motionZ * rz) / (accel * 0.42);
   Player.lean = damp(Player.lean || 0, screenStrafe, 5, dt);
   dragon.root.position.copy(Player.pos);
-  var heading = Math.atan2(Player.motionX, Math.max(20, forwardSpeed + Player.motionZ));
+  var trackZ = Math.max(20, forwardSpeed + Player.motionZ);
+  var heading = Math.atan2(Player.motionX, trackZ);
+  var strafe = clamp(-Player.motionX / (accel * 0.42), -1, 1);
+  // Tip into the acceleration, then open the wings as the new course settles.
+  // Braking and reversing require a brief bank back across the current course.
+  var lateralLoad = (Player.motionX - targetVX) / (accel * 0.42);
+  var liftDemand = (targetVY - Player.motionY) / 44;
   dragon.root.rotation.y = damp(dragon.root.rotation.y, heading * 0.72, 6, dt);
   dragon.update(dt, Game.time, {
-    strafeX: clamp(-Player.motionX / (accel * 0.42), -1, 1),
+    strafeX: strafe,
+    bankDemand: clamp(lateralLoad * 1.45 + strafe * 0.44, -1, 1),
+    pathPitch: Math.atan2(Player.motionY, Math.hypot(Player.motionX, trackZ)),
+    liftDemand: clamp(liftDemand, -1, 1),
     strafeY: clamp(Player.motionY / 44, -1, 1),
     vy: Player.motionY,
     aimX: Player.aimX, aimY: Player.aimY, boost: Player.boosting ? 1 : 0
   });
 
-  var rollProgress = Player.rollT > 0 ? 1 - Player.rollT / 0.65 : 0;
-  dragon.root.rotation.z = Player.rollT > 0 ? -Player.rollDir * TAU * (rollProgress * rollProgress * (3 - 2 * rollProgress)) : 0;
+  if (Player.rollT > 0) {
+    var rollProgress = 1 - Player.rollT / 0.65;
+    dragon.root.rotation.z = Player.rollFacing * Player.rollDir * TAU *
+                             rollProgress * rollProgress * (3 - 2 * rollProgress);
+  } else dragon.root.rotation.z = 0;
 
   // blink while invulnerable
   if (Game.invulnT > 0) {
@@ -1029,7 +1081,7 @@ function updatePlayer(dt) {
   var camYawV = yaw + lean * 0.12;
   var fwd = new V3(Math.sin(camYawV), 0, Math.cos(camYawV));
   var camPos = Player.pos.clone().addScaledVector(fwd, -26);
-  camPos.y += 6.2 + dragon.getBob() * 0.32;
+  camPos.y += 6.2 + dragon.getBob() * 0.32 - clamp(Player.motionY * 0.035, -1.5, 1.5);
   camPos.addScaledVector(fwd, dragon.getSurge() * 0.5);
   // lateral lag: the boom hangs behind the sideways motion
   var rX = -Math.cos(yaw), rZ = Math.sin(yaw);           // screen-right
@@ -1218,7 +1270,7 @@ function updateProjectiles(dt) {
     s.m.position.addScaledVector(s.v, dt);
     s.m.rotation.x += s.spin.x * dt; s.m.rotation.y += s.spin.y * dt; s.m.rotation.z += s.spin.z * dt;
     var f = clamp(s.life / s.maxLife, 0, 1);
-    s.m.scale.setScalar(Math.max(0.02, s.m.scale.x * (1 - dt * 0.8)));
+    s.m.scale.multiplyScalar(Math.exp(-dt * 1.25));
     if (s.life <= 0) { shardPool.put(s.m); shards.splice(i, 1); }
   }
   // shockwave rings
@@ -1250,9 +1302,9 @@ function updateProjectiles(dt) {
     if (dist < 18 || segPointD2(oldOrbPos, o.pos, Player.pos) < 18 * 18) {
       deAge(1.0); Game.score += 250; Game.orbsTaken++;
       A.sOrb(); flashScreen(0.28, '#8ffff0');
-      sayQuip('A year, handed back to him without ceremony.', true);
+      if (P.voice) P.voice.react('pickup');
       toast('CHRONO ORB  −1 YEAR');
-      boom(o.pos, 1.4, [SHARD_MATS.cyan, SHARD_MATS.white], 10);
+      boom(o.pos, 1.4, [SHARD_MATS.cyan, SHARD_MATS.white], 10, true);
       o.g.visible = false; orbPool.push(o.g); orbs.splice(i, 1); continue;
     }
     if (o.life <= 0 || o.pos.z < Game.railZ - 90) {
@@ -1509,6 +1561,7 @@ P.entities = {
   },
   reset: function () {
     var i;
+    heardEnemyQuips = {}; quipT = quipCD = 0; lastQuip = -1;
     Game.hitConfirmT = Game.killConfirmT = Game.reflections = 0;
     reflectedThisRoll = false;
     for (i = enemies.length - 1; i >= 0; i--) { freeEnemyMesh(enemies[i].type, enemies[i].g); }

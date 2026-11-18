@@ -137,14 +137,12 @@ evasion window. Boost and roll share a replenishing power reserve. Carriers take
 double damage when attacked from more than 26 units to either side or 18 units above;
 the HUD indicates when a core is exposed.
 
-**Combat light.** Laser heads have soft cyan glow and bright tapered trails. Hits
-flare, explosions throw hot fragments and expanding shockwaves, and three pooled
-point lights illuminate nearby surfaces. Forty pooled glow bursts bound the cost.
-Clouds use soft mist sprites instead of solid polygon lumps.
-Destruction adds cooling ember streaks and textured smoke that rises after ignition.
-Shockwaves expand translucently and fade; their materials are independent of debris.
-The afterglow uses one shared spark batch and at most 18 smoke sprites, with distant
-glow and sparks fading into the stage fog.
+**Combat light.** Laser heads leave tapered cyan trails. A destroyed enemy
+flashes white at the core, then its fireball rolls outward inside two expanding
+shock fronts. Sentinels burst in cyan and blue, bombers in violet and pink, and
+mines in lime and cyan. The colors carry into the sparks, fragments and rising
+smoke. Nearby surfaces catch the light and distant bursts fade into the stage fog.
+Chronos breaks apart in a timed chain of colored detonations.
 
 **A guided opening flight.** An optional opening teaches sweeping lock-ons with
 three non-firing targets worth one year each, shows the years actually earned,
@@ -167,39 +165,16 @@ the real 90s integer-math wobble, not a filter. The snap shader is always compil
 and gated on a uniform, so the switch is instant and doesn't rebuild a single
 material. The HUD is a separate full-res canvas, so it stays sharp either way.
 
-**A dragon with a flight model.** Wingbeats are driven by an *effort* value derived
-from actual vertical velocity, so climbing costs work and diving is free:
+**Dragon flight.** Tap a direction and the inside wing lowers and sweeps back
+as the dragon banks. Hold a steady course and the bank shallows. Reverse into a
+climb or dive and the dragon rolls through level while pitching toward its new
+flight path. Forward speed matters: the same rise looks shallower under boost.
 
-| | vertical speed | wingbeats |
-|---|---|---|
-| idle / level glide | 0 | 0.58/s — one every 1.7s |
-| climbing | +45 | **3.70/s** — one every 0.3s |
-| diving | −46 | **0.32/s** — one every 3.1s |
-
-A flap takes a fixed ~0.4s however often it comes, so at low effort the dragon
-holds an extended glide and flaps only occasionally, with jittered timing so idle
-beats aren't metronomic. Climbing is 6.4× the idle rate and 12× the dive rate.
-
-The beat is asymmetric — a fast powered downstroke, a slow recovery — and each
-downstroke fires an impulse into a damped spring, so the body genuinely lifts and
-settles. Gliding flattens and sweeps the wings back; climbing cups them forward.
-Altitude trades for airspeed in both directions. The body banks into its turns,
-pitches with its climb, and yaws so the nose leads — all three verified by
-measuring the model's world orientation against the camera basis, because every
-one of them was silently inverted at first.
-
-**A tail that trails.** The tail isn't told about the turn. It's a chain of
-spring joints, each of which keeps its own heading when the joint ahead of it
-swings away, then springs back into line — so a turn sends a travelling wave down
-it and the tip whips out behind. Two incommensurate sine pairs add a slow waver
-that never quite repeats, freer toward the tip.
-
-Movement poses follow actual travel in the dragon's frame, so changing the view
-doesn't reverse its bank. Steering eases into the flight boundaries and the rig
-settles into a glide when movement stops. Flaps finish before their timing changes,
-wing folds ease through recovery, and the rider's brace stays consistent across
-frame rates. The tail passes each joint's remaining rotation down the chain rather
-than repeating the full turn at every joint.
+The wingtips drive down as the body lifts on a powered stroke. The shoulder
+leads the elbow and wrist, and climbs bring the strokes closer together.
+In a dive the wings sweep aft into a glide. The rider braces and the tail
+follows the turn joint by joint. Changing the camera view preserves the
+direction of an evasive roll already in progress.
 
 **Panzer Dragoon lock-on.** Sweeping the reticle stacks locks (a big target soaks
 several), and the volley launches in a wide fan before the homing tightens and curls
@@ -232,10 +207,13 @@ to audition the laser, explosion and wings. The existing recorded score is retai
 A 28-voice cap and per-effect rate limits control busy volleys.
 These are original procedural effects, with no external sample licenses required.
 
-**Rider dialogue.** Five original lines accompany the opening flight, salvage run,
-carrier convoy, mountain citadel and victory. Each line has a caption. Builds
-with the corresponding recorded clips also have a Rider voice level in the pause
-menu. Music dips during speech, and pausing holds the line at its current position.
+**Rider dialogue.** The rider narrates the opening flight, salvage run, carrier
+convoy, mountain citadel and victory. He also reacts to a reflected shot, an
+interrupted charge, a clean three-gate run, an orb pickup and a three-kill chain.
+Sector dialogue gets priority, and each flight reaction plays at most once per
+run. Eight enemy-specific captions mix into the quieter stretches of combat.
+All rider lines have captions. The pause menu has a Rider voice level in builds
+with recorded clips. Music dips during speech, and pausing holds the line in place.
 
 ## Building
 

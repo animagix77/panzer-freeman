@@ -16,13 +16,80 @@ function sprite(col) {
     blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 }
 var pool = [], cursor = 0, lights = [], lightCursor = 0;
-var ringGeo = new THREE.TorusGeometry(1, .014, 4, 48);
+// A tileable two-channel noise field gives each detonation a rolling edge
+// and hot pockets inside the flame. All bursts share this one texture.
+var noiseSize = 64, noisePixels = new Uint8Array(noiseSize * noiseSize * 4);
+var lattice = new Uint8Array(noiseSize * noiseSize), seed = 73013;
+for (i = 0; i < lattice.length; i++) {
+  seed = (Math.imul(seed, 1664525) + 1013904223) | 0; lattice[i] = seed >>> 24;
+}
+function tiledNoise(x, y, period, offset) {
+  var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  fx *= fx * (3 - 2 * fx); fy *= fy * (3 - 2 * fy);
+  var x0 = (ix % period) + offset, x1 = ((ix + 1) % period) + offset;
+  var y0 = (iy % period) * noiseSize, y1 = ((iy + 1) % period) * noiseSize;
+  return (1 - fy) * ((1 - fx) * lattice[y0 + x0] + fx * lattice[y0 + x1])
+    + fy * ((1 - fx) * lattice[y1 + x0] + fx * lattice[y1 + x1]);
+}
+for (i = 0; i < lattice.length; i++) {
+  var nx = (i % noiseSize) / noiseSize, ny = Math.floor(i / noiseSize) / noiseSize;
+  for (var channel = 0; channel < 2; channel++) {
+    var offset = channel * 32;
+    noisePixels[i * 4 + channel] = .62 * tiledNoise(nx * 4, ny * 4, 4, offset)
+      + .28 * tiledNoise(nx * 8, ny * 8, 8, offset) + .10 * tiledNoise(nx * 16, ny * 16, 16, offset);
+  }
+  noisePixels[i * 4 + 3] = 255;
+}
+var noiseMap = new THREE.DataTexture(noisePixels, noiseSize, noiseSize, THREE.RGBAFormat);
+noiseMap.wrapS = noiseMap.wrapT = THREE.RepeatWrapping;
+noiseMap.minFilter = noiseMap.magFilter = THREE.LinearFilter; noiseMap.needsUpdate = true;
+var flameGeo = new THREE.PlaneGeometry(1, 1);
+var flameVertex = [
+  'varying vec2 p;',
+  'void main(){ p=uv*2.0-1.0; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }'
+].join('\n');
+var flameFragment = [
+  'uniform sampler2D turbulence;',
+  'uniform vec3 bodyColor, edgeColor;',
+  'uniform float age, variant, visibility;',
+  'varying vec2 p;',
+  'void main(){',
+  '  vec2 uv = p*.95+vec2(variant,variant*.77);',
+  '  vec2 flow = texture2D(turbulence,uv+vec2(.12,-.31)*age).rg;',
+  '  float fold = texture2D(turbulence,uv*1.65+flow*.71-vec2(.04,.23)*age).g;',
+  '  float wisps = texture2D(turbulence,uv*3.3+flow*.86+fold*.33).r;',
+  '  float r = length(p);',
+  '  float angle = atan(p.y,p.x+.00001);',
+  '  float jet = pow(.5+.5*cos(angle*6.+1.7*sin(angle*3.+variant*6.)+8.*flow.g+3.*r),2.7);',
+  '  float reach = .055+.54*(1.-exp(-age*7.));',
+  '  float depth = reach*(.70+.62*jet)-r+(flow.r-.5)*.52+(fold-.5)*.23;',
+  '  float cloud = smoothstep(-.025,.075,depth)*(1.-smoothstep(.24,.93,age));',
+  '  float layers = (flow.g-.5)*.84+(fold-.5)*1.55+(wisps-.5)*.88;',
+  '  cloud *= mix(1.,smoothstep(-.17,.32,layers),smoothstep(.10,.75,age));',
+  '  float heat = clamp(.39+depth*1.03+layers*1.55-age*.57,0.,1.);',
+  '  vec3 flame = mix(edgeColor*.66,bodyColor,smoothstep(.15,.72,heat));',
+  '  flame = mix(flame,vec3(1.,.96,.79),smoothstep(.60,.97,heat)*(1.-smoothstep(.23,.67,age)));',
+  // A few shearing arcs race beyond the rolling flame.
+  '  float wave = .12+.82*(1.-exp(-age*4.));',
+  '  float shell = 1.-smoothstep(.003,.018,abs(r-wave-(flow.r-.5)*.034));',
+  '  shell *= smoothstep(.14,.86,.5+.5*sin(angle*3.+flow.g*5.))* .62*(1.-smoothstep(.06,.45,age));',
+  '  float echo = 1.-smoothstep(.002,.014,abs(length(p*vec2(.98,1.36))-wave*.89));',
+  '  shell += echo*smoothstep(.36,.71,flow.g)*.33*(1.-smoothstep(.04,.35,age));',
+  '  float alpha = min(1.,cloud+shell)*visibility;',
+  '  if(alpha<.008) discard;',
+  '  vec3 color = mix(flame,mix(edgeColor,vec3(1.),.33),shell/max(.001,cloud+shell));',
+  '  gl_FragColor=vec4(color,alpha);',
+  '}'
+].join('\n');
 for (i = 0; i < 40; i++) {
   var g = new THREE.Group(), halo = sprite(0xff974a), core = sprite(0xffffff);
-  var ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffb878, transparent: true,
-    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-  g.add(halo, core, ring); g.visible = false; scene.add(g);
-  pool.push({ g: g, halo: halo, core: core, ring: ring, age: 0, life: 0, size: 1 });
+  var flame = new THREE.Mesh(flameGeo, new THREE.ShaderMaterial({
+    uniforms: { turbulence: { value: noiseMap }, bodyColor: { value: new THREE.Color() },
+      edgeColor: { value: new THREE.Color() }, age: { value: 0 }, variant: { value: 0 }, visibility: { value: 1 } },
+    vertexShader: flameVertex, fragmentShader: flameFragment, transparent: true, depthWrite: false }));
+  flame.name = 'plasma-detonation'; flame.renderOrder = 2; core.renderOrder = 3;
+  g.add(halo, core, flame); g.visible = false; scene.add(g);
+  pool.push({ g: g, halo: halo, core: core, flame: flame, age: 0, life: 0, size: 1 });
 }
 for (i = 0; i < 3; i++) { var light = new THREE.PointLight(0xff9944, 0, 95, 2); scene.add(light); lights.push({ light: light, age: 1 }); }
 
@@ -36,7 +103,11 @@ sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkCol, 3).setUsage(T
 var sparkMesh = new THREE.LineSegments(sparkGeo, new THREE.LineBasicMaterial({ vertexColors: true,
   transparent: true, opacity: .9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 sparkMesh.name = 'explosion-embers'; sparkMesh.visible = false; sparkMesh.frustumCulled = false; scene.add(sparkMesh);
-for (i = 0; i < sparkCapacity; i++) sparks.push({ pos: new THREE.Vector3(), velocity: new THREE.Vector3(), age: 10, life: 0 });
+var emberTips = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ map: tex, size: 1.65, vertexColors: true,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+emberTips.visible = false; emberTips.frustumCulled = false; emberTips.renderOrder = 3; scene.add(emberTips);
+for (i = 0; i < sparkCapacity; i++) sparks.push({ pos: new THREE.Vector3(), velocity: new THREE.Vector3(),
+  tint: new THREE.Color(), age: 10, life: 0 });
 var smokeData = new Uint8Array(64 * 64 * 4);
 for (i = 0; i < 4096; i++) {
   var sx = (i % 64 - 31.5) / 31.5, sy = (Math.floor(i / 64) - 31.5) / 31.5;
@@ -51,9 +122,9 @@ for (i = 0; i < 18; i++) {
   var cloud = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0x594951,
     transparent: true, opacity: 0, depthWrite: false, fog: true }));
   cloud.name = 'explosion-smoke'; cloud.visible = false; scene.add(cloud);
-  smoke.push({ mesh: cloud, pos: new THREE.Vector3(), age: 10, life: 0, size: 1, drift: 0 });
+  smoke.push({ mesh: cloud, pos: new THREE.Vector3(), hot: new THREE.Color(), age: 10, life: 0, size: 1, drift: 0 });
 }
-var smokeHot = new THREE.Color(0xed965b), smokeCold = new THREE.Color(0x594951);
+var smokeCold = new THREE.Color(0x594951);
 function fogVisibility(pos) {
   var fog = scene.fog;
   if (!fog || fog.far === undefined) return 1;
@@ -61,17 +132,19 @@ function fogVisibility(pos) {
   var u = Math.max(0, Math.min(1, (distance - fog.near) / Math.max(1, fog.far - fog.near)));
   return 1 - u * u * (3 - 2 * u);
 }
-function explosionAfterglow(pos, size) {
+function explosionAfterglow(pos, size, body, edge) {
   var count = Math.min(30, Math.round(14 + size * 2));
   for (var i = 0; i < count; i++) {
     var s = sparks[sparkCursor++ % sparkCapacity], vertical = 1 - (i + .5) / count * 2;
     var radius = Math.sqrt(1 - vertical * vertical), angle = i * 2.399963 + sparkCursor * .17;
     s.pos.copy(pos); s.age = 0; s.life = .55 + (i % 5) * .13;
+    s.tint.copy(i % 3 ? edge : body);
     s.velocity.set(Math.cos(angle) * radius, vertical * .8 + .22, Math.sin(angle) * radius)
       .multiplyScalar((20 + (i % 4) * 9) * Math.min(2.3, .65 + size * .18));
   }
   for (var puff = 0; puff < 3; puff++) {
     var c = smoke[smokeCursor++ % smoke.length];
+    c.hot.copy(puff === 1 ? body : edge);
     c.age = 0; c.life = 1.3 + puff * .18; c.size = Math.min(7, size) * (3.8 + puff * .8);
     c.pos.copy(pos); c.pos.x += (puff - 1) * size * .7; c.pos.y += puff * size * .35;
     c.drift = (puff - 1) * 2.8;
@@ -90,15 +163,20 @@ function updateAfterglow(dt) {
     s.pos.addScaledVector(s.velocity, travel); s.pos.y -= 14 * (dt - travel) / 1.7;
     s.velocity.multiplyScalar(drag); s.velocity.y -= 14 * travel;
     var fade = Math.pow(1 - s.age / s.life, 1.4) * fogVisibility(s.pos);
-    var tail = .065 * Math.max(.3, 1 - s.age / s.life);
+    var tail = .105 * Math.max(.3, 1 - s.age / s.life);
     sparkPos[k] = s.pos.x; sparkPos[k + 1] = s.pos.y; sparkPos[k + 2] = s.pos.z;
     sparkPos[k + 3] = s.pos.x - s.velocity.x * tail; sparkPos[k + 4] = s.pos.y - s.velocity.y * tail;
     sparkPos[k + 5] = s.pos.z - s.velocity.z * tail;
-    sparkCol[k] = fade; sparkCol[k + 1] = fade * (.42 + .5 * Math.exp(-s.age * 5)); sparkCol[k + 2] = fade * .25;
-    sparkCol[k + 3] = fade * .12; sparkCol[k + 4] = fade * .025; sparkCol[k + 5] = 0;
+    var white = .64 * Math.exp(-s.age * 8);
+    sparkCol[k] = fade * (white + (1 - white) * s.tint.r);
+    sparkCol[k + 1] = fade * (white + (1 - white) * s.tint.g);
+    sparkCol[k + 2] = fade * (white + (1 - white) * s.tint.b);
+    sparkCol[k + 3] = fade * s.tint.r * .25;
+    sparkCol[k + 4] = fade * s.tint.g * .25;
+    sparkCol[k + 5] = fade * s.tint.b * .25;
     if (fade > .001) active++;
   });
-  sparkMesh.visible = active > 0;
+  sparkMesh.visible = emberTips.visible = active > 0;
   sparkGeo.attributes.position.needsUpdate = true; sparkGeo.attributes.color.needsUpdate = true;
   smoke.forEach(function (c) {
     if (!c.mesh.visible) return;
@@ -106,7 +184,7 @@ function updateAfterglow(dt) {
     c.mesh.visible = u < 1;
     c.mesh.position.set(c.pos.x + c.drift * c.age, c.pos.y + c.age * (7 + c.size * .08), c.pos.z);
     c.mesh.scale.setScalar(c.size * (1 + u * 1.6));
-    c.mesh.material.color.copy(smokeHot).lerp(smokeCold, Math.min(1, c.age * 3.4));
+    c.mesh.material.color.copy(c.hot).lerp(smokeCold, Math.min(1, c.age * 2.1));
     c.mesh.material.opacity = .42 * Math.min(1, c.age / .12) * Math.pow(1 - u, 1.5) * fogVisibility(c.mesh.position);
     c.mesh.material.rotation += dt * c.drift * .035;
   });
@@ -201,19 +279,28 @@ function updateTrails(dt) {
     t.mesh.geometry.attributes.color.needsUpdate = true;
   });
 }
-function burst(pos, size, col, small) {
+function poseFlame(b) {
+  b.flame.quaternion.copy(P.camera.quaternion); b.flame.rotateZ(b.twist);
+  b.flame.scale.setScalar(Math.min(b.size * 12, b.g.position.distanceTo(P.camera.position) * .68));
+}
+function burst(pos, size, col, small, accent) {
   var b = pool[cursor++ % pool.length];
-  b.g.position.copy(pos); b.g.visible = true; b.g.scale.setScalar(1);
-  b.size = size; b.age = 0; b.life = small ? .23 : .85;
-  b.halo.material.color.setHex(col); b.ring.material.color.setHex(col);
-  b.ring.quaternion.copy(P.camera.quaternion); b.ring.visible = !small;
-  b.halo.material.opacity = .9; b.core.material.opacity = 1; b.ring.material.opacity = .24;
-  b.halo.scale.setScalar(size * 8); b.core.scale.setScalar(size * 3);
-  b.ring.scale.setScalar(.2);
+  b.g.position.copy(pos); b.g.visible = true;
+  b.size = size; b.age = 0; b.life = small ? .23 : 1.05;
+  var visibility = fogVisibility(pos);
+  b.halo.material.color.setHex(col);
+  b.halo.material.opacity = .9 * visibility; b.core.material.opacity = visibility;
+  b.halo.scale.setScalar(size * 8); b.core.scale.setScalar(size * (small ? 3 : 5));
+  b.flame.visible = !small;
   if (!small) {
-    explosionAfterglow(pos, size);
+    var uniforms = b.flame.material.uniforms;
+    uniforms.bodyColor.value.setHex(col); uniforms.edgeColor.value.setHex(accent === undefined ? col : accent);
+    uniforms.age.value = 0; uniforms.visibility.value = visibility;
+    uniforms.variant.value = (cursor * .618034) % 1; b.twist = cursor * 2.399963;
+    poseFlame(b);
+    explosionAfterglow(pos, size, uniforms.bodyColor.value, uniforms.edgeColor.value);
     var l = lights[lightCursor++ % lights.length]; l.age = 0;
-    l.light.position.copy(pos); l.light.color.setHex(col); l.light.intensity = Math.min(5, size * 1.3);
+    l.light.position.copy(pos); l.light.color.setHex(col); l.light.intensity = Math.min(7, size * 1.7);
     l.strength = l.light.intensity;
   }
 }
@@ -230,17 +317,21 @@ P.fx = {
       if (!b.g.visible) return;
       b.age += dt; var u = Math.min(1, b.age / b.life);
       b.g.visible = u < 1;
-      b.halo.scale.setScalar(b.size * (8 + u * 18));
-      b.core.scale.setScalar(b.size * (3 + u * 5));
+      b.halo.scale.setScalar(b.size * (8 + u * 14));
+      b.core.scale.setScalar(b.size * ((b.flame.visible ? 5 : 3) + u * 4));
       var visibility = fogVisibility(b.g.position);
       b.halo.material.opacity = Math.pow(1 - u, 2) * .85 * visibility;
       b.core.material.opacity = Math.pow(1 - u, 6) * visibility;
-      b.ring.scale.setScalar(b.size * (.6 + u * 9)); b.ring.material.opacity = Math.pow(1 - u, 2) * .24 * visibility;
+      if (b.flame.visible) {
+        poseFlame(b);
+        b.flame.material.uniforms.age.value = u;
+        b.flame.material.uniforms.visibility.value = visibility;
+      }
     });
     lights.forEach(function (l) { l.age += dt; l.light.intensity = (l.strength || 0) * Math.pow(Math.max(0, 1 - l.age / .32), 2); });
   },
   reset: function () { resetTrails(); pool.forEach(function (b) { b.g.visible = false; }); lights.forEach(function (l) { l.age = 1; l.light.intensity = 0; });
-    sparks.forEach(function (s) { s.age = s.life; }); sparkCol.fill(0); sparkMesh.visible = false;
+    sparks.forEach(function (s) { s.age = s.life; }); sparkCol.fill(0); sparkMesh.visible = emberTips.visible = false;
     smoke.forEach(function (c) { c.mesh.visible = false; }); },
   stats: function () { return { capacity: pool.length, active: pool.filter(function (b) { return b.g.visible; }).length,
     lights: lights.length, trails: trails.filter(function (t) { return t.mesh.visible; }).length, trailCapacity: trails.length,

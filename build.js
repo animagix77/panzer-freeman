@@ -22,7 +22,8 @@ const parts = [
   'p5b_touch.js'
 ];
 // Judge Dean LLC: publish only voice assets that actually exist in this build.
-const voiceIds = ['opening', 'salvage', 'foundry', 'citadel', 'victory'];
+const voiceIds = ['opening', 'salvage', 'foundry', 'citadel', 'victory',
+  'counter', 'chargebreak', 'gates', 'pickup', 'streak'];
 const voiceFiles = {};
 for (const id of voiceIds) {
   const name = 'voice-' + id + '.mp3';

@@ -11,6 +11,8 @@ P.flight = {
     if (Game.state !== 'playing' || Game.cinematic || Player.energy < 28 || Player.rollCD > 0) return false;
     Player.energy -= 28; Player.rollT = .65; Player.rollCD = 1.4;
     Player.rollDir = P.Input.keys.a || P.Input.keys.arrowleft ? -1 : 1;
+    // Hold the spin axis even if the pilot looks around during the dodge.
+    Player.rollFacing = Math.cos(Player.camYaw) < -0.001 ? -1 : 1;
     A.sRoll(); return true;
   },
   update: function (dt) {
@@ -51,6 +53,7 @@ function finish(success, detail) {
     if (mission.years) P.deAge(mission.years);
     A.sOrb(); P.toast(mission.id === 'gates' ? 'CLEAN PASS · +500 BONUS · +50 WING POWER'
       : 'OBJECTIVE COMPLETE · ' + mission.rewardLabel);
+    if (mission.id === 'gates' && P.voice) P.voice.react('gates');
   } else P.toast('OBJECTIVE MISSED · ' + mission.title);
   P.campaign.results.push({ id: mission.id, title: mission.title, sector: episode, status: mission.status,
     current: mission.current, target: mission.target, score: success ? mission.score : 0 });

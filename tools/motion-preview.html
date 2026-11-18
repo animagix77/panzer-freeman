@@ -28,6 +28,8 @@ const moves = [
   [1, '', 'Level flight'], [.65, 'd', 'Bank right'], [1, '', 'Release & settle'],
   [1.1, 'a', 'Reverse left'], [1, '', 'Release & settle'],
   [.65, 's', 'Climb'], [1, '', 'Glide'], [1.1, 'w', 'Dive'], [1, '', 'Recover'],
+  [.75, 'ds', 'Climbing right turn'], [.65, 'aw', 'Reverse into a diving left turn'],
+  [1.2, '', 'Unwind to level flight'],
   [2.8, 'd', 'Hold at corridor edge'], [1.3, '', 'Level again']
 ];
 document.getElementById('pause').onclick = e => { paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; };
@@ -55,7 +57,8 @@ function tick(now) {
     move = candidate; if (cursor < move[0]) break; cursor -= move[0];
   }
   label.textContent = move[2];
-  P.Input.keys = move[1] ? { [move[1]]: true } : {};
+  P.Input.keys = {};
+  for (const key of move[1]) P.Input.keys[key] = true;
   P.Game.time += delta;
   P.entities.updatePlayer(delta);
   P.terrain.update(P.Game.railZ);

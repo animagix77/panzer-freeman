@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const THREE = require('three');
 
-function flight() {
+function flight(extraFiles = []) {
   const P = {
     V3: THREE.Vector3, TAU: Math.PI * 2,
     clamp: (v, a, b) => Math.max(a, Math.min(b, v)),
@@ -23,12 +23,13 @@ function flight() {
     world: { EPISODES: [{ speed: 56, railY: 22 }] }
   };
   const context = vm.createContext({ THREE, window: { __PF: P }, atob, Image: class {} });
-  for (const file of ['gen/rider_model.js', 'p2b_rider_model.js', 'p2_models.js', 'p4_game.js']) {
+  for (const file of ['gen/rider_model.js', 'p2b_rider_model.js', 'p2_models.js', 'p4_game.js', ...extraFiles]) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src', file), 'utf8'), context);
   }
   P.Game.state = 'playing'; P.Player.railY = 22;
   function step(key, seconds, fps = 60) {
-    P.Input.keys = key ? { [key]: true } : {};
+    P.Input.keys = {};
+    for (const held of [].concat(key || [])) P.Input.keys[held] = true;
     for (let i = 0; i < Math.round(seconds * fps); i++) {
       P.Game.time += 1 / fps;
       P.entities.updatePlayer(1 / fps);
@@ -38,6 +39,56 @@ function flight() {
     return P;
   }
   return { P, step, context };
+}
+
+// Track the leading fingertips in torso space, including shoulder, elbow and wrist.
+function wingTips(dragon) {
+  return dragon.wings.map(wing => {
+    const tip = new THREE.Vector3(wing.userData.side * 2.70, .12, .50);
+    return dragon.body.worldToLocal(wing.userData.wrist.localToWorld(tip));
+  });
+}
+
+for (const fps of [30, 60, 120]) {
+  const { P, step } = flight();
+  const d = P.dragon;
+  step(null, 1 / 15, fps);
+  const raised = wingTips(d);
+  step(null, .1, fps);
+  const lowered = wingTips(d);
+  assert(d.getBob() > 0, 'the downstroke should lift the torso');
+  assert(raised.every((p, i) => p.y > lowered[i].y + 3), 'both wingtips must drive down as the torso rises');
+
+  step('d', .2, fps);
+  const [inside, outside] = wingTips(d);
+  assert(inside.z < outside.z - 1 && inside.y < outside.y - 1, 'the inside wing should sweep aft and lower first');
+  step('d', .5, fps);
+  step('a', .2, fps);
+  assert(d.body.rotation.z < -.1 && d.root.rotation.y < 0, 'the new bank should lead the change of heading');
+}
+
+{
+  const slow = flight(['p4d_campaign.js']), fast = flight(['p4d_campaign.js']);
+  slow.step(['s', 'x'], .65);
+  fast.step(['s', 'shift'], .65);
+  assert(Math.abs(fast.P.Player.motionY - slow.P.Player.motionY) < .01);
+  assert(fast.P.dragon.body.rotation.x > slow.P.dragon.body.rotation.x + .15,
+    'the same climb rate at boost speed needs a shallower pitch than under air brake');
+}
+
+for (const view of [0, 2]) {
+  for (const key of ['a', 'd']) {
+    const { P, step } = flight(['p4d_campaign.js']);
+    P.Player.camYaw = P.Player.camYawTarget = view * Math.PI / 2;
+    P.Input.keys = { [key]: true };
+    assert(P.flight.roll());
+    step(key, .12);
+    const entryRoll = P.dragon.root.rotation.z;
+    assert(entryRoll * P.Player.motionX < 0, 'barrel roll must lower the wing on the side of travel');
+    P.Player.camYawTarget += Math.PI;
+    step(key, .25);
+    assert(entryRoll * P.dragon.root.rotation.z > 0, 'looking around mid-roll must preserve the original spin');
+  }
 }
 
 // The nose and bank must follow travel in world space in every view.
@@ -106,7 +157,7 @@ for (const s of samples) {
   assert.equal(P.dragon.body.rotation.z, 0);
   assert(P.dragon.tail.every(j => j.rotation.y === 0), 'replay must not inherit tail momentum');
 }
-console.log('Motion checks passed: eight steering/view combinations, edge settling, pitch, effort, wing span, rider stability, and 30/60/120 fps.');
+console.log('Motion checks passed: control-relative flight, downstroke lift, bank reversals, dive and boost pitch, roll direction, boundaries and rider stability at 30/60/120 fps.');
 console.log(samples);
 
 module.exports = { flight };

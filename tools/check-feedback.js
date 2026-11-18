@@ -34,6 +34,8 @@ function inbound() {
   shot.m.position.set(0,22,5);
 }
 P.Player.rollT = .6;
+const reactions = [];
+P.voice = { react(id) { reactions.push(id); }, isSpeaking() { return false; } };
 inbound(); inbound();
 const initialShots = P.Game.shots, initialHits = P.Game.hits;
 E.updateProjectiles(1 / 30);
@@ -43,6 +45,7 @@ assert.equal(P.Game.reflections, 1);
 P.Player.rollT = .25;
 inbound(); E.updateProjectiles(.05);
 assert.equal(P.Game.reflections, 1, 'late roll dodges without another counter');
+assert.deepEqual(reactions, ['counter'], 'only a reflected projectile requests a return-fire line');
 for (let i=0; i<120; i++) E.updateProjectiles(1/60);
 assert.equal(source.hp, source.maxHp-2);
 assert.equal(P.Game.shots, initialShots);
