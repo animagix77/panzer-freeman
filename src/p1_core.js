@@ -145,7 +145,7 @@ function G(color, opts) {
   opts = opts || {};
   var key = 'G' + color + '|' + JSON.stringify(opts);
   if (matCache[key]) return matCache[key];
-  var p = { color: color, flatShading: true, fog: opts.fog !== false };
+  var p = { color: color, fog: opts.fog !== false };
   if (opts.transparent) { p.transparent = true; p.opacity = opts.opacity !== undefined ? opts.opacity : 1; }
   if (opts.side) p.side = opts.side;
   if (opts.depthWrite === false) p.depthWrite = false;

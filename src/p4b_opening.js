@@ -1,4 +1,4 @@
-/* An authored guided opening. All clocks use simulation time, including pause. */
+/* Judge Dean LLC — Guided flight practice, using simulation time including pause. */
 (function () {
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var panel = document.getElementById('briefing');
@@ -10,6 +10,12 @@ var state = P.opening = {
   targets: [], incoming: [], shot: null, hit: false, wave: false
 };
 function copy(title, text, label) {
+  if (P.touch && P.touch.enabled) {
+    title = title.replace('A or D', 'use the pad');
+    text = text.replace('Use Q or E', 'Tap VIEW ‹ or VIEW ›').replace(/A or D/g, 'the flight pad')
+      .replace(/(^|[.!?] )the flight pad/g, '$1The flight pad')
+      .replace('Hold the left mouse button and sweep', 'Touch the sky and sweep');
+  }
   if (heading.textContent !== title) heading.textContent = title;
   if (body.textContent !== text) body.textContent = text;
   if (step.textContent !== label) step.textContent = label;
@@ -33,7 +39,7 @@ state.start = function () {
   state.reset();
   if (!document.getElementById('guidedOpening').checked) return;
   state.active = true; state.startAge = Game.age;
-  phase('arrival');
+  practice();
 };
 state.skip = function () {
   if (!state.active) return;
@@ -62,7 +68,7 @@ function practice() {
   }
   if (approaching(state.targets)) {
     phase('practice-approach');
-    copy('Three scouts on the horizon', 'Watch them approach. Get ready to hold, sweep and release your volley.', '01 / INCOMING');
+    copy('Bank into the canyon', 'Steer left or right, then hold BOOST briefly. Complete the flight check while three scouts approach.', '01 / FLIGHT CHECK');
   }
 }
 function approaching(list) { return list.some(function (e) { return e.alive && e.arrival; }); }

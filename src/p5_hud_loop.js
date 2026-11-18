@@ -8,6 +8,27 @@ var scene = P.scene, camera = P.camera, renderer = P.renderer;
 var Game = P.Game, Player = P.Player, Input = P.Input, Locks = P.Locks;
 var E = P.entities, Boss = P.Boss, A = P.Audio_, hx = P.hx, HUD = P.HUD;
 var EPISODES = P.world.EPISODES;
+var departure = document.getElementById('departureStage');
+var guideChoice = document.getElementById('guidedOpening').closest('label');
+EPISODES.forEach(function (ep, i) {
+  var option = document.createElement('option');
+  option.value = i;
+  option.textContent = String(i + 1).padStart(2, '0') + '  /  ' + ep.name;
+  departure.appendChild(option);
+});
+function refreshDeparture() {
+  var index = departure.selectedIndex;
+  guideChoice.hidden = index !== 0;
+  document.getElementById('departureBrief').textContent = EPISODES[index].sub;
+}
+refreshDeparture();
+departure.addEventListener('change', function () {
+  refreshDeparture();
+  if (Game.state === 'title') {
+    Game.railZ = 0;
+    enterEpisode(departure.selectedIndex, true, true, true);
+  }
+});
 
 // -------------------------------------------------------------- world setup
 var terrain = new P.world.Terrain();
@@ -100,7 +121,7 @@ function enterEpisode(i, instant, silent, keepMusic) {
   if (!silent) showCard(ep);
   if (!keepMusic) P.playMusic(ep.music);
   Game.bossDelay = ep.id === 'boss' ? 2.6 : 0;
-  if (P.campaign) P.campaign.enter(ep);
+  if (P.campaign && Game.state !== 'title') P.campaign.enter(ep);
 }
 
 P.enterEpisode = enterEpisode; // Used by the development scene preview.
@@ -186,11 +207,11 @@ function bracket(x, y, s, col, lw) {
   hx.stroke();
 }
 function txt(s, x, y, size, col, align, weight) {
-  hx.font = (weight || 'bold') + ' ' + size + 'px "Courier New", monospace';
+  hx.font = (weight || '650') + ' ' + size + 'px system-ui, sans-serif';
   hx.textAlign = align || 'left';
   hx.textBaseline = 'alphabetic';
   hx.fillStyle = 'rgba(0,0,0,0.7)';
-  hx.fillText(s, x + 2, y + 2);
+  hx.fillText(s, x + 1, y + 1);
   hx.fillStyle = col;
   hx.fillText(s, x, y);
 }
@@ -203,19 +224,52 @@ function targetHealth(t, x, y, width) {
   hx.fillRect(x - width / 2, y, width * clamp(t.hp / t.maxHp, 0, 1), 3);
 }
 
+function objectiveBeacon(target, point, size) {
+  var task = P.campaign && P.campaign.objective;
+  if (!task || !task.tag || task.status !== 'active' || task.tag !== target.tag) return;
+  var x = point.x + size + 8, y = point.y - size;
+  hx.save(); hx.fillStyle = '#ffdb83'; hx.strokeStyle = '#402c19'; hx.lineWidth = 1.5;
+  hx.beginPath(); hx.moveTo(x, y - 6); hx.lineTo(x + 5, y); hx.lineTo(x, y + 6); hx.lineTo(x - 5, y);
+  hx.closePath(); hx.fill(); hx.stroke(); hx.restore();
+}
 function staggerArc(target, x, y, radius) {
   if (!(target.staggerT > 0)) return;
   hx.save(); hx.strokeStyle = '#80f7ff'; hx.lineWidth = 2;
   hx.beginPath(); hx.arc(x, y, radius, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(target.staggerT / (P.enemyCombat.staggerDuration || 1.8), 0, 1));
   hx.stroke(); hx.restore();
 }
+var missionPanel = document.getElementById('objective');
+var missionTitle = document.getElementById('objectiveTitle');
+var missionHint = document.getElementById('objectiveHint');
+var missionState = document.getElementById('objectiveState');
+var missionCount = document.getElementById('objectiveCount');
+var missionMeter = document.getElementById('objectiveMeter');
+function updateText(node, text) {
+  if (node.textContent !== text) node.textContent = text;
+}
+function updateObjectivePanel() {
+  var objective = P.campaign && P.campaign.objective;
+  var hidden = Game.state !== 'playing' || !objective;
+  if (missionPanel.hidden !== hidden) missionPanel.hidden = hidden;
+  if (hidden) return;
+  var active = objective.status === 'active';
+  updateText(missionState, active ? (objective.tag ? '◆  Mission target' : 'Flight objective') : objective.status === 'success' ? 'Objective complete' : 'Objective missed');
+  var clock = active && Number.isFinite(objective.remaining) ? '  ·  ' + Math.ceil(objective.remaining) + 's' : '';
+  updateText(missionCount, objective.current + ' / ' + objective.target + clock);
+  updateText(missionTitle, objective.title);
+  updateText(missionHint, active ? objective.hint : objective.status === 'success' ? objective.rewardLabel : 'Continue the flight.');
+  if (missionMeter.value !== objective.progress) missionMeter.value = objective.progress;
+}
 function drawHUD(dt) {
   var w = HUD.w, h = HUD.h;
   hx.clearRect(0, 0, w, h);
   if (Game.state !== 'playing') return;
   var S = Math.min(w, h) / 900;
-  var pad = 26;
+  var compactTop = w < 900;
+  var pad = compactTop ? 12 : 26;
+  var touchUI = P.touch && P.touch.visible;
   // Wing power and maneuver status stay near the lower edge, clear of targets.
+  if (!touchUI) {
   hx.save();
   var powerW = Math.min(240, w * 0.38), powerX = (w - powerW) / 2;
   hx.fillStyle = 'rgba(8,12,25,.78)'; hx.fillRect(powerX - 12, h - 76, powerW + 24, 63);
@@ -233,6 +287,7 @@ function drawHUD(dt) {
   hx.fillStyle = ready ? '#a2f5cf' : '#ffcf8d';
   hx.fillText(Player.exhausted ? 'BOOST RECHARGING · ' + rollLabel : rollLabel, w / 2, h - 63);
   hx.restore();
+  }
 
   // ---------- lock brackets on locked targets
   var i, pp;
@@ -246,6 +301,7 @@ function drawHUD(dt) {
     bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
     bracket(pp.x, pp.y, sz, t.staggerT > 0 ? '#80f7ff' : t.attack || t.volley ? '#ff9868' : '#8fffc4', 2.5);
     if (dup === 0) {
+      objectiveBeacon(t, pp, sz);
       targetHealth(t, pp.x, pp.y + sz + 6, Math.max(26, Math.min(48, sz * 2)));
       if (t.staggerT > 0 || t.attack || t.volley) txt(P.enemyCombat ? P.enemyCombat.label(t) : t.volley ? 'FIRING' : 'CHARGING', pp.x, pp.y + sz + 24, 11, t.staggerT > 0 ? '#80f7ff' : '#ff9868', 'center');
       staggerArc(t, pp.x, pp.y, sz + 10);
@@ -271,6 +327,7 @@ function drawHUD(dt) {
         bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
         bracket(pp.x, pp.y, s2, e.staggerT > 0 ? '#80f7ff' : e.attack || e.volley ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
         if (!lesson && P.enemyCombat && (e.staggerT > 0 || e.attack || e.volley || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.staggerT > 0 ? '#80f7ff' : e.attack || e.volley ? '#ff9868' : '#91e8ff', 'center');
+        objectiveBeacon(e, pp, s2);
         staggerArc(e, pp.x, pp.y, s2 + 9);
         if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
         if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
@@ -345,12 +402,14 @@ function drawHUD(dt) {
   }
 
   // ---------- age gauge (top-left)
-  var gx = pad, gy = pad + 6, gw = Math.min(360, w * 0.32), gh = 20;
+  var gx = pad, gy = compactTop ? 22 : pad + 6;
+  var gw = compactTop ? Math.min(210, (w - pad * 2) * .43) : Math.min(270, w * .23);
+  var gh = compactTop ? 10 : 17;
   var age = Game.age;
   var frac = clamp((100 - age) / (100 - 24), 0, 1);
   var col = age > 88 ? '#ff4a3a' : age > 70 ? '#ffa03a' : age > 50 ? '#ffd25e' : '#8fffc4';
-  txt('AGE', gx, gy + 2, 15, '#cbb894');
-  txt(age.toFixed(1), gx + 54, gy + 6, 30, col);
+  txt('AGE', gx, gy + 2, compactTop ? 10 : 15, '#cbb894');
+  txt(age.toFixed(1), gx + (compactTop ? 32 : 54), gy + 6, compactTop ? 24 : 30, col);
   hx.fillStyle = 'rgba(0,0,0,.55)';
   hx.fillRect(gx, gy + 16, gw, gh);
   hx.fillStyle = col;
@@ -361,18 +420,24 @@ function drawHUD(dt) {
   var tmx = gx + gw * ((100 - 30) / (100 - 24));
   hx.strokeStyle = '#8fffc4'; hx.lineWidth = 2;
   hx.beginPath(); hx.moveTo(tmx, gy + 12); hx.lineTo(tmx, gy + 16 + gh + 4); hx.stroke();
-  txt('30', tmx, gy + 16 + gh + 20, 12, '#8fffc4', 'center');
-  txt('100 → DUST', gx, gy + 16 + gh + 20, 12, '#7e7192');
+  var ageFooter = compactTop ? 62 : gy + 16 + gh + 20;
+  txt('30', tmx, ageFooter, compactTop ? 9 : 12, '#8fffc4', 'center');
+  txt('100 → DUST', gx, ageFooter, compactTop ? 9 : 12, '#9fa9b3');
 
   // ---------- score / combo (top-right)
-  txt(('' + Game.score).padStart(8, '0'), w - pad, gy + 22, 26, '#ffd25e', 'right');
-  txt('SCORE', w - pad, gy + 40, 12, '#7e7192', 'right');
-  if ((Game.heat || 0) > 0.01) {
+  txt(('' + Game.score).padStart(8, '0'), w - pad, compactTop ? gy + 6 : gy + 22, compactTop ? 22 : 26, '#ffd25e', 'right');
+  txt('SCORE', w - pad, compactTop ? gy + 23 : gy + 40, compactTop ? 9 : 12, '#9fa9b3', 'right');
+  if (compactTop && (Game.combo > 1 || (Game.heat || 0) > .01)) {
+    var combatLine = Game.combo > 1 ? '×' + Game.combo + ' CHAIN' : '';
+    if ((Game.heat || 0) > .01) combatLine += (combatLine ? ' · ' : '') + 'HEAT ' + Math.round(Game.heat * 100) + '%';
+    txt(combatLine, w - pad, 62, 10, '#a7e9d5', 'right');
+  }
+  if (!compactTop && (Game.heat || 0) > 0.01) {
     var _ht = Game.heat;
     var _hc = 'rgb(255,' + Math.round(210 - _ht * 130) + ',' + Math.round(148 - _ht * 110) + ')';
     txt('HEAT ' + Math.round(_ht * 100) + '%  ·  ' + Locks.max + ' LOCKS', w - pad, gy + 88, 13, _hc, 'right');
   }
-  if (Game.combo > 1) {
+  if (!compactTop && Game.combo > 1) {
     txt('×' + Game.combo + ' CHAIN', w - pad, gy + 66, 17, '#8fffc4', 'right');
     hx.fillStyle = 'rgba(143,255,196,.18)'; hx.fillRect(w - pad - 120, gy + 71, 120, 3);
     hx.fillStyle = Game.comboT < .7 ? '#ffcb7e' : '#8fffc4';
@@ -381,9 +446,13 @@ function drawHUD(dt) {
 
   // ---------- episode + progress (top centre)
   var ep = EPISODES[Game.epIndex];
-  txt(ep.label + ' · ' + ep.name, w / 2, gy + 16, 13, 'rgba(203,184,148,.9)', 'center');
+  var sectorText = compactTop ? String(Game.epIndex + 1).padStart(2, '0') + ' / ' + ep.name : ep.label + ' · ' + ep.name;
+  var sectorWidth = compactTop ? w - pad * 2 : w * .42;
+  hx.save(); hx.beginPath(); hx.rect(w / 2 - sectorWidth / 2, compactTop ? 72 : gy, sectorWidth, 22); hx.clip();
+  txt(sectorText, w / 2, compactTop ? 86 : gy + 16, compactTop ? 10 : 12, 'rgba(225,215,191,.95)', 'center');
+  hx.restore();
   if (ep.id !== 'boss') {
-    var pw = Math.min(420, w * 0.34), px = w / 2 - pw / 2, py = gy + 26;
+    var pw = compactTop ? w - pad * 2 : Math.min(420, w * 0.34), px = w / 2 - pw / 2, py = compactTop ? 93 : gy + 26;
     hx.fillStyle = 'rgba(0,0,0,.5)'; hx.fillRect(px, py, pw, 7);
     hx.fillStyle = '#8fd9ff'; hx.fillRect(px + 1, py + 1, (pw - 2) * clamp(Game.epProgress, 0, 1), 5);
     hx.strokeStyle = 'rgba(255,255,255,.35)'; hx.lineWidth = 1; hx.strokeRect(px, py, pw, 7);
@@ -395,7 +464,7 @@ function drawHUD(dt) {
     for (i = 0; i < Boss.built.cores.length; i++) {
       totalHp += Math.max(0, Boss.built.cores[i].hp); maxHp += Boss.built.cores[i].maxHp;
     }
-    var bw = Math.min(620, w * 0.6), bx = w / 2 - bw / 2, by = h - pad - 84;
+    var bw = Math.min(620, w * 0.6), bx = w / 2 - bw / 2, by = h - (touchUI ? 185 : pad + 84);
     txt('CHRONOS · HOUR-SPHINX', w / 2, by - 8, 14, '#ff8a5a', 'center');
     hx.fillStyle = 'rgba(0,0,0,.6)'; hx.fillRect(bx, by, bw, 16);
     hx.fillStyle = '#ff5a3a'; hx.fillRect(bx + 2, by + 2, (bw - 4) * (totalHp / maxHp), 12);
@@ -407,6 +476,7 @@ function drawHUD(dt) {
   }
 
   // ---------- radar (bottom-left)
+  if (!touchUI) {
   var rcx = pad + 62, rcy = h - pad - 62, rr2 = 54;
   hx.fillStyle = 'rgba(6,3,14,.62)';
   hx.beginPath(); hx.arc(rcx, rcy, rr2, 0, TAU); hx.fill();
@@ -453,6 +523,7 @@ function drawHUD(dt) {
   // ---------- stats bottom-right
   txt('KILLS ' + Game.kills, w - pad, h - pad - 26, 13, 'rgba(203,184,148,.8)', 'right');
   txt('ORBS ' + Game.orbsTaken, w - pad, h - pad - 8, 13, 'rgba(203,184,148,.8)', 'right');
+  }
 
   // ---------- damage vignette
   if (Game.hurtT > 0) {
@@ -478,6 +549,7 @@ function keyName(e) { return (e.key || '').toLowerCase(); }
 window.addEventListener('keydown', function (e) {
   var k = keyName(e);
   if (e.target && /^(INPUT|SELECT|BUTTON)$/.test(e.target.tagName) && Game.state === 'paused' && k !== 'p' && k !== 'escape' && k !== 'm') return;
+  if (Game.state === 'title' && e.target.closest && e.target.closest('select,input,button,summary')) return;
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].indexOf(k) >= 0) e.preventDefault();
   if (Input.keys[k]) return;
   Input.keys[k] = true;
@@ -541,16 +613,8 @@ window.addEventListener('mouseup', function (e) {
 });
 window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
-// touch: drag to aim, tap to fire
-window.addEventListener('touchstart', function (e) {
-  if (Game.state !== 'playing') return;
-  var t = e.touches[0]; updMouse(t); Input.lmb = true;
-}, { passive: true });
-window.addEventListener('touchmove', function (e) { updMouse(e.touches[0]); }, { passive: true });
-window.addEventListener('touchend', function () {
-  if (Input.lmb) { if (Locks.list.length) E.fireLasers(); else E.fireGun(); }
-  Input.lmb = false;
-});
+// Touch input is isolated in p5b_touch; menus keep their native pointer behavior.
+P.touchActions = { pause: togglePause, skipIntro: skipIntro };
 
 function togglePause() {
   if (Game.state === 'playing') { Game.state = 'paused'; P.el.pause.classList.add('on'); }
@@ -639,8 +703,8 @@ function endIntro() {
   camera.fov = 56; camera.updateProjectionMatrix();
   P.hudCanvas.style.display = 'block';
   P.el.skip.classList.remove('on');
-  showCard(EPISODES[0]);
-  P.opening.start();
+  showCard(EPISODES[Game.epIndex]);
+  if (Game.epIndex === 0) P.opening.start();
 }
 P.setIntroT = function (frac) { introT = INTRO_LEN * frac; };
 P.getIntroT = function () { return introT; };
@@ -651,8 +715,10 @@ function skipIntro() {
 
 // ================================================================= GAME FLOW
 function resetGame() {
+  if (P.voice) P.voice.reset();
   if (P.sound) P.sound.reset();
   P.opening.reset();
+  if (P.campaign && P.campaign.reset) P.campaign.reset();
   if (P.flight) P.flight.reset();
   if (P.fx) P.fx.reset();
   E.reset();
@@ -691,7 +757,15 @@ function startGame() {
   P.el.over.classList.remove('on');
   P.el.win.classList.remove('on');
   P.el.skip.classList.add('on');
-  enterEpisode(0, true, true, true);   // the title theme carries the cinematic
+  var launchIndex = departure.selectedIndex;
+  Player.railY = EPISODES[launchIndex].railY;
+  Player.pos.set(0, Player.railY, 0);
+  enterEpisode(launchIndex, true, true, true);
+  if (launchIndex !== 0) {
+    camera.position.set(0, Player.railY + 8, -28);
+    camera.lookAt(0, Player.railY + 3, 12);
+    endIntro();
+  }
 }
 
 function rankFor(age) {
@@ -704,6 +778,9 @@ function rankFor(age) {
 
 P.onEnd = function (won) {
   P.opening.reset();
+  if (P.campaign) P.campaign.finishRun();
+  var objectiveResults = P.campaign ? P.campaign.results : [];
+  var completed = objectiveResults.filter(function (result) { return result.status === 'success'; }).length;
   var acc = Game.shots ? Math.round(Game.hits / Game.shots * 100) : 0;
   var finalAge = won ? clamp(Game.age - 4, 24, 100) : Game.age;
   if (won) { Game.age = finalAge; P.dragon.setAge(finalAge); }
@@ -715,6 +792,8 @@ P.onEnd = function (won) {
   var stats = ageStat + ' &nbsp;·&nbsp; KILLS <b>' + Game.kills +
               '</b> &nbsp;·&nbsp; BEST CHAIN <b>×' + Game.bestCombo + '</b><br>ACCURACY <b>' + acc +
               '%</b> &nbsp;·&nbsp; ORBS <b>' + Game.orbsTaken + '</b> &nbsp;·&nbsp; SCORE <b>' + Game.score + '</b>';
+  if (Game.reflections) stats += '<br>SHOTS RETURNED <b>' + Game.reflections + '</b>';
+  if (objectiveResults.length) stats += '<br>OBJECTIVES <b>' + completed + ' / ' + objectiveResults.length + '</b>';
   if (won) {
     var rk = rankFor(finalAge);
     document.getElementById('winAge').textContent = finalAge.toFixed(0);
@@ -747,6 +826,19 @@ P.onEnd = function (won) {
 // Arming and the autoplay retry both live in p1_core now — it owns the stream,
 // so it is the only place that knows whether a track actually started.
 
+function returnToDeck() {
+  resetGame();
+  Game.state = 'title';
+  P.hudCanvas.style.display = 'none';
+  [P.el.win,P.el.over,P.el.pause,P.el.card,P.el.skip].forEach(function (el) { el.classList.remove('on'); });
+  E.setToastT(0); E.setQuipT(0); cardT = 0;
+  P.el.title.classList.add('on');
+  enterEpisode(departure.selectedIndex, true, true, true);
+  P.playMusic('title');
+}
+document.querySelectorAll('.deck-link').forEach(function (button) { button.addEventListener('click', returnToDeck); });
+document.getElementById('resumeFlight').addEventListener('click', togglePause);
+document.getElementById('leaveFlight').addEventListener('click', returnToDeck);
 document.getElementById('startBtn').addEventListener('click', startGame);
 document.getElementById('againBtn').addEventListener('click', startGame);
 document.getElementById('winBtn').addEventListener('click', startGame);
@@ -763,6 +855,7 @@ function frame(now) {
   _frameId++; P.frames = _frameId;
 
   A.update();
+  if (P.voice) P.voice.update(dt);
 
   if (Game.state === 'playing') {
     Game.time += dt;
@@ -790,7 +883,7 @@ function frame(now) {
     var ep = EPISODES[Game.epIndex];
     if (ep.id !== 'boss') {
       Game.epProgress = (Game.railZ - Game.epStartZ) / ep.length;
-      if (Game.epProgress >= 1) {
+      if (Game.epProgress >= 1 && Game.state === 'playing') {
         P.flashScreen(0.85, '#ffffff');
         enterEpisode(Game.epIndex + 1, false);
       }
@@ -802,18 +895,20 @@ function frame(now) {
     // slow idle orbit over the canyon for the title screen
     Game.time += dt;
     Game.railZ += 26 * dt;
-    Player.pos.set(Math.sin(Game.time * 0.3) * 8, 26 + Math.sin(Game.time * 0.4) * 3, Game.railZ);
+    Player.pos.set(Math.sin(Game.time * 0.3) * 8, EPISODES[Game.epIndex].railY + 12 + Math.sin(Game.time * 0.4) * 3, Game.railZ);
     P.dragon.root.position.copy(Player.pos);
     P.dragon.root.rotation.y = Math.sin(Game.time * 0.25) * 0.35;
     P.dragon.update(dt, Game.time, { strafeX: Math.sin(Game.time * 0.25) * 0.4, strafeY: 0,
       vy: Math.sin(Game.time * 0.42) * 26, aimX: 0, aimY: 0, boost: 0 });
-    var yaw2 = Math.sin(Game.time * 0.22) * 0.8;
-    camera.position.set(
-      Player.pos.x + Math.sin(yaw2) * -34 + Math.cos(Game.time * 0.18) * 12,
-      Player.pos.y + 8,
-      Player.pos.z + Math.cos(yaw2) * -34
-    );
-    camera.lookAt(Player.pos.x, Player.pos.y + 1.5, Player.pos.z + 6);
+    // Three-quarter portrait, framed beside the launch controls.
+    var yaw2 = 2.15 + Math.sin(Game.time * .15) * .46;
+    var wide = HUD.w > 700;
+    var distance = wide ? 25 : 38;
+    var offset = wide ? distance * .19 * camera.aspect : 3;
+    camera.position.set(Player.pos.x + Math.sin(yaw2) * distance, Player.pos.y + 5,
+      Player.pos.z + Math.cos(yaw2) * distance);
+    camera.lookAt(Player.pos.x - Math.cos(yaw2) * offset, Player.pos.y + 1.1,
+      Player.pos.z + Math.sin(yaw2) * offset);
     P.skyMesh.position.copy(camera.position);
     terrain.update(Game.railZ);
     props.update(Game.railZ);
@@ -884,6 +979,7 @@ function frame(now) {
   // across and follows the player, so the map stays dense where it is looked at.
   if (P.shadowsOn()) P.trackShadow(Player.pos.x, Player.pos.y - 12, Player.pos.z + 40);
 
+  updateObjectivePanel();
   drawHUD(dt);
   // weather rides the camera, so it updates after the camera is final
   if (P.weather) P.weather.update(dt, camera.position, Game.time);

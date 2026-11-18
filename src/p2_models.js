@@ -1,5 +1,5 @@
 /* =========================================================================
-   Part 2 — low-poly model factory: dragon, rider, enemies, boss, world props
+   Judge Dean LLC — articulated creatures, war machines and world models
    ========================================================================= */
 (function () {
 var P = window.__PF;
@@ -15,6 +15,46 @@ function dodec(r) { return new THREE.DodecahedronGeometry(r, 0); }
 function tet(r) { return new THREE.TetrahedronGeometry(r, 0); }
 function tor(r, t, a, b) { return new THREE.TorusGeometry(r, t, a || 4, b || 12); }
 function mesh(g, m) { return new THREE.Mesh(g, m); }
+
+// A bevelled wing/armour panel with genuine thickness and readable edge normals.
+function blade(points, thickness, material) {
+  var area = 0;
+  for (var edge = 0; edge < points.length; edge++) { var nextPoint = points[(edge + 1) % points.length]; area += points[edge][0] * nextPoint[2] - nextPoint[0] * points[edge][2]; }
+  if (area < 0) points = points.slice().reverse();
+  var verts = [], count = points.length;
+  function triangle(a, b, c) { verts.push.apply(verts, a.concat(b, c)); }
+  var top = points.map(function (p) { return [p[0], p[1] + thickness / 2, p[2]]; });
+  var low = points.map(function (p) { return [p[0], p[1] - thickness / 2, p[2]]; });
+  for (var i = 1; i < count - 1; i++) { triangle(top[0], top[i + 1], top[i]); triangle(low[0], low[i], low[i + 1]); }
+  for (var j = 0; j < count; j++) {
+    var next = (j + 1) % count;
+    triangle(top[j], top[next], low[j]); triangle(low[j], top[next], low[next]);
+  }
+  var geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.computeVertexNormals(); return mesh(geo, material);
+}
+
+// Bake only static leaves; named articulated parts remain separate and reusable.
+function batchStatic(root) {
+  var groups = {};
+  root.updateMatrixWorld(true);
+  root.children.slice().forEach(function (child) {
+    if (!child.isMesh || child.children.length || child.userData.dynamic || child.material.transparent) return;
+    var key = child.material.uuid, group = groups[key] || (groups[key] = { material: child.material, geos: [] });
+    var geo = child.geometry.index ? child.geometry.toNonIndexed() : child.geometry.clone();
+    geo.applyMatrix4(child.matrix); group.geos.push(geo); root.remove(child); child.geometry.dispose();
+  });
+  Object.keys(groups).forEach(function (key) {
+    var group = groups[key], positions = [], normals = [];
+    group.geos.forEach(function (geo) {
+      positions.push.apply(positions, geo.attributes.position.array);
+      normals.push.apply(normals, geo.attributes.normal.array); geo.dispose();
+    });
+    var geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3)); root.add(mesh(geo, group.material));
+  });
+  return root;
+}
 
 function sgn(v) { return v < 0 ? -1 : 1; }
 
@@ -211,11 +251,11 @@ function bone(a, b, r1, r2, mat, sides) {
 
 // ============================================================== THE DRAGON
 var DRAGON_COL = {
-  hide:  0x2c8b90,
-  hide2: 0x1d6069,
-  plate: 0x7d4bb5,
-  belly: 0xa8874f,
-  wing:  0xc24a86,
+  hide:  0x207e88,
+  hide2: 0x123a50,
+  plate: 0xd9d1a3,
+  belly: 0xcbb478,
+  wing:  0x50d7dd,
   claw:  0xf0e2bb,
   eye:   0xffe066
 };
@@ -233,11 +273,11 @@ function buildDragon() {
   // one vertex-coloured sail material, lighter at the leading edge
   var mSail = new THREE.MeshPhongMaterial({
     vertexColors: true, flatShading: true, side: THREE.DoubleSide,
-    shininess: 6, specular: 0x3a2030
+    shininess: 30, specular: 0x7cbfc8, emissive: 0x06121b
   });
   P.retroPatch(mSail);
-  var cWingLead = new THREE.Color(0xd8578f);
-  var cWingTrail = new THREE.Color(0x7a2953);
+  var cWingLead = new THREE.Color(0x63e9e7);
+  var cWingTrail = new THREE.Color(0x153b60);
   var mClaw = M(DRAGON_COL.claw);
   var mHorn = M(0x6c5a4a, { shine: 22, spec: 0x3a3028 });
 
@@ -264,6 +304,17 @@ function buildDragon() {
     var hp = mesh(ico(0.52, 0), mHide2);
     hp.position.set(sd * 0.82, -0.18, -1.30); hp.scale.set(0.85, 0.9, 1.05); body.add(hp);
   });
+  var flightArmour = new THREE.Group(); flightArmour.name = 'dragon-flight-armour'; body.add(flightArmour);
+  var mIvory = M(0xe3dcc2, { shine: 48, spec: 0x95b9bf }), mInlay = G(0x64f1e5);
+  [-1, 1].forEach(function (side) {
+    for (var row = 0; row < 4; row++) {
+      var z = 1.9 - row * 1.05, spread = 1.48 - row * .12;
+      flightArmour.add(blade([[side * .52, .82, z + .35], [side * spread, .55, z],
+        [side * (spread + .25), .35, z - .75], [side * .62, .75, z - .55]], .13, mIvory));
+      flightArmour.add(bone([side * .65, .88, z + .15], [side * (spread - .07), .66, z - .24], .045, .022, mInlay, 4));
+    }
+  });
+  batchStatic(flightArmour);
 
   // dorsal ridge — plates that shrink and lean back along the spine
   for (var i = 0; i < 9; i++) {
@@ -408,7 +459,21 @@ function buildDragon() {
     var hub = [ (W2[0] + A[0] * 0.5) * 0.62, W2[1] - 0.62, (W2[2] + A[2]) * 0.45 ];
 
     var mem = new THREE.Group();
-    var sailMesh = mesh(sail(out, hub, cWingLead, cWingTrail), mSail);
+    // Radial tessellation carries an ivory chevron through the living membrane.
+    // Every band follows the same joints and aerodynamic billow as the wing.
+    var bands = [0, .44, .66, .73, 1], sailPositions = [], sailColors = [];
+    var bandColors = [0x103547, 0x3abfc7, 0x56d4cd, 0xe4cb85, 0x153c61].map(function (c) { return new THREE.Color(c); });
+    function seedVertex(point, c) { sailPositions.push(point[0], point[1], point[2]); sailColors.push(c.r, c.g, c.b); }
+    for (var fan = 0; fan < out.length - 1; fan++) for (var band = 0; band < bands.length - 1; band++) {
+      var sa = mix(hub, out[fan], bands[band]), sb = mix(hub, out[fan + 1], bands[band]);
+      var ea = mix(hub, out[fan], bands[band + 1]), eb = mix(hub, out[fan + 1], bands[band + 1]);
+      seedVertex(sa, bandColors[band]); seedVertex(ea, bandColors[band + 1]); seedVertex(eb, bandColors[band + 1]);
+      seedVertex(sa, bandColors[band]); seedVertex(eb, bandColors[band + 1]); seedVertex(sb, bandColors[band]);
+    }
+    var sailGeo = new THREE.BufferGeometry();
+    sailGeo.setAttribute('position', new THREE.Float32BufferAttribute(sailPositions, 3));
+    sailGeo.setAttribute('color', new THREE.Float32BufferAttribute(sailColors, 3)); sailGeo.computeVertexNormals();
+    var sailMesh = mesh(sailGeo, mSail); sailMesh.name = 'dragon-banded-membrane'; sailMesh.frustumCulled = false;
     mem.add(sailMesh);
     w.add(mem);
 
@@ -481,11 +546,17 @@ function buildDragon() {
       curHub.y += billow * 1.15;                 // the belly of the sail moves most
 
       var w2 = 0;
+      function writeWing(point, fraction) {
+        posAttr.array[w2++] = curHub.x + (point.x - curHub.x) * fraction;
+        posAttr.array[w2++] = curHub.y + (point.y - curHub.y) * fraction;
+        posAttr.array[w2++] = curHub.z + (point.z - curHub.z) * fraction;
+      }
       for (var e = 0; e < base.length - 1; e++) {
         var a = cur[e], b = cur[e + 1];
-        posAttr.array[w2++] = curHub.x; posAttr.array[w2++] = curHub.y; posAttr.array[w2++] = curHub.z;
-        posAttr.array[w2++] = a.x; posAttr.array[w2++] = a.y; posAttr.array[w2++] = a.z;
-        posAttr.array[w2++] = b.x; posAttr.array[w2++] = b.y; posAttr.array[w2++] = b.z;
+        for (var band = 0; band < bands.length - 1; band++) {
+          writeWing(a, bands[band]); writeWing(a, bands[band + 1]); writeWing(b, bands[band + 1]);
+          writeWing(a, bands[band]); writeWing(b, bands[band + 1]); writeWing(b, bands[band]);
+        }
       }
       posAttr.needsUpdate = true;
       sailMesh.geometry.computeVertexNormals();
@@ -1753,43 +1824,138 @@ function buildDragon() {
     setAge(89);
   }
 
+  // A short flight mantle makes the rider's silhouette readable from behind.
+  // Anchored shoulders and progressively freer trailing rows keep it out of the rig.
+  var mantleGeo = new THREE.PlaneGeometry(1.25, 1.7, 6, 8);
+  var mantle = mesh(mantleGeo, M(0x1d7784, { side: THREE.DoubleSide, shine: 16, spec: 0x5aa8aa }));
+  mantle.name = 'rider-flight-mantle'; mantle.frustumCulled = false; rider.add(mantle);
+  var mantleBase = mantleGeo.attributes.position.array.slice(), mantleColors = new Float32Array(mantleBase.length);
+  for (var mv = 0; mv < mantleBase.length; mv += 3) {
+    var edge = Math.abs(mantleBase[mv]) > .44;
+    var color = new THREE.Color(edge ? 0xe3c98d : 0x54bfc4);
+    mantleColors[mv] = color.r; mantleColors[mv + 1] = color.g; mantleColors[mv + 2] = color.b;
+  }
+  // A dedicated material avoids changing other objects sharing the cached tint.
+  mantle.material = mantle.material.clone(); mantle.material.color.setHex(0xffffff); mantle.material.vertexColors = true;
+  mantleGeo.setAttribute('color', new THREE.BufferAttribute(mantleColors, 3));
+  function solveMantle(t, st) {
+    var positions = mantleGeo.attributes.position.array;
+    for (var n = 0; n < mantleBase.length; n += 3) {
+      var free = (.85 - mantleBase[n + 1]) / 1.7;
+      positions[n] = mantleBase[n] * (1 - free * .2) + Math.sin(t * 6.5 - free * 5) * .075 * free + (st.strafeX || 0) * .14 * free;
+      positions[n + 1] = .88 - free * .4 + Math.sin(t * 8 - free * 6) * .08 * free;
+      positions[n + 2] = -.38 - free * 1.7;
+    }
+    mantleGeo.attributes.position.needsUpdate = true; mantleGeo.computeVertexNormals();
+  }
+  var updateWithRider = api.update;
+  api.update = function (dt, t, st) { updateWithRider(dt, t, st); solveMantle(t, st || {}); };
+  solveMantle(0, {});
   return api;
 }
 
 // ================================================================ ENEMIES
+function buildWarMachine(type) {
+  var g = new THREE.Group(); g.name = 'war-machine-' + type;
+  var colors = { wasp: 0xd6a34c, ray: 0x3db8c3, chaser: 0xba4c42, carrier: 0x8c78bc, sentinel: 0x6aacc2, bomber: 0x9c5754 };
+  var metal = M(colors[type], { shine: 58, spec: 0x8aa4b1 });
+  var dark = M(0x152335, { shine: 30, spec: 0x3b6476 });
+  var trim = M(0xdacbad, { shine: 65, spec: 0xaaa082 });
+  var light = G(type === 'ray' || type === 'sentinel' ? 0x7cf4ff : type === 'carrier' ? 0xe1a7ff : 0xffb064);
+  function part(geo, material, x, y, z, sx, sy, sz) {
+    var q = mesh(geo, material); q.position.set(x, y, z);
+    if (sx !== undefined) q.scale.set(sx, sy, sz); g.add(q); return q;
+  }
+  function hull(width, height, length, material) {
+    return part(tube([{z:-length*.5,rx:width*.55,ry:height*.65},
+      {z:-length*.25,rx:width,ry:height},{z:length*.24,rx:width*.82,ry:height*.85},
+      {z:length*.55,rx:width*.22,ry:height*.35}], 8, new THREE.Color(0xffffff), new THREE.Color(0xffffff)), material, 0, 0, 0);
+  }
+  function engine(x, y, z, radius, length) {
+    var pod = part(cyl(radius*.8, radius, length, 10), dark, x, y, z); pod.rotation.x = Math.PI / 2;
+    var collar = part(tor(radius, .12, 5, 12), trim, x, y, z - length*.48);
+    part(cyl(radius*.66, radius*.66, .15, 10), light, x, y, z - length*.52).rotation.x = Math.PI / 2;
+    part(oct(radius*.5), light, x, y, z + length*.5, 1, .55, .45);
+    return collar;
+  }
+  function wing(side, outline, material, thickness) {
+    var panel = blade(outline.map(function(p) { return [side*p[0], p[1], p[2]]; }), thickness || .18, material);
+    g.add(panel); return panel;
+  }
+  if (type === 'wasp') {
+    hull(.72, .48, 3.1, dark);
+    [-1, 1].forEach(function(s) {
+      wing(s, [[.4,.2,1.1],[2.6,.28,.1],[2.1,.16,-1.6],[.7,.1,-.7]], metal);
+      wing(s, [[.8,.35,.1],[2.5,.4,-.15],[1.9,.3,-.5]], trim, .07);
+      wing(s, [[.3,.5,-.9],[1.5,.7,-1.8],[.6,.6,-2]], metal);
+      engine(s*.8,-.15,-.85,.34,1.45);
+    });
+    part(oct(.36), light, 0,.12,1.55,1,.55,1.2);
+  } else if (type === 'ray') {
+    hull(.85,.32,2.9,dark);
+    [-1, 1].forEach(function(s) {
+      wing(s, [[.4,.15,1],[2.5,.45,1.5],[3.9,.05,-1.6],[2,.05,-.85],[.5,.12,-.6]], metal, .22);
+      wing(s, [[1.4,.35,.4],[2.4,.55,1.2],[3.4,.22,-.6],[2.6,.25,-.3]], trim, .08);
+      engine(s*1.1,-.18,-1,.34,1.2);
+    });
+    part(oct(.42),light,0,.15,1.3,1.2,.35,1);
+    g.add(bone([0,0,-1],[0,.18,-3.3],.22,.035,trim,6));
+  } else if (type === 'chaser') {
+    hull(.65,.55,4,metal);
+    [-1, 1].forEach(function(s) {
+      wing(s, [[.4,.1,1],[1.65,.05,-1.65],[.6,.15,-1.15]], metal,.24);
+      wing(s, [[.5,.75,-.8],[1.15,1.5,-1.8],[.5,.8,-1.6]], trim,.12);
+      engine(s*.75,-.15,-1.1,.36,1.5);
+    });
+    part(oct(.36),light,0,.18,1.85,.65,.65,1.4);
+    var flame = part(cone(.5,1.8,8),G(0xff7843,{transparent:true,opacity:.72,depthWrite:false}),0,0,-2.5);
+    flame.rotation.x=-Math.PI/2; g.userData.flame=flame;
+  } else if (type === 'carrier') {
+    // The reactor is deliberately exposed through a structural cage.
+    var core = part(ico(.95,1),light,0,0,0); core.userData.dynamic=true; g.userData.core=core;
+    [-1, 1].forEach(function(s) {
+      part(box(.55,.85,4.5),metal,s*2,0,-.25);
+      engine(s*2,0,-1.4,.65,1.65);
+      wing(s, [[1.8,.3,.8],[2.8,.5,.5],[2.7,.4,-1.4],[1.8,.3,-1]],trim,.23);
+      for(var rib=0;rib<3;rib++) g.add(bone([s*2,0,-1.35+rib*1.15],[s*.65,s*.8,-.85+rib*.75],.13,.09,metal,6));
+    });
+    var ring=part(tor(2.7,.14,6,32),trim,0,0,0); ring.rotation.x=Math.PI/2; ring.userData.dynamic=true;g.userData.ring=ring;
+    part(box(2.8,.55,.55),dark,0,0,-2.3);
+  } else if (type === 'sentinel') {
+    hull(1,.7,3.2,dark);
+    for(var petal=0;petal<6;petal++) {
+      var angle=petal/6*TAU;
+      var plate=part(box(.7,1.65,.6),metal,Math.cos(angle)*2.1,Math.sin(angle)*2.1,.6);
+      plate.rotation.z=angle-Math.PI/2;
+      var seam=part(box(.18,1.2,.09),light,Math.cos(angle)*2.1,Math.sin(angle)*2.1,.95);seam.rotation.z=plate.rotation.z;
+    }
+    part(tor(1.6,.18,6,12),trim,0,0,1);
+    var shield=part(new THREE.CircleGeometry(3.1,12),new THREE.MeshBasicMaterial({color:0x72dfff,transparent:true,opacity:.27,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending}),0,0,1.9);
+    g.userData.shield=shield;
+    part(oct(.65),light,0,0,1.35);
+    engine(0,0,-1.6,.65,1.1);
+  } else if (type === 'bomber') {
+    hull(1.9,.85,4.8,metal);
+    [-1, 1].forEach(function(s) {
+      wing(s, [[1.2,.1,1.7],[4.6,.3,.4],[4.3,.1,-1.6],[1.1,-.05,-1.5]],dark,.38);
+      wing(s, [[1.5,.4,1.2],[3.8,.5,.3],[3.4,.4,-.2],[1.4,.35,.2]],metal,.15);
+      engine(s*3.7,-.1,-.25,.74,4.5);
+      part(box(.4,.4,2.4),trim,s*1.3,-.65,2);
+      for(var vent=0;vent<3;vent++) part(box(.48,.09,.14),light,s*1.3,.85,-.2-vent*.45);
+    });
+    var bomberCore=part(oct(.65),light,0,-.5,2.4);bomberCore.userData.dynamic=true;g.userData.core=bomberCore;
+    part(box(1.2,.38,.13),light,0,.55,2.2);
+  }
+  return batchStatic(g);
+}
 var ENEMY_DEFS = {
   wasp: {
     hp: 2, radius: 2.4, scale: 1.5, score: 100, deAge: 0.06, speed: 26, fireRate: 2.4, bulletSpeed: 62,
-    build: function () {
-      var g = new THREE.Group();
-      var b = mesh(oct(1.15), M(0x6c4f8f, { shine: 18, spec: 0x554070 })); b.scale.set(1, 0.72, 1.5); g.add(b);
-      var hd = mesh(oct(0.62), M(0x3d2b58)); hd.position.z = 1.25; g.add(hd);
-      var eye = mesh(oct(0.3), G(0xff5c3c)); eye.position.z = 1.7; eye.scale.set(1, 0.6, 0.8); g.add(eye);
-      [-1, 1].forEach(function (s) {
-        var w = mesh(box(2.3, 0.1, 0.85), M(0x9d7ac4, { side: THREE.DoubleSide }));
-        w.position.set(s * 1.5, 0.42, -0.2); w.rotation.z = s * 0.25; g.add(w);
-        var w2 = mesh(box(1.5, 0.09, 0.6), M(0x7a5da0, { side: THREE.DoubleSide }));
-        w2.position.set(s * 1.1, 0.2, -1.0); w2.rotation.z = s * 0.4; g.add(w2);
-      });
-      var t = mesh(cone(0.42, 1.3, 5), M(0x3d2b58));
-      t.rotation.x = -Math.PI * 0.5; t.position.z = -1.5; g.add(t);
-      return g;
-    }
+    build: function () { return buildWarMachine('wasp'); }
   },
   ray: {
     hp: 3, radius: 3.1, scale: 1.4, score: 150, deAge: 0.08, speed: 40, fireRate: 3.2, bulletSpeed: 58,
-    build: function () {
-      var g = new THREE.Group();
-      var b = mesh(oct(1.9), M(0x2f7f86, { shine: 20 })); b.scale.set(2.1, 0.28, 1.15); g.add(b);
-      var c = mesh(oct(0.7), M(0x1b4f56)); c.position.z = 0.4; c.scale.set(1, 0.7, 1.3); g.add(c);
-      var e = mesh(oct(0.34), G(0xffe066)); e.position.z = 1.1; g.add(e);
-      [-1, 1].forEach(function (s) {
-        var f = mesh(cone(0.5, 1.9, 4), M(0x2f7f86));
-        f.position.set(s * 3.1, 0.25, -0.3); f.rotation.z = -s * 1.2; g.add(f);
-      });
-      var t = mesh(box(0.24, 0.24, 3.0), M(0x1b4f56)); t.position.z = -2.0; g.add(t);
-      return g;
-    }
+    build: function () { return buildWarMachine('ray'); }
   },
   turret: {
     hp: 4, radius: 3.2, scale: 1.6, score: 200, deAge: 0.10, speed: 0, fireRate: 2.0, bulletSpeed: 70,
@@ -1808,70 +1974,19 @@ var ENEMY_DEFS = {
   },
   chaser: {
     hp: 3, radius: 2.6, scale: 1.5, score: 180, deAge: 0.09, speed: 46, fireRate: 1.7, bulletSpeed: 72,
-    build: function () {
-      var g = new THREE.Group();
-      var b = mesh(cone(1.05, 3.6, 5), M(0x93332f, { shine: 22, spec: 0x664040 }));
-      b.rotation.x = Math.PI * 0.5; g.add(b);
-      var r = mesh(cyl(1.15, 1.15, 0.5, 6), M(0x4a1c1a)); r.rotation.x = Math.PI * 0.5; r.position.z = -0.9; g.add(r);
-      var e = mesh(oct(0.42), G(0xffb03a)); e.position.z = 1.5; g.add(e);
-      [0, 1, 2].forEach(function (i) {
-        var a = i / 3 * TAU;
-        var f = mesh(box(0.2, 1.5, 1.6), M(0x6d2622));
-        f.position.set(Math.cos(a) * 0.9, Math.sin(a) * 0.9, -1.2);
-        f.rotation.z = a; g.add(f);
-      });
-      var flame = mesh(cone(0.6, 1.6, 5), G(0xff8c3a, { transparent: true, opacity: 0.8, depthWrite: false }));
-      flame.rotation.x = -Math.PI * 0.5; flame.position.z = -2.2; g.add(flame);
-      g.userData.flame = flame;
-      return g;
-    }
+    build: function () { return buildWarMachine('chaser'); }
   },
   carrier: {
     hp: 6, radius: 3.9, scale: 1.5, score: 400, deAge: 0.14, speed: 18, fireRate: 3.6, bulletSpeed: 50, drops: 2,
-    build: function () {
-      var g = new THREE.Group();
-      var b = mesh(dodec(2.1), M(0x4b4a6d, { shine: 30, spec: 0x8888aa })); g.add(b);
-      var core = mesh(ico(1.05, 0), G(0xffd25e, { transparent: true, opacity: 0.95 })); g.add(core);
-      g.userData.core = core;
-      [-1, 1].forEach(function (s) {
-        var arm = mesh(box(0.5, 0.5, 3.4), M(0x2f2f45)); arm.position.set(s * 2.0, 0, 0); g.add(arm);
-        var pod = mesh(oct(0.75), M(0x6a6a95)); pod.position.set(s * 2.0, 0, 1.7); g.add(pod);
-      });
-      var ring = mesh(tor(2.9, 0.16, 4, 10), M(0x8f8fc0, { shine: 40 }));
-      ring.rotation.x = Math.PI * 0.5; g.add(ring); g.userData.ring = ring;
-      return g;
-    }
+    build: function () { return buildWarMachine('carrier'); }
   },
   sentinel: {
     hp: 5, radius: 4.1, scale: 1.7, score: 320, deAge: .18, speed: 23, fireRate: 3.8, bulletSpeed: 66,
-    build: function () {
-      var g = new THREE.Group();
-      var hull = mesh(oct(1.8), M(0x356b87, { shine: 35, spec: 0x86bfd0 })); hull.scale.set(1.2, .65, 1.6); g.add(hull);
-      [-1, 1].forEach(function (side) {
-        var plate = mesh(box(.75, 3.2, 1.2), M(0xb99c51, { shine: 30 })); plate.position.set(side * 2.2, 0, .9); plate.rotation.z = side * -.25; g.add(plate);
-        var vent = mesh(box(.22, 2.2, .12), G(0x7eeaff)); vent.position.set(side * 2.2, 0, 1.55); g.add(vent);
-      });
-      var shield = mesh(new THREE.CircleGeometry(3.1, 6), new THREE.MeshBasicMaterial({ color: 0x72dfff, transparent: true, opacity: .27, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-      shield.position.z = 1.9; g.add(shield); g.userData.shield = shield;
-      var core = mesh(oct(.75), G(0xffcf70)); core.position.z = 1.3; g.add(core);
-      return g;
-    }
+    build: function () { return buildWarMachine('sentinel'); }
   },
   bomber: {
     hp: 9, radius: 5.4, scale: 1.6, score: 550, deAge: .22, speed: 17, fireRate: 4.6, bulletSpeed: 55, drops: 1,
-    build: function () {
-      var g = new THREE.Group();
-      var hull = mesh(box(4.5, 1.8, 4), M(0x633546, { shine: 22 })); g.add(hull);
-      var bridge = mesh(oct(1.5), M(0xa97155, { shine: 28 })); bridge.position.set(0, .4, 2); bridge.scale.set(1.2, .6, 1.3); g.add(bridge);
-      [-1, 1].forEach(function (side) {
-        var wing = mesh(box(4.2, .25, 2.3), M(0x8b4c52)); wing.position.set(side * 3.3, 0, -.2); g.add(wing);
-        var pod = mesh(cyl(.8, 1, 4.5, 8), M(0x332a3e, { shine: 24 })); pod.rotation.x = Math.PI / 2; pod.position.set(side * 4.2, -.25, -.1); g.add(pod);
-        var exhaust = mesh(oct(.65), G(0xff8550)); exhaust.position.set(side * 4.2, -.25, -2.5); g.add(exhaust);
-        var cannon = mesh(box(.65, .65, 2.4), M(0xc19a68)); cannon.position.set(side * 1.3, -.65, 2.6); g.add(cannon);
-      });
-      var core = mesh(oct(.65), G(0xffbd64)); core.position.set(0, -.6, 2.5); g.add(core); g.userData.core = core;
-      return g;
-    }
+    build: function () { return buildWarMachine('bomber'); }
   },
   mine: {
     hp: 1, radius: 2.5, scale: 1.4, score: 60, deAge: 0.03, speed: 0, fireRate: 0, bulletSpeed: 0,
@@ -1910,7 +2025,8 @@ function buildBoss() {
 
   // central sphinx head
   var head = new THREE.Group(); g.add(head);
-  var skull = mesh(box(7, 6, 6.5), mHull); head.add(skull);
+  var skull = mesh(loftGeo([{y:-3,w:4.2,d:4.6,n:3},{y:-1.7,w:7,d:6.5,n:3},
+    {y:1.8,w:7,d:6,n:3},{y:3,w:5.3,d:4.6,n:3}],12,true,true), mHull); head.add(skull);
   var face = mesh(box(6.2, 4.4, 1.2), mHull2); face.position.set(0, -0.4, 3.4); head.add(face);
   var brow = mesh(box(7.4, 1.1, 1.6), mGold); brow.position.set(0, 2.0, 3.1); head.add(brow);
   var chin = mesh(box(3.4, 1.6, 1.6), mGold); chin.position.set(0, -3.0, 2.6); head.add(chin);
@@ -1920,6 +2036,13 @@ function buildBoss() {
     var hd2 = mesh(box(1.6, 3.2, 3.0), mGold); hd2.position.set(s * 5.2, -3.6, 1.0); head.add(hd2);
   });
   var crown = mesh(cone(3.0, 3.6, 5), mGold); crown.position.y = 4.4; head.add(crown);
+  var diadem = new THREE.Group(); head.add(diadem);
+  for (var tooth = -2; tooth <= 2; tooth++) {
+    var prong = mesh(cone(.7, 4.6 - Math.abs(tooth) * .7, 5), mGold);
+    prong.position.set(tooth * 1.6, 5.2, .1 - Math.abs(tooth) * .5); prong.rotation.z = -tooth * .15; diadem.add(prong);
+    var jewel = mesh(oct(.35), G(0xa7ffe4)); jewel.position.copy(prong.position); jewel.position.y += 1; diadem.add(jewel);
+  }
+  batchStatic(diadem);
 
   // clock rings
   var ring1 = mesh(tor(13, 0.7, 4, 20), mGold); ring1.rotation.x = Math.PI * 0.5; g.add(ring1);
@@ -1954,13 +2077,17 @@ function buildBoss() {
     cores.push({ group: pod, core: core, cage: cage, shield: shield, hp: 200, maxHp: 200, alive: true, angle: ang });
   }
 
-  // wings of stone
+  // Overlapping stone flight feathers turn the flat wings into a readable fan.
+  var wingArmour = new THREE.Group(); g.add(wingArmour);
   [-1, 1].forEach(function (s) {
-    var w = mesh(membrane([
-      [s * 6, 2, -2], [s * 15, 8, -5], [s * 22, 4, -9], [s * 18, -3, -8], [s * 9, -4, -4]
-    ]), M(0x584f7a, { side: THREE.DoubleSide, shine: 12 }));
-    g.add(w);
+    for (var feather = 0; feather < 5; feather++) {
+      var x = 7 + feather * 2.1, rise = 4.4 - feather * 1.45;
+      wingArmour.add(blade([[s*x,rise,-2],[s*(x+6),rise+4,-5-feather*.8],
+        [s*(x+8.4),rise+1.5,-10-feather],[s*(x+2),rise-2,-7]], .7, feather%2?mHull:mHull2));
+      wingArmour.add(bone([s*x,rise+.5,-2],[s*(x+6),rise+4.5,-5-feather*.8],.16,.09,mGold,6));
+    }
   });
+  batchStatic(wingArmour);
 
   g.scale.setScalar(2.0);
   return { group: g, head: head, rings: [ring1, ring2, ring3], cores: cores, crown: crown };

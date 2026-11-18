@@ -1,6 +1,6 @@
 # PANZER FREEMAN — Chronos Requiem
 
-A low-poly, Sega-Saturn-flavoured 3D rail shooter that runs in a single HTML file.
+A 3D rail shooter by **Judge Dean LLC** that runs in a single HTML file.
 An eighty-nine-year-old man rides a dragon toward a machine that runs time backwards.
 Defeating enemies gives him time back. Taking hits ages him.
 
@@ -15,13 +15,13 @@ Defeating enemies gives him time back. Taking hits ages him.
 A tribute to **Panzer Dragoon** (Sega Saturn, 1995) — the rail flight, the four-way
 view rotation, the sweep-to-paint lock-on volleys — drawn as clean low-poly rather
 than as a Saturn emulation, with a soundtrack aimed squarely at **Lords of Thunder**
-(PC Engine CD). The ~1.4 MB HTML bundle embeds Three.js, the rider model,
+(PC Engine CD). The HTML bundle embeds Three.js, the rider model,
 and procedural game systems. Six MP3 cues stream from `sound/`; effects use an
 original Web Audio sample bank rendered at startup. Serve the folder over HTTP.
 
 | | |
 |---|---|
-| ![Rider](docs/01-rider.png) | ![Canyon](docs/02-canyon.png) |
+| ![Drowned Choir salvage flight](docs/04-drowned-choir.png) | ![Canyon](docs/02-canyon.png) |
 | ![Lasers](docs/03-lasers.png) | ![Boss](docs/05-boss.png) |
 
 ![The dragon](docs/06-model.png)
@@ -33,7 +33,7 @@ original Web Audio sample bank rendered at startup. Serve the folder over HTTP.
 | `A` `D` | bank left / right |
 | `W` `S` | dive / climb (inverted by default) |
 | Mouse | aim reticle |
-| Hold LMB | sweep to paint lock-ons (up to 8) |
+| Hold LMB | sweep to paint lock-ons (starts at 8; grows as you reclaim years) |
 | Release LMB | fire the homing laser volley |
 | RMB | rapid gun |
 | `Shift` | boost; consumes wing power |
@@ -44,7 +44,36 @@ original Web Audio sample bank rendered at startup. Serve the folder over HTTP.
 | `R` | toggle Saturn mode |
 | `P` | pause · `M` mute |
 
+On touch devices, a separate thumb pad steers while dragging across the sky aims
+and paints locks. Lift the aiming finger to fire. Dedicated buttons provide rapid
+fire, boost, brake, roll, view rotation and pause. The thumb pad uses direct pitch:
+drag up to climb. Touch gestures cancel cleanly when paused, hidden or interrupted.
+
 ## The interesting bits
+
+**Choose your departure.** The launch screen previews all five sectors and lets you
+start at any of them. Guided flight remains optional in the opening canyon. Pause
+now includes Resume and Abandon flight; results let you replay or return to sector
+selection. Compact HUD layouts separate age, score and sector progress on smaller
+screens.
+
+**Objectives give each sector a purpose.** A live mission panel tracks flight
+maneuvers, salvage, canyon gates, marked convoy targets, charge breaks and the final
+cores. Diamond markers distinguish mission enemies from ambient patrols. Objectives
+award score, wing power and occasional recovered years; missed objectives do not
+stop the run. The result screen records completed objectives and reflected shots.
+
+**A rebuilt cast.** The dragon wears ivory flight armor over a deep teal body, with
+cyan and gold bands that deform with its articulated wing membranes. A short cloth
+mantle follows the rider's motion. Six enemy hulls have distinct sculpted silhouettes,
+engine nacelles and exposed machinery, batched into four to six mesh draws apiece.
+The Sphinx has a faceted face, an obelisk crown and layered stone flight feathers.
+Replays restore its original scale, rings, shields and core state.
+
+**Return fire.** Time a roll as a hostile shot reaches the dragon's wings to reflect
+one shot toward its living shooter for 180 points. Only the first 0.22 seconds of
+the roll can reflect; the remaining dodge and recovery retain their usual behavior.
+Reflection becomes available after the guided opening.
 
 **Four stages and a finale.** The wider Ashen Canyon divides around a central mesa;
 blue rings reward either passage with score and wing power. The Drowned Choir has
@@ -203,6 +232,11 @@ to audition the laser, explosion and wings. The existing recorded score is retai
 A 28-voice cap and per-effect rate limits control busy volleys.
 These are original procedural effects, with no external sample licenses required.
 
+**Rider dialogue.** Five original lines accompany the opening flight, salvage run,
+carrier convoy, mountain citadel and victory. Each line has a caption. Builds
+with the corresponding recorded clips also have a Rider voice level in the pause
+menu. Music dips during speech, and pausing holds the line at its current position.
+
 ## Building
 
 The repo ships a prebuilt `index.html`. To rebuild from source:
@@ -219,6 +253,7 @@ node build.js        # concatenates src/ into index.html
 | `p1_core.js` | renderer, retro shader patch, sky, SFX synth and the streamed score |
 | `p1b_audio.js` | layered effect bank, stereo mix, reverb and compression |
 | `p1c_soundscape.js` | flight ambience, charge loop, music ducking and saved mix controls |
+| `p1d_voice.js` | sector dialogue, captions, recorded clip playback and mix |
 | `p2_models.js` | procedural dragon + rider + enemies + boss, and the flight model |
 | `p3_world.js` | terrain chunking, batched prop fields, episode definitions |
 | `p3c_horizon.js` | layered distant mountain silhouettes |
@@ -229,13 +264,15 @@ node build.js        # concatenates src/ into index.html
 | `p4e_enemies.js` | mixed squadrons, shield and bomber roles, attack telegraphs |
 | `p4d_campaign.js` | boost/brake/roll, route gates and authored stage encounters |
 | `p5_hud_loop.js` | HUD canvas, opening cinematic, input, main loop |
+| `p5b_touch.js` | independent touch steering, aiming, firing and maneuver controls |
 
 ## Testing
 
 The release gate runs production-code integration checks without a browser:
 `npm run check:release`. It covers the opening, flight rig, maneuvers, authored
 formations, route and convoy rewards, world foundations, hidden scenery recycling, enemy approaches and attack patterns,
-orb proximity collection, FX bounds and audio buffers.
+orb proximity collection, FX bounds, audio buffers, touch input, objective outcomes,
+model budgets and boss replay state.
 Visual review uses `tools/combat-preview.html` and `tools/motion-preview.html`.
 The combat preview's **Run gauntlet** button cycles through all five stages with
 volleys, rolls, boosts, orb pickups and view rotation, reporting frame rate, draw
@@ -246,6 +283,9 @@ they are additional developer probes, not part of the release gate:
 
 ```bash
 npm run check:gauntlet       # swept route rewards, roll response, hit feedback and wing trails
+npm run check:touch          # multitouch steering/aiming, maneuvers and cancellation
+node tools/check-models.js   # batched hull budgets, animated cloth and boss replay alignment
+node tools/check-objectives.js # sector objectives, earned rewards and replay lifecycle
 node tools/check-enemies.js  # distant approaches, role attacks, shields, stage population and caps
 node tools/check-visibility.js # concealed recycling, side views, horizon depth and orb pickup
 node tools/check-audio.js    # audio graph lifecycle, mixing, looping, mute and cleanup
@@ -277,4 +317,6 @@ this borrows their ideas out of admiration, not their assets. The rider is a low
 parody character, and the narrator captions are written in-character rather than
 presented as anyone's real words.
 
-MIT licensed — see [LICENSE](LICENSE).
+The game code is MIT licensed. Any Parrot AI voice recordings accompanying a build
+are synthetic parody performances generated with Parrot AI. The service limits
+celebrity voices to noncommercial parody. [Code license](LICENSE) · [Parrot AI voice usage](https://parrotai.crisp.help/en/article/can-i-use-parrot-ai-for-commercial-purposes-gocp00/)

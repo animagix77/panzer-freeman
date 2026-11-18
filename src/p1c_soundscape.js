@@ -2,7 +2,7 @@
 (function () {
 'use strict';
 var P = window.__PF, A = P.Audio_, init = A.init;
-var settings = { music: .8, effects: 1, ambience: .6 };
+var settings = { music: .8, effects: 1, ambience: .6, voice: 1 };
 try {
   var saved = JSON.parse(window.localStorage.getItem('pf-audio-v1') || '{}');
   Object.keys(settings).forEach(function (k) { if (typeof saved[k] === 'number' && isFinite(saved[k])) settings[k] = Math.max(0, Math.min(1, saved[k])); });
@@ -89,6 +89,10 @@ P.sound = {
   loopBuffer: loopBuffer
 };
 if (window.document) {
+  var hasVoice = Object.keys(window.__PF_VOICE_FILES || {}).length > 0;
+  ['audio-voice-row', 'audio-voice-credit'].forEach(function (id) {
+    var element = window.document.getElementById(id); if (element) element.hidden = !hasVoice;
+  });
   Object.keys(settings).forEach(function (key) {
     var slider = window.document.getElementById('audio-' + key), output = window.document.getElementById('audio-' + key + '-value');
     if (!slider) return;

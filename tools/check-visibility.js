@@ -28,6 +28,33 @@ for(const ep of P.world.EPISODES) {
  for(const layer of P.horizon.layers){assert.equal(layer.position.z,5500);assert(layer.material.depthTest,'foreground occludes distant ridges');}
 }
 props.clear();
+// Stage art changes shading and the skyline while retaining collision and pools.
+const chunkGeometries = terrain.chunks.map(c=>c.geo), skylineGeometry=P.horizon.layers.map(l=>l.geometry);
+const sceneObjects=P.scene.children.length, profiles=[];
+for(let stage=0;stage<P.world.EPISODES.length;stage++) {
+ const ep=P.world.EPISODES[stage];P.Game.epIndex=stage;
+ P.scene.fog=new THREE.Fog(ep.fog.col,ep.fog.near,ep.fog.far);terrain.configure(ep.terrain,0);
+ P.Game.time+=.5;terrain.update(0);
+ assert.equal(terrain.chunks[0].mat.userData.terrainArt.terrainStyle.value,ep.terrain.surface||0);
+ assert.equal(terrain.chunks[0].mat.userData.terrainArt.terrainTime.value,P.Game.time);
+ assert.equal(terrain.heightAt(54,4800),ep.terrain.h(54,4800),'surface art leaves collision heights unchanged');
+ const shader={uniforms:{},vertexShader:THREE.ShaderLib.phong.vertexShader,fragmentShader:THREE.ShaderLib.phong.fragmentShader};
+ terrain.chunks[0].mat.onBeforeCompile(shader);
+ assert(shader.vertexShader.includes('terrainWorld=(modelMatrix*vec4(transformed,1.0)).xyz;'));
+ assert(shader.fragmentShader.includes('totalEmissiveRadiance+=vec3(1.0,.16,.018)'));
+ for(let frame=0;frame<180;frame++){P.Game.time+=1/60;P.horizon.update();}
+ profiles.push(Array.from(P.horizon.layers[0].geometry.attributes.position.array));
+ P.horizon.layers.forEach((layer,i)=>{assert.equal(layer.geometry,skylineGeometry[i]);assert(layer.geometry.attributes.position.array.every(Number.isFinite));});
+ terrain.chunks.forEach((chunk,i)=>assert.equal(chunk.geo,chunkGeometries[i]));
+ assert.equal(P.scene.children.length,sceneObjects,'stage changes reuse all horizon and celestial objects');
+ if(ep.id==='ep3')assert(P.horizon.celestial.every(o=>o.visible),'citadel has a visible ringed moon');
+}
+for(let stage=1;stage<4;stage++)assert(profiles[stage].some((v,i)=>Math.abs(v-profiles[stage-1][i])>30),'stages have distinct skyline profiles');
+P.Game.epIndex=0;P.Game.time+=1/60;
+const beforeProfile=Array.from(P.horizon.layers[0].geometry.attributes.position.array);P.horizon.update();
+assert(beforeProfile.every((v,i)=>Math.abs(v-P.horizon.layers[0].geometry.attributes.position.array[i])<20),'skyline transitions ease instead of popping');
+for(let frame=0;frame<240;frame++){P.Game.time+=1/60;P.horizon.update();}
+assert(P.horizon.celestial.every(o=>!o.visible),'celestial layer fades away outside the mountain stages');
 const E=P.entities;E.reset();P.Game.railZ=0;P.Game.age=70;P.Player.pos.set(0,22,0);
 for(const offset of [new P.V3(15,0,0),new P.V3(0,15,0),new P.V3(0,0,17)]) {
  const score=P.Game.score;E.spawnOrb(P.Player.pos.clone().add(offset),true);E.updateProjectiles(1/60);
@@ -37,4 +64,4 @@ for(const offset of [new P.V3(15,0,0),new P.V3(0,15,0),new P.V3(0,0,17)]) {
 E.spawnOrb(new P.V3(80,22,0),true);E.orbs[0].v.set(0,0,0);E.updateProjectiles(1/60);
 assert(E.orbs[0].v.x<0,'distant orb attracted from 80 units away');
 E.reset();E.spawnOrb(new P.V3(110,22,0),true);E.orbs[0].v.set(0,0,0);E.updateProjectiles(1/60);assert.equal(E.orbs[0].v.x,0,'magnet remains bounded');
-console.log('Visibility/pickup checks passed: continuous terrain, hidden recycling, bounded props, side-view coverage, occluded horizon layers, broad proximity pickup and stronger bounded magnet.');
+console.log('Visibility/pickup checks passed: continuous terrain, hidden recycling, fixed world-art geometry, distinct smoothly changing skylines, surface shader hooks, celestial transitions, broad pickup and bounded magnet.');

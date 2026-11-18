@@ -3,7 +3,7 @@
 'use strict';
 var P = window.__PF, A = P.Audio_, oldInit = A.init;
 var durations = { laser: .54, gun: .19, impact: .48, blast: 1.85, hit: .65,
-  lock: .13, orb: .65, view: .22, warn: .4, boost: .8, roll: .45, wing: .62, near: .32, enemy: .3 };
+  lock: .13, orb: .65, view: .22, warn: .4, boost: .8, roll: .45, wing: .62, reflect: .56, near: .32, enemy: .3 };
 // Low-passed noise, swept FM energy, body resonance and a shaped transient.
 // Every variant has a zero-ended envelope; no raw square/saw oscillators.
 function render(name, rate, variant) {
@@ -45,6 +45,11 @@ function render(name, rate, variant) {
         // Inharmonic body modes suggest fractured metal rather than a buzzer.
         v += .13 * (Math.sin(t * 2 * Math.PI * 1331 * pitch) + .5 * Math.sin(t * 2 * Math.PI * 2149 * pitch)) * Math.exp(-t * 30);
       }
+    } else if (name === 'reflect') {
+      // A metallic catch followed by a rising, harmonized return tone.
+      phase += 2 * Math.PI * (260 + 890 * Math.min(1, t * 5)) * pitch / rate;
+      v = (.26 * Math.sin(phase) + .14 * Math.sin(phase * 1.5)) * Math.exp(-t * 5)
+        + (n - low) * .45 * Math.exp(-t * 65);
     } else if (name === 'wing') {
       var down = Math.exp(-Math.pow((t - .11) / .065, 2));
       var recovery = Math.exp(-Math.pow((t - .34) / .1, 2));
@@ -121,6 +126,7 @@ A.effect = function (name, volume, pos) {
   if (this.duck && (name === 'blast' || name === 'hit')) this.duck(name === 'hit' ? .36 : .24);
 };
 A.sLaser = function () { this.effect('laser', .60); };
+A.sReflect = function () { this.effect('reflect', .72); };
 A.sGun = function () { this.effect('gun', .43); };
 A.sZap = function (pos) { this.effect('impact', .52, pos); };
 A.sBoom = function (big, pos) { this.effect(big ? 'blast' : 'impact', big ? .85 : .45, pos); };

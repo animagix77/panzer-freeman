@@ -33,7 +33,9 @@ function world() {
 // A real earned reward, followed by an aimed shot and earned dodge feedback.
 {
   const { P, nodes, enemies, shots, tick, kill } = world();
-  P.opening.start(); tick(4.1);
+  P.opening.start();
+  assert.equal(enemies.length, 3, 'scouts begin their distant approach immediately');
+  tick(4.1);
   assert.equal(enemies.length, 3);
   assert(enemies.every(e => e.hpMul === 0.5 && e.openingOffset));
   P.Input.lmb = true; P.Locks.list.push(enemies[0]); tick(0.1);
@@ -60,7 +62,7 @@ function world() {
 // Doing nothing cannot stall the level or fabricate a success reward.
 {
   const { P, nodes, tick } = world();
-  P.opening.start(); tick(24.2);
+  P.opening.start(); tick(20.2);
   assert.equal(nodes.briefingTitle.textContent, 'Keep the volley in mind');
   assert.equal(P.Game.age, 89);
   tick(7.2); P.opening.onHit(); tick(3.6);
@@ -98,7 +100,7 @@ for (const when of [4.2, 31.5]) {
 // A volley launched just before the lesson expires must get time to land.
 {
   const { P, tick, enemies, kill, nodes } = world();
-  P.opening.start(); tick(23.5);
+  P.opening.start(); tick(19.5);
   enemies.forEach(target => P.entities.lasers.push({ target }));
   tick(1);
   assert.equal(P.opening.phase, 'volley');

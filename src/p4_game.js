@@ -11,7 +11,7 @@ var Game = {
   state: 'title',
   time: 0, railZ: 0, epIndex: 0, epStartZ: 0, epProgress: 0,
   age: 89, startAge: 89, score: 0, kills: 0, shots: 0, hits: 0,
-  bestCombo: 0, combo: 0, comboT: 0,
+  bestCombo: 0, combo: 0, comboT: 0, reflections: 0,
   hurtT: 0, invulnT: 0, shakeT: 0, shakeMag: 0, hitConfirmT: 0, killConfirmT: 0,
   ending: false, bossActive: false, orbsTaken: 0, cinematic: false
 };
@@ -593,6 +593,22 @@ function fireLasers() {
   Locks.list.length = 0;
 }
 
+// The opening beat of a roll can turn one close hostile shot back on its shooter.
+var reflectedThisRoll = false;
+function reflectShot(shot) {
+  reflectedThisRoll = true;
+  var origin = shot.m.position, mesh = laserPool.get(), trail = ribbonPool.get();
+  mesh.position.copy(origin);
+  if (P.fx) P.fx.attachLaser(mesh);
+  ribbonReset(trail, origin.x, origin.y, origin.z);
+  lasers.push({ m: mesh, rib: trail, v: shot.v.clone().negate(), target: shot.source,
+    life: 2.5, dmg: 2, delay: 0, age: .5, reflected: true });
+  spawnImpact(origin, 0xffdc80, 1.45);
+  Game.reflections++;
+  Game.score += 180;
+  toast('RETURN FIRE · +180');
+  A.sReflect();
+}
 function getMuzzle() {
   var v = new V3();
   dragon.gun.getWorldPosition(v);
@@ -601,7 +617,10 @@ function getMuzzle() {
 var _aimNdc = new THREE.Vector3();
 function getAimDir(origin) {
   _aimNdc.set(Input.ndx, Input.ndy, 0.5).unproject(camera);
-  return _aimNdc.sub(origin).normalize();
+  // Unprojection gives a point near the camera, behind the rider. Extend the
+  // camera ray to combat distance before converging the muzzle onto it.
+  return _aimNdc.sub(camera.position).normalize().multiplyScalar(260)
+    .add(camera.position).sub(origin).normalize();
 }
 function getAimPoint(dist) {
   var v = new V3(Input.ndx, Input.ndy, 0.5).unproject(camera);
@@ -617,23 +636,41 @@ var Boss = {
   atkT: 2.5, dead: false, deathT: 0, entering: 0
 };
 P.Boss = Boss;
+var bossApproachTime = 8, bossApproachDistance = 880;
 
+function restoreBossPose() {
+  if (!Boss.restPose) return;
+  Boss.restPose.forEach(function (p) {
+    p.node.position.copy(p.position); p.node.quaternion.copy(p.quaternion);
+    p.node.scale.copy(p.scale); p.node.visible = p.visible;
+  });
+}
 function bossStart() {
   if (!Boss.built) {
     Boss.built = mdl.buildBoss();
     Boss.group = Boss.built.group;
     scene.add(Boss.group);
+    Boss.restPose = [];
+    Boss.group.traverse(function (node) {
+      Boss.restPose.push({ node: node, position: node.position.clone(), quaternion: node.quaternion.clone(),
+        scale: node.scale.clone(), visible: node.visible });
+    });
+    Boss.built.cores.forEach(function (c) { c.restMaterial = c.core.material; });
   }
+  restoreBossPose();
   Boss.group.visible = true;
-  Boss.active = true; Boss.dead = false; Boss.phase = 0; Boss.t = 0;
-  Boss.angle = 0; Boss.angleTarget = 0; Boss.atkT = 3.4; Boss.entering = 3.2;
-  Boss.dist = 230;
+  Boss.active = true; Boss.dead = false; Boss.deathT = 0; Boss.phase = 0; Boss.t = 0;
+  Boss.angle = 0; Boss.angleTarget = 0; Boss.atkT = 3.4; Boss.entering = bossApproachTime;
+  Boss.dist = bossApproachDistance;
+  Boss.group.position.copy(Player.pos).add(new V3(0, Boss.height + 45, Boss.dist));
+  Boss.group.rotation.y = Math.PI;
   for (var i = 0; i < Boss.built.cores.length; i++) {
     var c = Boss.built.cores[i];
     c.hp = c.maxHp; c.alive = true;
     c.group.visible = true;
-    c.core.material = G(0x6affd0, { transparent: true, opacity: 0.95 });
+    c.core.material = c.restMaterial;
   }
+  Boss.group.updateMatrixWorld(true);
   Game.bossActive = true;   // the HP bar sums the cores directly; Boss has no pool of its own
 }
 
@@ -708,16 +745,21 @@ function updateBoss(dt) {
     B.group.scale.multiplyScalar(1 - dt * 0.13);
     Game.shakeT = 0.3; Game.shakeMag = 1.6;
     if (B.deathT <= 0) {
-      B.active = false; B.group.visible = false; B.group.scale.setScalar(1);
+      B.active = false; restoreBossPose(); B.group.visible = false;
       endGame(true);
     }
     return;
   }
 
   // ---- placement: orbit the player, forcing view rotation
+  var approachHeight = 0;
   if (B.entering > 0) {
-    B.entering -= dt;
-    B.dist = damp(B.dist, 128, 1.1, dt);
+    // The full-size silhouette descends from behind the final sector's fog.
+    B.entering = Math.max(0, B.entering - dt);
+    var remaining = B.entering / bossApproachTime;
+    var approach = remaining * remaining * (3 - 2 * remaining);
+    B.dist = 128 + (bossApproachDistance - 128) * approach;
+    approachHeight = 45 * approach;
   } else {
     // phase 2+: drift between angles
     // angleTarget is otherwise set on core destruction; from phase 2 it also
@@ -727,7 +769,7 @@ function updateBoss(dt) {
   B.angle += P.angDelta(B.angle, B.angleTarget) * dampF(0.9, dt);
   var dir = new V3(Math.sin(B.angle), 0, Math.cos(B.angle));
   var bp = Player.pos.clone().add(dir.multiplyScalar(B.dist));
-  bp.y += B.height + Math.sin(B.t * 0.6) * 4;
+  bp.y += B.height + approachHeight + Math.sin(B.t * 0.6) * 4;
   B.group.position.copy(bp);
   B.group.rotation.y = B.angle + Math.PI;
   B.group.rotation.z = Math.sin(B.t * 0.4) * 0.08;
@@ -906,6 +948,8 @@ function updatePlayer(dt) {
   var ix = cine ? 0 : (k['d'] || k['arrowright'] ? 1 : 0) - (k['a'] || k['arrowleft'] ? 1 : 0);
   var iy = cine ? 0 : (k['w'] || k['arrowup'] ? 1 : 0) - (k['s'] || k['arrowdown'] ? 1 : 0);
   if (Player.invertY) iy = -iy;                  // flight-stick pitch
+  // Touch steering is direct: pushing the pad upward always climbs.
+  if (!cine) { ix = clamp(ix + (Input.touchX || 0), -1, 1); iy = clamp(iy + (Input.touchY || 0), -1, 1); }
   var yaw = Player.camYaw;
   // the camera looks along +Z, so screen-right is world -X (not +X)
   var rx = -Math.cos(yaw), rz = Math.sin(yaw);
@@ -1057,7 +1101,8 @@ function updateProjectiles(dt) {
     p.m.position.addScaledVector(p.v, dt);
     p.m.lookAt(P.tmpB.copy(p.m.position).add(p.v));
     ribbonAdvance(p.rib, p.m.position.x, p.m.position.y, p.m.position.z, 3.4);
-    ribbonBuild(p.rib, 0.85, 0xffffff, 0x166dff, 1.25);
+    var tailColor = p.reflected ? 0xffaf42 : 0x166dff;
+    ribbonBuild(p.rib, 0.85, 0xffffff, tailColor, 1.25);
     p.life -= dt;
     var hit = false;
     if (tp && segPointD2(previousLaserPos, p.m.position, tp) < Math.pow(p.target.def ? p.target.def.radius + 1.6 : 7.0, 2)) {
@@ -1066,10 +1111,10 @@ function updateProjectiles(dt) {
       spawnImpact(p.m.position, 0x7fe8ff, 1.15);
       boom(p.m.position, 0.7, [SHARD_MATS.cyan, SHARD_MATS.white], 4);
       A.sZap(p.m.position);
-      hit = true; Game.hits++;
+      hit = true; if (!p.reflected) Game.hits++;
     }
     if (hit || p.life <= 0) {
-      releaseTrail(p.rib, 0.85, 0xffffff, 0x166dff);
+      releaseTrail(p.rib, 0.85, 0xffffff, tailColor);
       p.rib = null;
       laserPool.put(p.m); lasers.splice(i, 1);
     }
@@ -1140,6 +1185,7 @@ function updateProjectiles(dt) {
     }
   }
   // enemy bullets
+  if (!(Player.rollT > .43)) reflectedThisRoll = false;
   for (i = ebullets.length - 1; i >= 0; i--) {
     p = ebullets[i];
     _segA.copy(p.m.position);
@@ -1147,12 +1193,18 @@ function updateProjectiles(dt) {
     p.m.rotation.x += dt * 6; p.m.rotation.y += dt * 4;
     p.life -= dt;
     var dead = p.life <= 0;
-    if (!dead && segPointD2(_segA, p.m.position, Player.pos) < 9.0) {
+    var passDistanceSq = segPointD2(_segA, p.m.position, Player.pos);
+    if (!dead && !reflectedThisRoll && Player.rollT > .43 && passDistanceSq < 49 &&
+        p.source && p.source.alive && !(P.opening && P.opening.active) && !Game.ending) {
+      reflectShot(p);
+      dead = true;
+    }
+    if (!dead && passDistanceSq < 9.0) {
       damagePlayer(p.dmg || 2.6, false);
       boom(p.m.position, 0.8, [SHARD_MATS.fire, SHARD_MATS.hot], 6);
       dead = true;
     }
-    if (!dead && !p.nearHeard && segPointD2(_segA, p.m.position, Player.pos) < 144 && P.tmpA.copy(p.m.position).sub(Player.pos).dot(p.v) > 0) {
+    if (!dead && !p.nearHeard && passDistanceSq < 144 && P.tmpA.copy(p.m.position).sub(Player.pos).dot(p.v) > 0) {
       p.nearHeard = true; if (A.sNear) A.sNear(p.m.position);
     }
     if (dead) { ebPool.put(p.m); ebullets.splice(i, 1); }
@@ -1217,7 +1269,7 @@ function enemyShoot(e, speed, dmg, spread, aim, angle) {
   if (angle) d.applyAxisAngle(new V3(0, 1, 0), angle);
   d.x += rand(-spread, spread); d.y += rand(-spread, spread); d.z += rand(-spread, spread);
   d.normalize();
-  var shot = { m: b, v: d.clone().multiplyScalar(speed), life: 6, dmg: dmg };
+  var shot = { m: b, v: d.clone().multiplyScalar(speed), life: 6, dmg: dmg, source: e };
   ebullets.push(shot);
   if (A.sEnemy) A.sEnemy(e.pos);
   return shot;
@@ -1457,7 +1509,8 @@ P.entities = {
   },
   reset: function () {
     var i;
-    Game.hitConfirmT = Game.killConfirmT = 0;
+    Game.hitConfirmT = Game.killConfirmT = Game.reflections = 0;
+    reflectedThisRoll = false;
     for (i = enemies.length - 1; i >= 0; i--) { freeEnemyMesh(enemies[i].type, enemies[i].g); }
     enemies.length = 0;
     for (i = 0; i < lasers.length; i++) {
@@ -1479,7 +1532,9 @@ P.entities = {
     Locks.list.length = 0;
     spawnT = 1.5;
     if (P.encounters) P.encounters.reset();
-    if (Boss.group) { Boss.group.visible = false; Boss.active = false; Boss.group.scale.setScalar(1); }
+    if (Boss.group) {
+      restoreBossPose(); Boss.group.visible = false; Boss.active = Boss.dead = false; Boss.deathT = 0;
+    }
     Game.bossActive = false;
   },
   getFlash: function () { return flashV; },

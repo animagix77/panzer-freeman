@@ -5,6 +5,7 @@ const parts = [
   'p1_core.js',
   'p1b_audio.js',
   'p1c_soundscape.js',
+  'p1d_voice.js',
   'gen/rider_model.js',   // baked from model/*.glb by tools/bake-glb.js
   'p2_models.js',
   'p2b_rider_model.js',
@@ -17,9 +18,22 @@ const parts = [
   'p4c_effects.js',
   'p4d_campaign.js',
   'p4e_enemies.js',
-  'p5_hud_loop.js'
+  'p5_hud_loop.js',
+  'p5b_touch.js'
 ];
-const js = parts.map(f => fs.readFileSync(path.join(src, f), 'utf8')).join('\n\n');
+// Judge Dean LLC: publish only voice assets that actually exist in this build.
+const voiceIds = ['opening', 'salvage', 'foundry', 'citadel', 'victory'];
+const voiceFiles = {};
+for (const id of voiceIds) {
+  const name = 'voice-' + id + '.mp3';
+  const file = path.join(__dirname, 'sound', name);
+  if (fs.existsSync(file)) {
+    const stat = fs.statSync(file);
+    if (stat.isFile() && stat.size > 0) voiceFiles[id] = 'sound/' + name;
+  }
+}
+const js = 'window.__PF_VOICE_FILES = ' + JSON.stringify(voiceFiles) + ';\n' +
+  parts.map(f => fs.readFileSync(path.join(src, f), 'utf8')).join('\n\n');
 const shell = fs.readFileSync(path.join(src, 'shell.html'), 'utf8');
 const three = fs.readFileSync(path.join(__dirname, 'node_modules/three/build/three.min.js'), 'utf8');
 const out = shell

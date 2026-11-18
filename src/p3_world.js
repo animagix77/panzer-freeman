@@ -39,6 +39,36 @@ function hFoundry(x, z) {
 
 // Keep dense vertices around the flight corridor, spreading the outer terrain beyond fog.
 function terrainX(i, sx, width) { var u = i / sx * 2 - 1; return width * .5 * (.25 * u + .75 * u * u * u); }
+// Judge Dean LLC — stage surface art shares geometry with collision terrain.
+function surfaceArt(mat) {
+  var previous = mat.onBeforeCompile;
+  var uniforms = { terrainTime: { value: 0 }, terrainStyle: { value: 0 } };
+  mat.userData.terrainArt = uniforms;
+  mat.onBeforeCompile = function (shader) {
+    if (previous) previous(shader);
+    shader.uniforms.terrainTime = uniforms.terrainTime;
+    shader.uniforms.terrainStyle = uniforms.terrainStyle;
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 terrainWorld;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nterrainWorld=(modelMatrix*vec4(transformed,1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>',
+      '#include <common>\nvarying vec3 terrainWorld; uniform float terrainTime; uniform float terrainStyle;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' +
+        'if(terrainStyle<0.5){float strata=sin(terrainWorld.y*.31+sin(terrainWorld.z*.004)*.55);' +
+        'float wall=smoothstep(88.0,140.0,abs(terrainWorld.x));' +
+        'diffuseColor.rgb*=1.0-wall*(.16+.19*smoothstep(.15,.45,strata));' +
+        'diffuseColor.rgb+=vec3(.12,.064,.025)*wall*smoothstep(.87,.98,strata);}' +
+        'else if(terrainStyle<1.5){float ripple=sin(terrainWorld.x*.14+terrainWorld.z*.095+terrainTime*1.1)' +
+        '*sin(terrainWorld.x*.055-terrainWorld.z*.11-terrainTime*.7);' +
+        'float glint=smoothstep(.76,.98,ripple); diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.43,.86,.89),glint*.58);}' +
+        'else if(terrainStyle>2.5){float snow=smoothstep(87.0,135.0,terrainWorld.y+sin(terrainWorld.x*.09)*8.0);' +
+        'diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.79,.85,.94),snow*.78);}')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' +
+        'if(terrainStyle>1.5&&terrainStyle<2.5){float channel=abs(abs(terrainWorld.x)-(158.0+sin(terrainWorld.z*.009)*22.0));' +
+        'float heat=1.0-smoothstep(2.0,7.0,channel);float flow=.72+.28*sin(terrainWorld.z*.055-terrainTime*2.2);' +
+        'totalEmissiveRadiance+=vec3(1.0,.16,.018)*heat*flow;}');
+  };
+  mat.customProgramCacheKey = function () { return 'judge-dean-terrain-art-v1'; };
+}
 // ------------------------------------------------------------------ terrain
 function Terrain() {
   this.group = new THREE.Group();
@@ -75,6 +105,7 @@ Terrain.prototype._mkChunk = function () {
   g.computeVertexNormals();
   var mat = new THREE.MeshPhongMaterial({ flatShading: true, vertexColors: true, shininess: 0, specular: 0x000000 });
   P.retroPatch(mat);
+  surfaceArt(mat);
   var mesh = new THREE.Mesh(g, mat);
   mesh.frustumCulled = true;
   mesh.receiveShadow = true;   // the ground is the only shadow receiver
@@ -89,6 +120,9 @@ Terrain.prototype.configure = function (cfg, startZ) {
   for (var i = 0; i < this.N; i++) {
     var c = this.chunks[i];
     c.mat.color.set(0xffffff);
+    c.mat.userData.terrainArt.terrainStyle.value = cfg.surface || 0;
+    c.mat.shininess = cfg.surface === 1 ? 48 : 0;
+    c.mat.specular.setHex(cfg.surface === 1 ? 0x6bafbd : 0x000000);
     this._fill(c, Math.floor(startZ / this.D) * this.D - this.behind + i * this.D);
   }
 };
@@ -124,6 +158,7 @@ Terrain.prototype.update = function (playerZ) {
   var span = this.N * this.D;
   for (var i = 0; i < this.N; i++) {
     var c = this.chunks[i];
+    c.mat.userData.terrainArt.terrainTime.value = P.Game ? P.Game.time : 0;
     if (playerZ - (c.z + this.D) > this.behind) {
       var jumps = Math.floor((playerZ - this.behind - c.z - this.D) / span) + 1;
       this._fill(c, c.z + span * jumps);
@@ -264,7 +299,7 @@ var EPISODES = [
     fog: { col: 0x3f90ad, near: 100, far: 620 },
     light: { amb: 0x2f4a68, ambI: 1.05, key: 0xd8f2ff, keyI: 1.0, kd: [-0.4, 0.6, 1], rim: 0x2fd8c8, rimI: 0.45 },
     terrain: {
-      h: hSea, colLo: C(0x0b3a55), colHi: C(0x5ec8cc), colBase: -9, colRange: 12
+      h: hSea, surface: 1, colLo: C(0x0b3a55), colHi: C(0x5ec8cc), colBase: -9, colRange: 12
     },
     props: {
       count: 20, gap: 96, ahead: 700,
@@ -296,7 +331,7 @@ var EPISODES = [
     sky: { lo: 0xff9a48, mid: 0x652d40, hi: 0x130f25, sun: 0xffb46c, sunDir: [0.2, 0.1, 1], sunSize: 0.003, bands: 24, shaft: 0.3 },
     fog: { col: 0x653b40, near: 140, far: 740 },
     light: { amb: 0x59414e, ambI: 1.05, key: 0xffb76c, keyI: 1.3, kd: [0.3, 0.6, 1], rim: 0x68bbdc, rimI: 0.6 },
-    terrain: { h: hFoundry, colLo: C(0x372e35), colHi: C(0x866151), colBase: -12, colRange: 80 },
+    terrain: { h: hFoundry, surface: 2, colLo: C(0x372e35), colHi: C(0x866151), colBase: -12, colRange: 80 },
     props: {
       count: 16, gap: 130, ahead: 850,
       make: function () { return m.buildFoundry(); },
@@ -320,7 +355,7 @@ var EPISODES = [
     sky: { lo: 0xffa8d4, mid: 0x7a4fc0, hi: 0x120833, sun: 0xffd9f0, sunDir: [0.5, 0.3, -1], sunSize: 0.0030, bands: 20 },
     fog: { col: 0x6a45a0, near: 110, far: 660 },
     light: { amb: 0x4a3070, ambI: 1.1, key: 0xffc7ea, keyI: 1.0, kd: [0.5, 0.5, -1], rim: 0x62e0ff, rimI: 0.55 },
-    terrain: { h: hCitadel, colLo: C(0x322e48), colHi: C(0xaaa0bc), colBase: -28, colRange: 110 },
+    terrain: { h: hCitadel, surface: 3, colLo: C(0x322e48), colHi: C(0xaaa0bc), colBase: -28, colRange: 110 },
     props: {
       count: 14, gap: 150, ahead: 850,
       make: function () { return m.buildKeep(); },
@@ -349,7 +384,7 @@ var EPISODES = [
     sky: { lo: 0xff7a4a, mid: 0x52205e, hi: 0x08030f, sun: 0xff9f5f, sunDir: [0.15, -0.06, 1], sunSize: 0.0042, bands: 18 },
     fog: { col: 0x3a1140, near: 120, far: 700 },
     light: { amb: 0x5c3358, ambI: 1.25, key: 0xffc190, keyI: 1.25, kd: [0.25, 0.45, -1], rim: 0x9a5fff, rimI: 0.7 },
-    terrain: { h: hCitadel, colLo: C(0x251e30), colHi: C(0x72536e), colBase: -28, colRange: 110 },
+    terrain: { h: hCitadel, surface: 3, colLo: C(0x251e30), colHi: C(0x72536e), colBase: -28, colRange: 110 },
     props: {
       count: 10, gap: 180, ahead: 850,
       make: function () { return m.buildKeep(); },

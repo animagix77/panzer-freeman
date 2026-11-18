@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="author" content="Judge Dean LLC">
+<meta name="theme-color" content="#101b22">
 <title>PANZER FREEMAN — Chronos Requiem</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -160,6 +162,7 @@
   #pausebox { flex-direction:column; gap:24px; }
   .audio-mixer { width:min(380px,88vw); padding:22px; border:1px solid #796a86; background:#151023; color:#e0d9ea; font:14px system-ui,sans-serif; }
   .audio-mixer label { display:grid; grid-template-columns:80px 1fr 42px; gap:12px; align-items:center; margin:14px 0; }
+  .audio-mixer [hidden] { display:none; }
   .audio-mixer input { width:100%; accent-color:#8de9e9; }
   .audio-mixer output { text-align:right; color:#8de9e9; font-size:12px; }
   .audio-mixer button { cursor:pointer; padding:7px 10px; margin:6px 3px 0 0; border:1px solid #766785; background:#2a2039; color:#eee2cd; }
@@ -250,6 +253,73 @@
     #briefingTitle { font-size:16px; margin:5px 0; }
     #briefingText { font-size:12px; }
   }
+
+  #title {
+    padding:clamp(24px,5vh,64px) clamp(22px,6vw,100px); align-items:flex-start;
+    text-align:left; justify-content:flex-start; color:#f3f0df;
+    background:linear-gradient(90deg,rgba(6,15,22,.98) 0%,rgba(6,15,22,.86) 28%,rgba(6,15,22,.36) 51%,transparent 76%);
+  }
+  #title .plate { width:min(440px,96%); margin:auto 0; padding:8px 0; border:0; background:none; box-shadow:none; }
+  #title,#over,#win { overflow-y:auto; overscroll-behavior:contain; }
+  #over,#win { justify-content:flex-start; background:linear-gradient(135deg,#08151be8,#15282ac9); }
+  #over .plate,#win .plate { margin:auto; width:min(660px,100%); padding:clamp(24px,5vw,48px); background:#102129ed;
+    border:1px solid #90c4bc66; box-shadow:0 20px 80px #0006; border-radius:4px; }
+  #over h1,#win h1 { font:italic 700 clamp(34px,5vw,62px)/1.1 Georgia,serif; letter-spacing:-.04em; color:#f7dfaf; text-shadow:none; }
+  #over .statline,#win .statline { font:13px/1.9 system-ui,sans-serif; letter-spacing:.04em; color:#c9ddd6; }
+  #over .lede,#win .lede { font:15px/1.7 Georgia,serif; letter-spacing:0; color:#e5e3d6; }
+  #pausebox { background:#07141cdb; overflow-y:auto; padding:24px 12px; justify-content:flex-start; }
+  #pausebox .pause-heading { margin-top:auto; font:italic 700 clamp(30px,4vw,48px)/1.1 Georgia,serif; letter-spacing:-.03em; color:#f7dfaf; }
+  .audio-mixer { margin-bottom:auto; flex-shrink:0; border-color:#8abdbb66; border-radius:4px; background:#11252deb; color:#dcebe4; }
+  .audio-mixer input { accent-color:#e7bf80; }
+  .audio-mixer button { border-color:#7aa5a977; border-radius:3px; background:#233e47; color:#ecf3e9; }
+  .audio-mixer button:hover { background:#34565f; }
+  #resumeFlight { background:#eac284; color:#14232c; border-color:#eac284; }
+  #title h1 { text-transform:uppercase; font:italic 800 clamp(52px,7vw,108px)/.79 Georgia,serif;
+    letter-spacing:-.085em; color:#fff3d9; text-shadow:0 3px 20px #17202655; }
+  #title h2 { margin-top:16px; font:600 clamp(14px,1.6vw,24px)/1.2 Georgia,serif; color:#e9ba78; text-transform:uppercase; letter-spacing:.28em; }
+  .studio,.departure label { display:block; font:700 10px/1.3 system-ui,sans-serif; letter-spacing:.22em; text-transform:uppercase; }
+  .studio { color:#9ad2c7; margin:0 0 clamp(16px,3vh,34px); }
+  #title .lede { max-width:355px; margin:16px 0; color:#f1e8d6; font:16px/1.45 Georgia,serif; }
+  .departure { max-width:355px; border-block:1px solid #9ac2be65; padding:11px 0; }
+  .departure label { color:#a1cdc8; }
+  .departure select { width:100%; margin:4px 0; padding:5px 4px 5px 0; color:#fff5df; background:#142025; border:0;
+    font:600 16px/1.3 system-ui,sans-serif; cursor:pointer; }
+  #departureBrief { color:#dbdfd7; font:13px/1.4 system-ui,sans-serif; }
+  .guide-choice { margin:13px 0; font:13px system-ui,sans-serif; }
+  .guide-choice[hidden] { display:none; }
+  .btn { border:0; border-radius:2px; box-shadow:none; background:#f4c780; color:#16232a; transition:background .15s; font:750 13px/1 system-ui,sans-serif; letter-spacing:.1em; }
+  #title .btn { margin:3px 0; padding:16px 21px; min-width:220px; display:flex; align-items:center; justify-content:space-between; }
+  .btn:hover,.btn:active { background:#ffe0ad; box-shadow:none; transform:none; }
+  #title .extra-controls { margin-top:12px; color:#d1ddd9; }
+  #title .keys { gap:6px; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); }
+  #title .keys div { justify-content:flex-start; }
+  .deck-link { display:block; margin:16px auto 0; cursor:pointer; color:#c1e4dc; background:none; border:0; font:14px system-ui,sans-serif; text-decoration:underline; }
+  #card { align-items:flex-end; justify-content:flex-end; padding:0 5vw 24vh; text-align:right; }
+  #card .nm { max-width:56vw; margin-top:5px; font:italic bold clamp(24px,3.5vw,54px)/.99 Georgia,serif; letter-spacing:-.025em; color:#fff1cd; text-shadow:0 2px 8px #101a23; }
+  #card .sub { max-width:32ch; font:italic 14px/1.45 Georgia,serif; color:#faf1d6; margin-top:6px; text-shadow:0 1px 4px #111; }
+  #toast { max-width:min(80vw,740px); width:max-content; white-space:normal; text-align:center; top:17%; font:650 clamp(10px,1.2vw,14px)/1.4 system-ui,sans-serif; letter-spacing:.06em; padding:5px 12px; background:#09171dcf; border-block:1px solid #81bfba66; }
+  #briefing { background:linear-gradient(90deg,#0c191fef,#101e25dd); border-left-color:#edbd72; }
+  #briefingTitle { font:bold 19px/1.12 Georgia,serif; }
+  #briefingText { font:13px/1.4 system-ui,sans-serif; }
+  @media(min-width:900px) and (min-height:601px){#briefing{bottom:165px;}}
+  @media(max-width:700px) { #title {background:linear-gradient(90deg,#081319ed,#081319a6 70%,#08131944);} #card .sub{display:none;} }
+  @media(max-height:570px) {#title h1 br{display:inline;} #title h1 br::after{content:" ";} #title h1{font-size:40px;} #title .studio{margin-bottom:8px;} #title .lede{margin:8px 0;font-size:14px;} #title{padding-block:12px;} }
+  #objective { position:absolute; z-index:10; left:25px; top:108px; width:clamp(185px,23vw,296px); padding:10px 13px;
+    color:#f6efe0; background:linear-gradient(90deg,#0b1923ec,#14232cc9); border-left:2px solid #9bdccd; pointer-events:none; }
+  .objective-line { display:flex; justify-content:space-between; gap:8px; color:#a5daca;
+    font:700 10px/1.3 system-ui,sans-serif; letter-spacing:.1em; text-transform:uppercase; }
+  #objectiveTitle { display:block; font:600 17px/1.2 Georgia,serif; margin:4px 0; }
+  #objectiveHint { font:12px/1.4 system-ui,sans-serif; color:#dfe3dc; }
+  #objectiveMeter { display:block; border:0; appearance:none; height:3px; margin-top:7px; width:100%; background:#40505a; }
+  #objectiveMeter::-webkit-progress-bar { background:#40505a; }
+  #objectiveMeter::-webkit-progress-value { background:#9bdccd; }
+  #objectiveMeter::-moz-progress-bar { background:#9bdccd; }
+  @media (max-width:899px),(max-height:600px) {
+    #objective { left:10px; top:108px; width:min(230px,44vw); padding:6px 9px; }
+    #objectiveTitle {font-size:14px;} #objectiveHint {font-size:11px;}
+    #briefing { top:auto; bottom:105px; left:10px; transform:none; width:min(295px,44vw); padding:8px 10px; }
+    #briefingTitle { font-size:15px; } #briefingText { font-size:11px; }
+  }
 </style>
 </head>
 <body>
@@ -263,6 +333,11 @@
 
   <div id="card"><div class="ep"></div><div class="nm"></div><div class="sub"></div></div>
   <div id="toast"></div>
+  <aside id="objective" hidden aria-label="Current objective">
+    <div class="objective-line"><span id="objectiveState"></span><span id="objectiveCount"></span></div>
+    <strong id="objectiveTitle"></strong><p id="objectiveHint"></p>
+    <progress id="objectiveMeter" max="1" value="0" aria-label="Objective progress"></progress>
+  </aside>
   <aside id="briefing" hidden aria-label="Flight briefing">
     <div id="briefingStep"></div>
     <h3 id="briefingTitle"></h3>
@@ -276,8 +351,11 @@
       <strong>Sound mix</strong>
       <label for="audio-music">Music <input id="audio-music" type="range" min="0" max="100" value="80"><output id="audio-music-value">80%</output></label>
       <label for="audio-effects">Effects <input id="audio-effects" type="range" min="0" max="100" value="100"><output id="audio-effects-value">100%</output></label>
+      <label id="audio-voice-row" for="audio-voice" hidden>Rider voice <input id="audio-voice" type="range" min="0" max="100" value="100"><output id="audio-voice-value">100%</output></label>
       <label for="audio-ambience">Ambience <input id="audio-ambience" type="range" min="0" max="100" value="60"><output id="audio-ambience-value">60%</output></label>
       <button id="test-laser">Test laser</button><button id="test-blast">Test explosion</button><button id="test-wing">Test wings</button>
+      <p id="audio-voice-credit" hidden>AI parody voice generated with Parrot AI. Original dialogue.</p>
+      <div class="pause-actions"><button id="resumeFlight">Resume flight</button><button id="leaveFlight">Abandon flight &amp; choose sector</button></div>
       <p>Settings are saved on this device.<br>Press P or Escape to return to flight. M mutes all audio.</p>
     </section>
   </div>
@@ -285,23 +363,22 @@
 
   <div class="screen on" id="title">
     <div class="plate">
-      <h1>PANZER FREEMAN</h1>
-      <h2>CHRONOS REQUIEM</h2>
-      <p class="lede">
-        Eighty-nine years old, and the sky still owes him something.<br>
-        The old rider and his dragon fly east toward the Fountain — a machine buried
-        by a dead empire that runs time backward for anyone who can reach it.<br>
-        Every enemy defeated gives him time back. Every hit makes him older.
-      </p>
-      <div class="keys">
-        <div><span class="kbd">A</span><span class="kbd">D</span><span class="d">bank left / right</span></div>
-        <div><span class="kbd">HOLD LMB</span><span class="d">paint lock-ons</span></div>
-        <div><span class="kbd">RELEASE</span><span class="d">fire laser volley</span></div>
+      <div class="studio">JUDGE DEAN LLC</div>
+      <h1>Panzer <br>Freeman</h1>
+      <h2>Chronos Requiem</h2>
+      <p class="lede">At eighty-nine, he has one flight left. Ride east to the Fountain. Every enemy you defeat gives him time back.</p>
+      <div class="departure">
+        <label for="departureStage">Launch sector</label>
+        <select id="departureStage"></select>
+        <p id="departureBrief"></p>
       </div>
       <label class="guide-choice"><input id="guidedOpening" type="checkbox" checked>Guide my opening flight</label>
+      <button class="btn" id="startBtn">Begin the Descent <span aria-hidden="true">↗</span></button>
       <details class="extra-controls">
         <summary>All controls &amp; display options</summary>
         <div class="keys">
+        <div><span class="kbd">A / D</span><span class="d">bank sideways</span></div>
+        <div><span class="kbd">HOLD LMB</span><span class="d">sweep to lock, release to fire</span></div>
         <div><span class="kbd">W</span><span class="kbd">S</span><span class="d">dive / climb</span></div>
         <div><span class="kbd">MOUSE</span><span class="d">aim reticle</span></div>
         <div><span class="kbd">RMB</span><span class="d">rapid gun</span></div>
@@ -313,9 +390,8 @@
         <div><span class="kbd">G</span><span class="d">cast shadows</span></div>
         <div><span class="kbd">F3</span><span class="d">performance</span></div>
       </div>
-      <p style="font-size:12px;color:#a9dfe9">Shift: boost · X: air brake · Space + direction: evasive roll<br>Wing power refills when resting. Flank carriers to strike their exposed cores.<br>Focus fire on charging heavy enemies to interrupt them. Cyan targets take extra damage.</p></details>
-      <button class="btn" id="startBtn">Begin the Descent</button>
-      <div class="tiny">A LOW-POLY TRIBUTE TO PANZER DRAGOON (SEGA SATURN, 1995)</div>
+      <p style="font-size:12px;color:#a9dfe9">Shift: boost · X: air brake · Space + direction: evasive roll<br>Roll just as an enemy shot reaches your wings to send it back. Wing power refills when resting. Flank carriers to strike their exposed cores.<br>Focus fire on charging heavy enemies to interrupt them. Cyan targets take extra damage.</p></details>
+
     </div>
   </div>
 
@@ -325,6 +401,7 @@
       <div class="statline" id="overStats"></div>
       <p class="lede" id="overText"></p>
       <button class="btn" id="againBtn">Fly Again</button>
+      <button class="deck-link" type="button">Choose launch sector</button>
     </div>
   </div>
 
@@ -335,6 +412,7 @@
       <div class="statline" id="winStats"></div>
       <p class="lede" id="winText"></p>
       <button class="btn" id="winBtn">Fly Again</button>
+      <button class="deck-link" type="button">Choose launch sector</button>
     </div>
   </div>
 
@@ -416,6 +494,7 @@
 </script>
 <script>__PFLOAD.set(0.30, 'LOADING THE RENDERER');</script>
 <script>
+window.__PF_VOICE_FILES = {};
 /* =========================================================================
    PANZER FREEMAN — CHRONOS REQUIEM
    A low-poly Sega-Saturn-flavoured rail shooter.
@@ -563,7 +642,7 @@ function G(color, opts) {
   opts = opts || {};
   var key = 'G' + color + '|' + JSON.stringify(opts);
   if (matCache[key]) return matCache[key];
-  var p = { color: color, flatShading: true, fog: opts.fog !== false };
+  var p = { color: color, fog: opts.fog !== false };
   if (opts.transparent) { p.transparent = true; p.opacity = opts.opacity !== undefined ? opts.opacity : 1; }
   if (opts.side) p.side = opts.side;
   if (opts.depthWrite === false) p.depthWrite = false;
@@ -1005,7 +1084,7 @@ window.__PF = {
 'use strict';
 var P = window.__PF, A = P.Audio_, oldInit = A.init;
 var durations = { laser: .54, gun: .19, impact: .48, blast: 1.85, hit: .65,
-  lock: .13, orb: .65, view: .22, warn: .4, boost: .8, roll: .45, wing: .62, near: .32, enemy: .3 };
+  lock: .13, orb: .65, view: .22, warn: .4, boost: .8, roll: .45, wing: .62, reflect: .56, near: .32, enemy: .3 };
 // Low-passed noise, swept FM energy, body resonance and a shaped transient.
 // Every variant has a zero-ended envelope; no raw square/saw oscillators.
 function render(name, rate, variant) {
@@ -1047,6 +1126,11 @@ function render(name, rate, variant) {
         // Inharmonic body modes suggest fractured metal rather than a buzzer.
         v += .13 * (Math.sin(t * 2 * Math.PI * 1331 * pitch) + .5 * Math.sin(t * 2 * Math.PI * 2149 * pitch)) * Math.exp(-t * 30);
       }
+    } else if (name === 'reflect') {
+      // A metallic catch followed by a rising, harmonized return tone.
+      phase += 2 * Math.PI * (260 + 890 * Math.min(1, t * 5)) * pitch / rate;
+      v = (.26 * Math.sin(phase) + .14 * Math.sin(phase * 1.5)) * Math.exp(-t * 5)
+        + (n - low) * .45 * Math.exp(-t * 65);
     } else if (name === 'wing') {
       var down = Math.exp(-Math.pow((t - .11) / .065, 2));
       var recovery = Math.exp(-Math.pow((t - .34) / .1, 2));
@@ -1123,6 +1207,7 @@ A.effect = function (name, volume, pos) {
   if (this.duck && (name === 'blast' || name === 'hit')) this.duck(name === 'hit' ? .36 : .24);
 };
 A.sLaser = function () { this.effect('laser', .60); };
+A.sReflect = function () { this.effect('reflect', .72); };
 A.sGun = function () { this.effect('gun', .43); };
 A.sZap = function (pos) { this.effect('impact', .52, pos); };
 A.sBoom = function (big, pos) { this.effect(big ? 'blast' : 'impact', big ? .85 : .45, pos); };
@@ -1143,7 +1228,7 @@ A.sEnemy = function (pos) { this.effect('enemy', .33, pos); };
 (function () {
 'use strict';
 var P = window.__PF, A = P.Audio_, init = A.init;
-var settings = { music: .8, effects: 1, ambience: .6 };
+var settings = { music: .8, effects: 1, ambience: .6, voice: 1 };
 try {
   var saved = JSON.parse(window.localStorage.getItem('pf-audio-v1') || '{}');
   Object.keys(settings).forEach(function (k) { if (typeof saved[k] === 'number' && isFinite(saved[k])) settings[k] = Math.max(0, Math.min(1, saved[k])); });
@@ -1230,6 +1315,10 @@ P.sound = {
   loopBuffer: loopBuffer
 };
 if (window.document) {
+  var hasVoice = Object.keys(window.__PF_VOICE_FILES || {}).length > 0;
+  ['audio-voice-row', 'audio-voice-credit'].forEach(function (id) {
+    var element = window.document.getElementById(id); if (element) element.hidden = !hasVoice;
+  });
   Object.keys(settings).forEach(function (key) {
     var slider = window.document.getElementById('audio-' + key), output = window.document.getElementById('audio-' + key + '-value');
     if (!slider) return;
@@ -1245,6 +1334,136 @@ if (window.document) {
     Object.keys(A.soundscape).forEach(function (k) { target(A.soundscape[k].gain.gain, 0, A.ctx.currentTime, .03); });
   });
 }
+})();
+
+
+/* Judge Dean LLC — Optional original parody narration and timed captions. */
+(function () {
+'use strict';
+var P = window.__PF, A = P.Audio_, files = window.__PF_VOICE_FILES || {};
+var lines = {
+  opening: 'At eighty-nine, I had a very short list. Find the Fountain. Get a younger dragon.',
+  salvage: 'Five lights in the water. Someone went to a lot of trouble to lose those years.',
+  foundry: 'Three carriers. The trick is getting them to show you the soft side.',
+  citadel: 'The castle had stairs, once. I prefer the dragon.',
+  victory: 'I came all this way for another year. I think I will spend it flying.'
+};
+var sectorCue = { ep1: 'opening', ep2: 'salvage', foundry: 'foundry', ep3: 'citadel' };
+var seen = {}, active = null, pending = null, duck = 0, lastSector = null;
+var document = window.document, caption = null, captionText = null, credit = null, wrap = null;
+if (document && document.createElement) {
+  wrap = document.getElementById('wrap') || document.body;
+  var style = document.createElement('style');
+  style.textContent = '#voice-caption{position:absolute;z-index:45;right:24px;bottom:108px;max-width:min(620px,44vw);padding:10px 14px;background:#07141ce8;border-left:2px solid #f0ca8d;color:#fff5dd;font:italic 15px/1.45 Georgia,serif;pointer-events:none;box-shadow:0 5px 20px #0004}' +
+    '#voice-caption[hidden]{display:none}#voice-caption small{display:block;font:600 9px/1.4 system-ui,sans-serif;letter-spacing:.12em;color:#c1d7d2;margin-bottom:4px}#wrap.voice-speaking #quip{visibility:hidden}' +
+    '@media(max-width:700px),(max-height:570px){#voice-caption{right:10px;bottom:125px;max-width:44vw;padding:7px 9px;font-size:12px}#voice-caption small{font-size:8px}}';
+  document.head.appendChild(style);
+  caption = document.createElement('div'); caption.id = 'voice-caption'; caption.hidden = true;
+  caption.setAttribute('role', 'status'); caption.setAttribute('aria-live', 'polite');
+  credit = document.createElement('small'); captionText = document.createElement('span');
+  caption.appendChild(credit); caption.appendChild(captionText); wrap.appendChild(caption);
+}
+function stop() {
+  if (active && active.media) {
+    active.media.pause(); active.media.onended = active.media.onerror = null;
+    if (active.media.removeAttribute) active.media.removeAttribute('src');
+  }
+  active = null;
+  if (caption) caption.hidden = true;
+  if (wrap) wrap.classList.remove('voice-speaking');
+}
+function start(id) {
+  stop();
+  var text = lines[id], cue = active = { id: id, elapsed: 0, duration: Math.max(5, text.split(/\s+/).length * .37),
+    media: null, playPending: false, failed: false, endAt: null };
+  // Missing clips deliberately remain caption-only; no placeholder audio URL.
+  if (files[id] && typeof window.Audio === 'function') {
+    cue.media = new window.Audio(files[id]); cue.media.preload = 'metadata';
+    cue.media.onended = function () {
+      cue.media.pause();
+      if (active === cue) cue.endAt = Math.max(cue.duration, cue.elapsed + .65);
+    };
+    cue.media.onerror = function () { cue.failed = true; cue.media.pause(); };
+  }
+  if (caption) {
+    captionText.textContent = text;
+    credit.textContent = files[id] ? 'AI PARODY VOICE · PARROT AI' : 'THE RIDER';
+    caption.hidden = false; wrap.classList.add('voice-speaking');
+  }
+}
+function play(cue) {
+  if (!cue.media || cue.failed || cue.playPending || !cue.media.paused || cue.endAt !== null) return;
+  cue.playPending = true;
+  try {
+    var result = cue.media.play();
+    if (result && result.then) result.then(function () {
+      cue.playPending = false;
+      if (active !== cue || (P.Game.state !== 'playing' && P.Game.state !== 'win') || (document && document.hidden)) cue.media.pause();
+    }, function () {
+      cue.playPending = false;
+      // Pausing may abort a pending play promise: retry that clip on resume,
+      // but keep genuine autoplay/decoding failures caption-only.
+      cue.failed = active === cue && (P.Game.state === 'playing' || P.Game.state === 'win') && !(document && document.hidden);
+      cue.media.pause();
+    });
+    else cue.playPending = false;
+  } catch (e) { cue.playPending = false; cue.failed = true; }
+}
+P.voice = {
+  lines: lines,
+  hasAudio: Object.keys(lines).some(function (id) { return !!files[id]; }),
+  reset: function () { stop(); pending = null; seen = {}; duck = 0; lastSector = null; },
+  update: function (dt) {
+    if (!P.Game) return;
+    var state = P.Game.state, visible = !document || !document.hidden;
+    var running = visible && (state === 'playing' || state === 'win');
+    if (state === 'title' || state === 'over') { stop(); pending = null; }
+    var ep = P.world && P.world.EPISODES[P.Game.epIndex];
+    if (state === 'playing' && ep && lastSector !== ep.id) {
+      if (lastSector !== null) { stop(); pending = null; }
+      lastSector = ep.id;
+    }
+    var id = state === 'win' ? 'victory' : state === 'playing' && ep ? sectorCue[ep.id] : null;
+    if (id && !seen[id]) {
+      seen[id] = true; stop(); pending = { id: id, delay: id === 'victory' ? .5 : 4.6 };
+    }
+    if (running && pending) {
+      pending.delay -= dt;
+      var cardVisible = P.el && P.el.card && P.el.card.classList.contains('on');
+      if (pending.delay <= 0 && (pending.id === 'victory' || !cardVisible)) {
+        var next = pending.id; pending = null; start(next);
+      }
+    }
+    if (active) {
+      var cue = active, media = cue.media;
+      if (caption) caption.hidden = !running;
+      if (media) {
+        var voiceLevel = P.sound && Number.isFinite(P.sound.settings.voice) ? Math.max(0, Math.min(1, P.sound.settings.voice)) : 1;
+        // iOS can ignore programmatic volume changes. Explicit mute guarantees
+        // a zero voice setting is silent while the captions keep their timing.
+        media.muted = !!A.muted || voiceLevel === 0;
+        try { media.volume = .88 * voiceLevel; } catch (e) {}
+        if (!running) media.pause(); else play(cue);
+      }
+      if (running) {
+        cue.elapsed += dt;
+        var duration = media && !cue.failed ? Math.max(cue.duration, Number.isFinite(media.duration) ? media.duration + 1 : cue.duration + 6) : cue.duration;
+        if (cue.elapsed >= (cue.endAt === null ? duration : cue.endAt)) stop();
+      }
+    }
+    var audible = running && active && active.media && !active.failed && !active.media.paused && !active.media.muted && voiceLevel > 0;
+    duck += ((audible ? .48 : 0) - duck) * (1 - Math.exp(-dt * 7));
+    if (A.duck && duck > .001) A.duck(duck);
+  },
+  state: function () { return { id: active ? active.id : null, elapsed: active ? active.elapsed : 0,
+    caption: active ? lines[active.id] : '', hasAudio: !!(active && active.media && !active.failed), pending: pending ? pending.id : null }; }
+};
+if (document && document.addEventListener) document.addEventListener('visibilitychange', function () {
+  if (document.hidden && active) {
+    if (active.media) active.media.pause();
+    if (caption) caption.hidden = true;
+  }
+});
 })();
 
 
@@ -1266,7 +1485,7 @@ window.RIDER_MODEL = {
 
 
 /* =========================================================================
-   Part 2 — low-poly model factory: dragon, rider, enemies, boss, world props
+   Judge Dean LLC — articulated creatures, war machines and world models
    ========================================================================= */
 (function () {
 var P = window.__PF;
@@ -1282,6 +1501,46 @@ function dodec(r) { return new THREE.DodecahedronGeometry(r, 0); }
 function tet(r) { return new THREE.TetrahedronGeometry(r, 0); }
 function tor(r, t, a, b) { return new THREE.TorusGeometry(r, t, a || 4, b || 12); }
 function mesh(g, m) { return new THREE.Mesh(g, m); }
+
+// A bevelled wing/armour panel with genuine thickness and readable edge normals.
+function blade(points, thickness, material) {
+  var area = 0;
+  for (var edge = 0; edge < points.length; edge++) { var nextPoint = points[(edge + 1) % points.length]; area += points[edge][0] * nextPoint[2] - nextPoint[0] * points[edge][2]; }
+  if (area < 0) points = points.slice().reverse();
+  var verts = [], count = points.length;
+  function triangle(a, b, c) { verts.push.apply(verts, a.concat(b, c)); }
+  var top = points.map(function (p) { return [p[0], p[1] + thickness / 2, p[2]]; });
+  var low = points.map(function (p) { return [p[0], p[1] - thickness / 2, p[2]]; });
+  for (var i = 1; i < count - 1; i++) { triangle(top[0], top[i + 1], top[i]); triangle(low[0], low[i], low[i + 1]); }
+  for (var j = 0; j < count; j++) {
+    var next = (j + 1) % count;
+    triangle(top[j], top[next], low[j]); triangle(low[j], top[next], low[next]);
+  }
+  var geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.computeVertexNormals(); return mesh(geo, material);
+}
+
+// Bake only static leaves; named articulated parts remain separate and reusable.
+function batchStatic(root) {
+  var groups = {};
+  root.updateMatrixWorld(true);
+  root.children.slice().forEach(function (child) {
+    if (!child.isMesh || child.children.length || child.userData.dynamic || child.material.transparent) return;
+    var key = child.material.uuid, group = groups[key] || (groups[key] = { material: child.material, geos: [] });
+    var geo = child.geometry.index ? child.geometry.toNonIndexed() : child.geometry.clone();
+    geo.applyMatrix4(child.matrix); group.geos.push(geo); root.remove(child); child.geometry.dispose();
+  });
+  Object.keys(groups).forEach(function (key) {
+    var group = groups[key], positions = [], normals = [];
+    group.geos.forEach(function (geo) {
+      positions.push.apply(positions, geo.attributes.position.array);
+      normals.push.apply(normals, geo.attributes.normal.array); geo.dispose();
+    });
+    var geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3)); root.add(mesh(geo, group.material));
+  });
+  return root;
+}
 
 function sgn(v) { return v < 0 ? -1 : 1; }
 
@@ -1478,11 +1737,11 @@ function bone(a, b, r1, r2, mat, sides) {
 
 // ============================================================== THE DRAGON
 var DRAGON_COL = {
-  hide:  0x2c8b90,
-  hide2: 0x1d6069,
-  plate: 0x7d4bb5,
-  belly: 0xa8874f,
-  wing:  0xc24a86,
+  hide:  0x207e88,
+  hide2: 0x123a50,
+  plate: 0xd9d1a3,
+  belly: 0xcbb478,
+  wing:  0x50d7dd,
   claw:  0xf0e2bb,
   eye:   0xffe066
 };
@@ -1500,11 +1759,11 @@ function buildDragon() {
   // one vertex-coloured sail material, lighter at the leading edge
   var mSail = new THREE.MeshPhongMaterial({
     vertexColors: true, flatShading: true, side: THREE.DoubleSide,
-    shininess: 6, specular: 0x3a2030
+    shininess: 30, specular: 0x7cbfc8, emissive: 0x06121b
   });
   P.retroPatch(mSail);
-  var cWingLead = new THREE.Color(0xd8578f);
-  var cWingTrail = new THREE.Color(0x7a2953);
+  var cWingLead = new THREE.Color(0x63e9e7);
+  var cWingTrail = new THREE.Color(0x153b60);
   var mClaw = M(DRAGON_COL.claw);
   var mHorn = M(0x6c5a4a, { shine: 22, spec: 0x3a3028 });
 
@@ -1531,6 +1790,17 @@ function buildDragon() {
     var hp = mesh(ico(0.52, 0), mHide2);
     hp.position.set(sd * 0.82, -0.18, -1.30); hp.scale.set(0.85, 0.9, 1.05); body.add(hp);
   });
+  var flightArmour = new THREE.Group(); flightArmour.name = 'dragon-flight-armour'; body.add(flightArmour);
+  var mIvory = M(0xe3dcc2, { shine: 48, spec: 0x95b9bf }), mInlay = G(0x64f1e5);
+  [-1, 1].forEach(function (side) {
+    for (var row = 0; row < 4; row++) {
+      var z = 1.9 - row * 1.05, spread = 1.48 - row * .12;
+      flightArmour.add(blade([[side * .52, .82, z + .35], [side * spread, .55, z],
+        [side * (spread + .25), .35, z - .75], [side * .62, .75, z - .55]], .13, mIvory));
+      flightArmour.add(bone([side * .65, .88, z + .15], [side * (spread - .07), .66, z - .24], .045, .022, mInlay, 4));
+    }
+  });
+  batchStatic(flightArmour);
 
   // dorsal ridge — plates that shrink and lean back along the spine
   for (var i = 0; i < 9; i++) {
@@ -1675,7 +1945,21 @@ function buildDragon() {
     var hub = [ (W2[0] + A[0] * 0.5) * 0.62, W2[1] - 0.62, (W2[2] + A[2]) * 0.45 ];
 
     var mem = new THREE.Group();
-    var sailMesh = mesh(sail(out, hub, cWingLead, cWingTrail), mSail);
+    // Radial tessellation carries an ivory chevron through the living membrane.
+    // Every band follows the same joints and aerodynamic billow as the wing.
+    var bands = [0, .44, .66, .73, 1], sailPositions = [], sailColors = [];
+    var bandColors = [0x103547, 0x3abfc7, 0x56d4cd, 0xe4cb85, 0x153c61].map(function (c) { return new THREE.Color(c); });
+    function seedVertex(point, c) { sailPositions.push(point[0], point[1], point[2]); sailColors.push(c.r, c.g, c.b); }
+    for (var fan = 0; fan < out.length - 1; fan++) for (var band = 0; band < bands.length - 1; band++) {
+      var sa = mix(hub, out[fan], bands[band]), sb = mix(hub, out[fan + 1], bands[band]);
+      var ea = mix(hub, out[fan], bands[band + 1]), eb = mix(hub, out[fan + 1], bands[band + 1]);
+      seedVertex(sa, bandColors[band]); seedVertex(ea, bandColors[band + 1]); seedVertex(eb, bandColors[band + 1]);
+      seedVertex(sa, bandColors[band]); seedVertex(eb, bandColors[band + 1]); seedVertex(sb, bandColors[band]);
+    }
+    var sailGeo = new THREE.BufferGeometry();
+    sailGeo.setAttribute('position', new THREE.Float32BufferAttribute(sailPositions, 3));
+    sailGeo.setAttribute('color', new THREE.Float32BufferAttribute(sailColors, 3)); sailGeo.computeVertexNormals();
+    var sailMesh = mesh(sailGeo, mSail); sailMesh.name = 'dragon-banded-membrane'; sailMesh.frustumCulled = false;
     mem.add(sailMesh);
     w.add(mem);
 
@@ -1748,11 +2032,17 @@ function buildDragon() {
       curHub.y += billow * 1.15;                 // the belly of the sail moves most
 
       var w2 = 0;
+      function writeWing(point, fraction) {
+        posAttr.array[w2++] = curHub.x + (point.x - curHub.x) * fraction;
+        posAttr.array[w2++] = curHub.y + (point.y - curHub.y) * fraction;
+        posAttr.array[w2++] = curHub.z + (point.z - curHub.z) * fraction;
+      }
       for (var e = 0; e < base.length - 1; e++) {
         var a = cur[e], b = cur[e + 1];
-        posAttr.array[w2++] = curHub.x; posAttr.array[w2++] = curHub.y; posAttr.array[w2++] = curHub.z;
-        posAttr.array[w2++] = a.x; posAttr.array[w2++] = a.y; posAttr.array[w2++] = a.z;
-        posAttr.array[w2++] = b.x; posAttr.array[w2++] = b.y; posAttr.array[w2++] = b.z;
+        for (var band = 0; band < bands.length - 1; band++) {
+          writeWing(a, bands[band]); writeWing(a, bands[band + 1]); writeWing(b, bands[band + 1]);
+          writeWing(a, bands[band]); writeWing(b, bands[band + 1]); writeWing(b, bands[band]);
+        }
       }
       posAttr.needsUpdate = true;
       sailMesh.geometry.computeVertexNormals();
@@ -3020,43 +3310,138 @@ function buildDragon() {
     setAge(89);
   }
 
+  // A short flight mantle makes the rider's silhouette readable from behind.
+  // Anchored shoulders and progressively freer trailing rows keep it out of the rig.
+  var mantleGeo = new THREE.PlaneGeometry(1.25, 1.7, 6, 8);
+  var mantle = mesh(mantleGeo, M(0x1d7784, { side: THREE.DoubleSide, shine: 16, spec: 0x5aa8aa }));
+  mantle.name = 'rider-flight-mantle'; mantle.frustumCulled = false; rider.add(mantle);
+  var mantleBase = mantleGeo.attributes.position.array.slice(), mantleColors = new Float32Array(mantleBase.length);
+  for (var mv = 0; mv < mantleBase.length; mv += 3) {
+    var edge = Math.abs(mantleBase[mv]) > .44;
+    var color = new THREE.Color(edge ? 0xe3c98d : 0x54bfc4);
+    mantleColors[mv] = color.r; mantleColors[mv + 1] = color.g; mantleColors[mv + 2] = color.b;
+  }
+  // A dedicated material avoids changing other objects sharing the cached tint.
+  mantle.material = mantle.material.clone(); mantle.material.color.setHex(0xffffff); mantle.material.vertexColors = true;
+  mantleGeo.setAttribute('color', new THREE.BufferAttribute(mantleColors, 3));
+  function solveMantle(t, st) {
+    var positions = mantleGeo.attributes.position.array;
+    for (var n = 0; n < mantleBase.length; n += 3) {
+      var free = (.85 - mantleBase[n + 1]) / 1.7;
+      positions[n] = mantleBase[n] * (1 - free * .2) + Math.sin(t * 6.5 - free * 5) * .075 * free + (st.strafeX || 0) * .14 * free;
+      positions[n + 1] = .88 - free * .4 + Math.sin(t * 8 - free * 6) * .08 * free;
+      positions[n + 2] = -.38 - free * 1.7;
+    }
+    mantleGeo.attributes.position.needsUpdate = true; mantleGeo.computeVertexNormals();
+  }
+  var updateWithRider = api.update;
+  api.update = function (dt, t, st) { updateWithRider(dt, t, st); solveMantle(t, st || {}); };
+  solveMantle(0, {});
   return api;
 }
 
 // ================================================================ ENEMIES
+function buildWarMachine(type) {
+  var g = new THREE.Group(); g.name = 'war-machine-' + type;
+  var colors = { wasp: 0xd6a34c, ray: 0x3db8c3, chaser: 0xba4c42, carrier: 0x8c78bc, sentinel: 0x6aacc2, bomber: 0x9c5754 };
+  var metal = M(colors[type], { shine: 58, spec: 0x8aa4b1 });
+  var dark = M(0x152335, { shine: 30, spec: 0x3b6476 });
+  var trim = M(0xdacbad, { shine: 65, spec: 0xaaa082 });
+  var light = G(type === 'ray' || type === 'sentinel' ? 0x7cf4ff : type === 'carrier' ? 0xe1a7ff : 0xffb064);
+  function part(geo, material, x, y, z, sx, sy, sz) {
+    var q = mesh(geo, material); q.position.set(x, y, z);
+    if (sx !== undefined) q.scale.set(sx, sy, sz); g.add(q); return q;
+  }
+  function hull(width, height, length, material) {
+    return part(tube([{z:-length*.5,rx:width*.55,ry:height*.65},
+      {z:-length*.25,rx:width,ry:height},{z:length*.24,rx:width*.82,ry:height*.85},
+      {z:length*.55,rx:width*.22,ry:height*.35}], 8, new THREE.Color(0xffffff), new THREE.Color(0xffffff)), material, 0, 0, 0);
+  }
+  function engine(x, y, z, radius, length) {
+    var pod = part(cyl(radius*.8, radius, length, 10), dark, x, y, z); pod.rotation.x = Math.PI / 2;
+    var collar = part(tor(radius, .12, 5, 12), trim, x, y, z - length*.48);
+    part(cyl(radius*.66, radius*.66, .15, 10), light, x, y, z - length*.52).rotation.x = Math.PI / 2;
+    part(oct(radius*.5), light, x, y, z + length*.5, 1, .55, .45);
+    return collar;
+  }
+  function wing(side, outline, material, thickness) {
+    var panel = blade(outline.map(function(p) { return [side*p[0], p[1], p[2]]; }), thickness || .18, material);
+    g.add(panel); return panel;
+  }
+  if (type === 'wasp') {
+    hull(.72, .48, 3.1, dark);
+    [-1, 1].forEach(function(s) {
+      wing(s, [[.4,.2,1.1],[2.6,.28,.1],[2.1,.16,-1.6],[.7,.1,-.7]], metal);
+      wing(s, [[.8,.35,.1],[2.5,.4,-.15],[1.9,.3,-.5]], trim, .07);
+      wing(s, [[.3,.5,-.9],[1.5,.7,-1.8],[.6,.6,-2]], metal);
+      engine(s*.8,-.15,-.85,.34,1.45);
+    });
+    part(oct(.36), light, 0,.12,1.55,1,.55,1.2);
+  } else if (type === 'ray') {
+    hull(.85,.32,2.9,dark);
+    [-1, 1].forEach(function(s) {
+      wing(s, [[.4,.15,1],[2.5,.45,1.5],[3.9,.05,-1.6],[2,.05,-.85],[.5,.12,-.6]], metal, .22);
+      wing(s, [[1.4,.35,.4],[2.4,.55,1.2],[3.4,.22,-.6],[2.6,.25,-.3]], trim, .08);
+      engine(s*1.1,-.18,-1,.34,1.2);
+    });
+    part(oct(.42),light,0,.15,1.3,1.2,.35,1);
+    g.add(bone([0,0,-1],[0,.18,-3.3],.22,.035,trim,6));
+  } else if (type === 'chaser') {
+    hull(.65,.55,4,metal);
+    [-1, 1].forEach(function(s) {
+      wing(s, [[.4,.1,1],[1.65,.05,-1.65],[.6,.15,-1.15]], metal,.24);
+      wing(s, [[.5,.75,-.8],[1.15,1.5,-1.8],[.5,.8,-1.6]], trim,.12);
+      engine(s*.75,-.15,-1.1,.36,1.5);
+    });
+    part(oct(.36),light,0,.18,1.85,.65,.65,1.4);
+    var flame = part(cone(.5,1.8,8),G(0xff7843,{transparent:true,opacity:.72,depthWrite:false}),0,0,-2.5);
+    flame.rotation.x=-Math.PI/2; g.userData.flame=flame;
+  } else if (type === 'carrier') {
+    // The reactor is deliberately exposed through a structural cage.
+    var core = part(ico(.95,1),light,0,0,0); core.userData.dynamic=true; g.userData.core=core;
+    [-1, 1].forEach(function(s) {
+      part(box(.55,.85,4.5),metal,s*2,0,-.25);
+      engine(s*2,0,-1.4,.65,1.65);
+      wing(s, [[1.8,.3,.8],[2.8,.5,.5],[2.7,.4,-1.4],[1.8,.3,-1]],trim,.23);
+      for(var rib=0;rib<3;rib++) g.add(bone([s*2,0,-1.35+rib*1.15],[s*.65,s*.8,-.85+rib*.75],.13,.09,metal,6));
+    });
+    var ring=part(tor(2.7,.14,6,32),trim,0,0,0); ring.rotation.x=Math.PI/2; ring.userData.dynamic=true;g.userData.ring=ring;
+    part(box(2.8,.55,.55),dark,0,0,-2.3);
+  } else if (type === 'sentinel') {
+    hull(1,.7,3.2,dark);
+    for(var petal=0;petal<6;petal++) {
+      var angle=petal/6*TAU;
+      var plate=part(box(.7,1.65,.6),metal,Math.cos(angle)*2.1,Math.sin(angle)*2.1,.6);
+      plate.rotation.z=angle-Math.PI/2;
+      var seam=part(box(.18,1.2,.09),light,Math.cos(angle)*2.1,Math.sin(angle)*2.1,.95);seam.rotation.z=plate.rotation.z;
+    }
+    part(tor(1.6,.18,6,12),trim,0,0,1);
+    var shield=part(new THREE.CircleGeometry(3.1,12),new THREE.MeshBasicMaterial({color:0x72dfff,transparent:true,opacity:.27,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending}),0,0,1.9);
+    g.userData.shield=shield;
+    part(oct(.65),light,0,0,1.35);
+    engine(0,0,-1.6,.65,1.1);
+  } else if (type === 'bomber') {
+    hull(1.9,.85,4.8,metal);
+    [-1, 1].forEach(function(s) {
+      wing(s, [[1.2,.1,1.7],[4.6,.3,.4],[4.3,.1,-1.6],[1.1,-.05,-1.5]],dark,.38);
+      wing(s, [[1.5,.4,1.2],[3.8,.5,.3],[3.4,.4,-.2],[1.4,.35,.2]],metal,.15);
+      engine(s*3.7,-.1,-.25,.74,4.5);
+      part(box(.4,.4,2.4),trim,s*1.3,-.65,2);
+      for(var vent=0;vent<3;vent++) part(box(.48,.09,.14),light,s*1.3,.85,-.2-vent*.45);
+    });
+    var bomberCore=part(oct(.65),light,0,-.5,2.4);bomberCore.userData.dynamic=true;g.userData.core=bomberCore;
+    part(box(1.2,.38,.13),light,0,.55,2.2);
+  }
+  return batchStatic(g);
+}
 var ENEMY_DEFS = {
   wasp: {
     hp: 2, radius: 2.4, scale: 1.5, score: 100, deAge: 0.06, speed: 26, fireRate: 2.4, bulletSpeed: 62,
-    build: function () {
-      var g = new THREE.Group();
-      var b = mesh(oct(1.15), M(0x6c4f8f, { shine: 18, spec: 0x554070 })); b.scale.set(1, 0.72, 1.5); g.add(b);
-      var hd = mesh(oct(0.62), M(0x3d2b58)); hd.position.z = 1.25; g.add(hd);
-      var eye = mesh(oct(0.3), G(0xff5c3c)); eye.position.z = 1.7; eye.scale.set(1, 0.6, 0.8); g.add(eye);
-      [-1, 1].forEach(function (s) {
-        var w = mesh(box(2.3, 0.1, 0.85), M(0x9d7ac4, { side: THREE.DoubleSide }));
-        w.position.set(s * 1.5, 0.42, -0.2); w.rotation.z = s * 0.25; g.add(w);
-        var w2 = mesh(box(1.5, 0.09, 0.6), M(0x7a5da0, { side: THREE.DoubleSide }));
-        w2.position.set(s * 1.1, 0.2, -1.0); w2.rotation.z = s * 0.4; g.add(w2);
-      });
-      var t = mesh(cone(0.42, 1.3, 5), M(0x3d2b58));
-      t.rotation.x = -Math.PI * 0.5; t.position.z = -1.5; g.add(t);
-      return g;
-    }
+    build: function () { return buildWarMachine('wasp'); }
   },
   ray: {
     hp: 3, radius: 3.1, scale: 1.4, score: 150, deAge: 0.08, speed: 40, fireRate: 3.2, bulletSpeed: 58,
-    build: function () {
-      var g = new THREE.Group();
-      var b = mesh(oct(1.9), M(0x2f7f86, { shine: 20 })); b.scale.set(2.1, 0.28, 1.15); g.add(b);
-      var c = mesh(oct(0.7), M(0x1b4f56)); c.position.z = 0.4; c.scale.set(1, 0.7, 1.3); g.add(c);
-      var e = mesh(oct(0.34), G(0xffe066)); e.position.z = 1.1; g.add(e);
-      [-1, 1].forEach(function (s) {
-        var f = mesh(cone(0.5, 1.9, 4), M(0x2f7f86));
-        f.position.set(s * 3.1, 0.25, -0.3); f.rotation.z = -s * 1.2; g.add(f);
-      });
-      var t = mesh(box(0.24, 0.24, 3.0), M(0x1b4f56)); t.position.z = -2.0; g.add(t);
-      return g;
-    }
+    build: function () { return buildWarMachine('ray'); }
   },
   turret: {
     hp: 4, radius: 3.2, scale: 1.6, score: 200, deAge: 0.10, speed: 0, fireRate: 2.0, bulletSpeed: 70,
@@ -3075,70 +3460,19 @@ var ENEMY_DEFS = {
   },
   chaser: {
     hp: 3, radius: 2.6, scale: 1.5, score: 180, deAge: 0.09, speed: 46, fireRate: 1.7, bulletSpeed: 72,
-    build: function () {
-      var g = new THREE.Group();
-      var b = mesh(cone(1.05, 3.6, 5), M(0x93332f, { shine: 22, spec: 0x664040 }));
-      b.rotation.x = Math.PI * 0.5; g.add(b);
-      var r = mesh(cyl(1.15, 1.15, 0.5, 6), M(0x4a1c1a)); r.rotation.x = Math.PI * 0.5; r.position.z = -0.9; g.add(r);
-      var e = mesh(oct(0.42), G(0xffb03a)); e.position.z = 1.5; g.add(e);
-      [0, 1, 2].forEach(function (i) {
-        var a = i / 3 * TAU;
-        var f = mesh(box(0.2, 1.5, 1.6), M(0x6d2622));
-        f.position.set(Math.cos(a) * 0.9, Math.sin(a) * 0.9, -1.2);
-        f.rotation.z = a; g.add(f);
-      });
-      var flame = mesh(cone(0.6, 1.6, 5), G(0xff8c3a, { transparent: true, opacity: 0.8, depthWrite: false }));
-      flame.rotation.x = -Math.PI * 0.5; flame.position.z = -2.2; g.add(flame);
-      g.userData.flame = flame;
-      return g;
-    }
+    build: function () { return buildWarMachine('chaser'); }
   },
   carrier: {
     hp: 6, radius: 3.9, scale: 1.5, score: 400, deAge: 0.14, speed: 18, fireRate: 3.6, bulletSpeed: 50, drops: 2,
-    build: function () {
-      var g = new THREE.Group();
-      var b = mesh(dodec(2.1), M(0x4b4a6d, { shine: 30, spec: 0x8888aa })); g.add(b);
-      var core = mesh(ico(1.05, 0), G(0xffd25e, { transparent: true, opacity: 0.95 })); g.add(core);
-      g.userData.core = core;
-      [-1, 1].forEach(function (s) {
-        var arm = mesh(box(0.5, 0.5, 3.4), M(0x2f2f45)); arm.position.set(s * 2.0, 0, 0); g.add(arm);
-        var pod = mesh(oct(0.75), M(0x6a6a95)); pod.position.set(s * 2.0, 0, 1.7); g.add(pod);
-      });
-      var ring = mesh(tor(2.9, 0.16, 4, 10), M(0x8f8fc0, { shine: 40 }));
-      ring.rotation.x = Math.PI * 0.5; g.add(ring); g.userData.ring = ring;
-      return g;
-    }
+    build: function () { return buildWarMachine('carrier'); }
   },
   sentinel: {
     hp: 5, radius: 4.1, scale: 1.7, score: 320, deAge: .18, speed: 23, fireRate: 3.8, bulletSpeed: 66,
-    build: function () {
-      var g = new THREE.Group();
-      var hull = mesh(oct(1.8), M(0x356b87, { shine: 35, spec: 0x86bfd0 })); hull.scale.set(1.2, .65, 1.6); g.add(hull);
-      [-1, 1].forEach(function (side) {
-        var plate = mesh(box(.75, 3.2, 1.2), M(0xb99c51, { shine: 30 })); plate.position.set(side * 2.2, 0, .9); plate.rotation.z = side * -.25; g.add(plate);
-        var vent = mesh(box(.22, 2.2, .12), G(0x7eeaff)); vent.position.set(side * 2.2, 0, 1.55); g.add(vent);
-      });
-      var shield = mesh(new THREE.CircleGeometry(3.1, 6), new THREE.MeshBasicMaterial({ color: 0x72dfff, transparent: true, opacity: .27, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-      shield.position.z = 1.9; g.add(shield); g.userData.shield = shield;
-      var core = mesh(oct(.75), G(0xffcf70)); core.position.z = 1.3; g.add(core);
-      return g;
-    }
+    build: function () { return buildWarMachine('sentinel'); }
   },
   bomber: {
     hp: 9, radius: 5.4, scale: 1.6, score: 550, deAge: .22, speed: 17, fireRate: 4.6, bulletSpeed: 55, drops: 1,
-    build: function () {
-      var g = new THREE.Group();
-      var hull = mesh(box(4.5, 1.8, 4), M(0x633546, { shine: 22 })); g.add(hull);
-      var bridge = mesh(oct(1.5), M(0xa97155, { shine: 28 })); bridge.position.set(0, .4, 2); bridge.scale.set(1.2, .6, 1.3); g.add(bridge);
-      [-1, 1].forEach(function (side) {
-        var wing = mesh(box(4.2, .25, 2.3), M(0x8b4c52)); wing.position.set(side * 3.3, 0, -.2); g.add(wing);
-        var pod = mesh(cyl(.8, 1, 4.5, 8), M(0x332a3e, { shine: 24 })); pod.rotation.x = Math.PI / 2; pod.position.set(side * 4.2, -.25, -.1); g.add(pod);
-        var exhaust = mesh(oct(.65), G(0xff8550)); exhaust.position.set(side * 4.2, -.25, -2.5); g.add(exhaust);
-        var cannon = mesh(box(.65, .65, 2.4), M(0xc19a68)); cannon.position.set(side * 1.3, -.65, 2.6); g.add(cannon);
-      });
-      var core = mesh(oct(.65), G(0xffbd64)); core.position.set(0, -.6, 2.5); g.add(core); g.userData.core = core;
-      return g;
-    }
+    build: function () { return buildWarMachine('bomber'); }
   },
   mine: {
     hp: 1, radius: 2.5, scale: 1.4, score: 60, deAge: 0.03, speed: 0, fireRate: 0, bulletSpeed: 0,
@@ -3177,7 +3511,8 @@ function buildBoss() {
 
   // central sphinx head
   var head = new THREE.Group(); g.add(head);
-  var skull = mesh(box(7, 6, 6.5), mHull); head.add(skull);
+  var skull = mesh(loftGeo([{y:-3,w:4.2,d:4.6,n:3},{y:-1.7,w:7,d:6.5,n:3},
+    {y:1.8,w:7,d:6,n:3},{y:3,w:5.3,d:4.6,n:3}],12,true,true), mHull); head.add(skull);
   var face = mesh(box(6.2, 4.4, 1.2), mHull2); face.position.set(0, -0.4, 3.4); head.add(face);
   var brow = mesh(box(7.4, 1.1, 1.6), mGold); brow.position.set(0, 2.0, 3.1); head.add(brow);
   var chin = mesh(box(3.4, 1.6, 1.6), mGold); chin.position.set(0, -3.0, 2.6); head.add(chin);
@@ -3187,6 +3522,13 @@ function buildBoss() {
     var hd2 = mesh(box(1.6, 3.2, 3.0), mGold); hd2.position.set(s * 5.2, -3.6, 1.0); head.add(hd2);
   });
   var crown = mesh(cone(3.0, 3.6, 5), mGold); crown.position.y = 4.4; head.add(crown);
+  var diadem = new THREE.Group(); head.add(diadem);
+  for (var tooth = -2; tooth <= 2; tooth++) {
+    var prong = mesh(cone(.7, 4.6 - Math.abs(tooth) * .7, 5), mGold);
+    prong.position.set(tooth * 1.6, 5.2, .1 - Math.abs(tooth) * .5); prong.rotation.z = -tooth * .15; diadem.add(prong);
+    var jewel = mesh(oct(.35), G(0xa7ffe4)); jewel.position.copy(prong.position); jewel.position.y += 1; diadem.add(jewel);
+  }
+  batchStatic(diadem);
 
   // clock rings
   var ring1 = mesh(tor(13, 0.7, 4, 20), mGold); ring1.rotation.x = Math.PI * 0.5; g.add(ring1);
@@ -3221,13 +3563,17 @@ function buildBoss() {
     cores.push({ group: pod, core: core, cage: cage, shield: shield, hp: 200, maxHp: 200, alive: true, angle: ang });
   }
 
-  // wings of stone
+  // Overlapping stone flight feathers turn the flat wings into a readable fan.
+  var wingArmour = new THREE.Group(); g.add(wingArmour);
   [-1, 1].forEach(function (s) {
-    var w = mesh(membrane([
-      [s * 6, 2, -2], [s * 15, 8, -5], [s * 22, 4, -9], [s * 18, -3, -8], [s * 9, -4, -4]
-    ]), M(0x584f7a, { side: THREE.DoubleSide, shine: 12 }));
-    g.add(w);
+    for (var feather = 0; feather < 5; feather++) {
+      var x = 7 + feather * 2.1, rise = 4.4 - feather * 1.45;
+      wingArmour.add(blade([[s*x,rise,-2],[s*(x+6),rise+4,-5-feather*.8],
+        [s*(x+8.4),rise+1.5,-10-feather],[s*(x+2),rise-2,-7]], .7, feather%2?mHull:mHull2));
+      wingArmour.add(bone([s*x,rise+.5,-2],[s*(x+6),rise+4.5,-5-feather*.8],.16,.09,mGold,6));
+    }
   });
+  batchStatic(wingArmour);
 
   g.scale.setScalar(2.0);
   return { group: g, head: head, rings: [ring1, ring2, ring3], cores: cores, crown: crown };
@@ -3647,6 +3993,36 @@ function hFoundry(x, z) {
 
 // Keep dense vertices around the flight corridor, spreading the outer terrain beyond fog.
 function terrainX(i, sx, width) { var u = i / sx * 2 - 1; return width * .5 * (.25 * u + .75 * u * u * u); }
+// Judge Dean LLC — stage surface art shares geometry with collision terrain.
+function surfaceArt(mat) {
+  var previous = mat.onBeforeCompile;
+  var uniforms = { terrainTime: { value: 0 }, terrainStyle: { value: 0 } };
+  mat.userData.terrainArt = uniforms;
+  mat.onBeforeCompile = function (shader) {
+    if (previous) previous(shader);
+    shader.uniforms.terrainTime = uniforms.terrainTime;
+    shader.uniforms.terrainStyle = uniforms.terrainStyle;
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 terrainWorld;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nterrainWorld=(modelMatrix*vec4(transformed,1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>',
+      '#include <common>\nvarying vec3 terrainWorld; uniform float terrainTime; uniform float terrainStyle;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' +
+        'if(terrainStyle<0.5){float strata=sin(terrainWorld.y*.31+sin(terrainWorld.z*.004)*.55);' +
+        'float wall=smoothstep(88.0,140.0,abs(terrainWorld.x));' +
+        'diffuseColor.rgb*=1.0-wall*(.16+.19*smoothstep(.15,.45,strata));' +
+        'diffuseColor.rgb+=vec3(.12,.064,.025)*wall*smoothstep(.87,.98,strata);}' +
+        'else if(terrainStyle<1.5){float ripple=sin(terrainWorld.x*.14+terrainWorld.z*.095+terrainTime*1.1)' +
+        '*sin(terrainWorld.x*.055-terrainWorld.z*.11-terrainTime*.7);' +
+        'float glint=smoothstep(.76,.98,ripple); diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.43,.86,.89),glint*.58);}' +
+        'else if(terrainStyle>2.5){float snow=smoothstep(87.0,135.0,terrainWorld.y+sin(terrainWorld.x*.09)*8.0);' +
+        'diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.79,.85,.94),snow*.78);}')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' +
+        'if(terrainStyle>1.5&&terrainStyle<2.5){float channel=abs(abs(terrainWorld.x)-(158.0+sin(terrainWorld.z*.009)*22.0));' +
+        'float heat=1.0-smoothstep(2.0,7.0,channel);float flow=.72+.28*sin(terrainWorld.z*.055-terrainTime*2.2);' +
+        'totalEmissiveRadiance+=vec3(1.0,.16,.018)*heat*flow;}');
+  };
+  mat.customProgramCacheKey = function () { return 'judge-dean-terrain-art-v1'; };
+}
 // ------------------------------------------------------------------ terrain
 function Terrain() {
   this.group = new THREE.Group();
@@ -3683,6 +4059,7 @@ Terrain.prototype._mkChunk = function () {
   g.computeVertexNormals();
   var mat = new THREE.MeshPhongMaterial({ flatShading: true, vertexColors: true, shininess: 0, specular: 0x000000 });
   P.retroPatch(mat);
+  surfaceArt(mat);
   var mesh = new THREE.Mesh(g, mat);
   mesh.frustumCulled = true;
   mesh.receiveShadow = true;   // the ground is the only shadow receiver
@@ -3697,6 +4074,9 @@ Terrain.prototype.configure = function (cfg, startZ) {
   for (var i = 0; i < this.N; i++) {
     var c = this.chunks[i];
     c.mat.color.set(0xffffff);
+    c.mat.userData.terrainArt.terrainStyle.value = cfg.surface || 0;
+    c.mat.shininess = cfg.surface === 1 ? 48 : 0;
+    c.mat.specular.setHex(cfg.surface === 1 ? 0x6bafbd : 0x000000);
     this._fill(c, Math.floor(startZ / this.D) * this.D - this.behind + i * this.D);
   }
 };
@@ -3732,6 +4112,7 @@ Terrain.prototype.update = function (playerZ) {
   var span = this.N * this.D;
   for (var i = 0; i < this.N; i++) {
     var c = this.chunks[i];
+    c.mat.userData.terrainArt.terrainTime.value = P.Game ? P.Game.time : 0;
     if (playerZ - (c.z + this.D) > this.behind) {
       var jumps = Math.floor((playerZ - this.behind - c.z - this.D) / span) + 1;
       this._fill(c, c.z + span * jumps);
@@ -3872,7 +4253,7 @@ var EPISODES = [
     fog: { col: 0x3f90ad, near: 100, far: 620 },
     light: { amb: 0x2f4a68, ambI: 1.05, key: 0xd8f2ff, keyI: 1.0, kd: [-0.4, 0.6, 1], rim: 0x2fd8c8, rimI: 0.45 },
     terrain: {
-      h: hSea, colLo: C(0x0b3a55), colHi: C(0x5ec8cc), colBase: -9, colRange: 12
+      h: hSea, surface: 1, colLo: C(0x0b3a55), colHi: C(0x5ec8cc), colBase: -9, colRange: 12
     },
     props: {
       count: 20, gap: 96, ahead: 700,
@@ -3904,7 +4285,7 @@ var EPISODES = [
     sky: { lo: 0xff9a48, mid: 0x652d40, hi: 0x130f25, sun: 0xffb46c, sunDir: [0.2, 0.1, 1], sunSize: 0.003, bands: 24, shaft: 0.3 },
     fog: { col: 0x653b40, near: 140, far: 740 },
     light: { amb: 0x59414e, ambI: 1.05, key: 0xffb76c, keyI: 1.3, kd: [0.3, 0.6, 1], rim: 0x68bbdc, rimI: 0.6 },
-    terrain: { h: hFoundry, colLo: C(0x372e35), colHi: C(0x866151), colBase: -12, colRange: 80 },
+    terrain: { h: hFoundry, surface: 2, colLo: C(0x372e35), colHi: C(0x866151), colBase: -12, colRange: 80 },
     props: {
       count: 16, gap: 130, ahead: 850,
       make: function () { return m.buildFoundry(); },
@@ -3928,7 +4309,7 @@ var EPISODES = [
     sky: { lo: 0xffa8d4, mid: 0x7a4fc0, hi: 0x120833, sun: 0xffd9f0, sunDir: [0.5, 0.3, -1], sunSize: 0.0030, bands: 20 },
     fog: { col: 0x6a45a0, near: 110, far: 660 },
     light: { amb: 0x4a3070, ambI: 1.1, key: 0xffc7ea, keyI: 1.0, kd: [0.5, 0.5, -1], rim: 0x62e0ff, rimI: 0.55 },
-    terrain: { h: hCitadel, colLo: C(0x322e48), colHi: C(0xaaa0bc), colBase: -28, colRange: 110 },
+    terrain: { h: hCitadel, surface: 3, colLo: C(0x322e48), colHi: C(0xaaa0bc), colBase: -28, colRange: 110 },
     props: {
       count: 14, gap: 150, ahead: 850,
       make: function () { return m.buildKeep(); },
@@ -3957,7 +4338,7 @@ var EPISODES = [
     sky: { lo: 0xff7a4a, mid: 0x52205e, hi: 0x08030f, sun: 0xff9f5f, sunDir: [0.15, -0.06, 1], sunSize: 0.0042, bands: 18 },
     fog: { col: 0x3a1140, near: 120, far: 700 },
     light: { amb: 0x5c3358, ambI: 1.25, key: 0xffc190, keyI: 1.25, kd: [0.25, 0.45, -1], rim: 0x9a5fff, rimI: 0.7 },
-    terrain: { h: hCitadel, colLo: C(0x251e30), colHi: C(0x72536e), colBase: -28, colRange: 110 },
+    terrain: { h: hCitadel, surface: 3, colLo: C(0x251e30), colHi: C(0x72536e), colBase: -28, colRange: 110 },
     props: {
       count: 10, gap: 180, ahead: 850,
       make: function () { return m.buildKeep(); },
@@ -4190,39 +4571,104 @@ if (window.__PFLOAD) __PFLOAD.set(0.52, 'SEEDING THE WEATHER');
 })();
 
 
-/* Three persistent, inexpensive mountain layers beyond the playable terrain. */
+/* Judge Dean LLC — authored stage skylines and distant celestial atmosphere. */
 (function () {
-var P = window.__PF, layers = [];
+var P = window.__PF, layers = [], lastTime = null, count = 192;
+function ridgeHeight(angle, layer, stage) {
+  var a = angle + layer * .12;
+  if (stage === 'ep2') {
+    var district = Math.floor((Math.sin(a * 9) + 1) * 2.5) * 12;
+    var spire = Math.pow(Math.abs(Math.sin(a * 23 + layer)), 18) * 108;
+    return 20 + layer * 28 + district + spire;
+  }
+  if (stage === 'foundry') {
+    var block = Math.floor((Math.sin(a * 11 + layer) + 1) * 2) * 20;
+    var stack = Math.pow(Math.abs(Math.sin(a * 29)), 28) * 112;
+    return 22 + layer * 30 + block + stack;
+  }
+  if (stage === 'ep3' || stage === 'boss') {
+    var peaks = Math.pow(Math.abs(Math.sin(a * 7 + layer)), 2) * 190 + Math.abs(Math.sin(a * 19)) * 42;
+    return 55 + layer * 39 + peaks;
+  }
+  var mesa = Math.min(1, Math.pow(Math.abs(Math.sin(a * 5 + layer)), .55) * 1.6) * 130;
+  return 35 + layer * 33 + mesa + Math.sin(a * 17) * 8;
+}
 for (var layer = 0; layer < 3; layer++) {
-  var positions = [], indices = [], count = 128, radius = 1150 + layer * 130;
+  var positions = [], indices = [], radius = 1150 + layer * 130;
   for (var i = 0; i <= count; i++) {
     var angle = i / count * Math.PI * 2;
-    var ridge = 60 + layer * 38 + Math.pow(Math.abs(Math.sin(angle * 5 + layer * .7)), 2) * 95
-      + Math.abs(Math.sin(angle * 13 + layer)) * 42;
     positions.push(Math.sin(angle) * radius, -180, Math.cos(angle) * radius,
-                   Math.sin(angle) * radius, ridge, Math.cos(angle) * radius);
+                   Math.sin(angle) * radius, ridgeHeight(angle, layer, 'ep1'), Math.cos(angle) * radius);
     if (i < count) { var v = i * 2; indices.push(v, v + 1, v + 2, v + 1, v + 3, v + 2); }
   }
   var geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); geo.setIndex(indices);
   var material = new THREE.ShaderMaterial({
-    uniforms: { haze: { value: new THREE.Color() }, ridge: { value: new THREE.Color() }, alpha: { value: .72 - layer * .14 } },
+    uniforms: { haze: { value: new THREE.Color() }, ridge: { value: new THREE.Color() }, alpha: { value: .84 - layer * .16 } },
     vertexShader: 'varying float height; void main(){height=position.y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-    fragmentShader: 'varying float height; uniform vec3 haze; uniform vec3 ridge; uniform float alpha; void main(){float h=smoothstep(-50.0,180.0,height); gl_FragColor=vec4(mix(haze,ridge,h),alpha*smoothstep(-150.0,15.0,height));}',
+    fragmentShader: 'varying float height; uniform vec3 haze; uniform vec3 ridge; uniform float alpha; void main(){float h=smoothstep(-25.0,150.0,height); gl_FragColor=vec4(mix(haze,ridge,h),alpha*smoothstep(-150.0,15.0,height));}',
     side: THREE.DoubleSide, transparent: true, depthWrite: false, depthTest: true, fog: false
   });
   var mesh = new THREE.Mesh(geo, material); mesh.frustumCulled = false; mesh.renderOrder = -910 - layer * 10; P.scene.add(mesh); layers.push(mesh);
 }
+var moonMaterial = new THREE.ShaderMaterial({
+  uniforms: { alpha: { value: 0 }, tint: { value: new THREE.Color(0xc5c4ef) } },
+  vertexShader: 'varying vec3 surfaceNormal; void main(){surfaceNormal=normal;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  fragmentShader: 'varying vec3 surfaceNormal;uniform vec3 tint;uniform float alpha;void main(){vec3 n=normalize(surfaceNormal);' +
+    'float light=.18+.82*max(0.0,dot(n,normalize(vec3(-.6,.5,-.8))));' +
+    'float bands=.92+.08*sin(n.y*31.0+n.x*5.0);gl_FragColor=vec4(tint*light*bands,alpha);}',
+  transparent: true, depthWrite: false, depthTest: true, fog: false
+});
+var moon = new THREE.Mesh(new THREE.SphereGeometry(88, 32, 20), moonMaterial);
+moon.name = 'citadel-moon'; moon.renderOrder = -960; moon.frustumCulled = false; P.scene.add(moon);
+var moonRing = new THREE.Mesh(new THREE.RingGeometry(117, 154, 80), new THREE.MeshBasicMaterial({ color: 0xc3a7de,
+  transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, depthTest: true, fog: false }));
+moonRing.name = 'citadel-moon-rings'; moonRing.rotation.set(.98, .25, -.32); moonRing.renderOrder = -965;
+moonRing.frustumCulled = false; P.scene.add(moonRing);
+var colors = { ep1: 0x684337, ep2: 0x23465b, foundry: 0x352f42, ep3: 0x514b79, boss: 0x33263f };
+var ridgeColor = new THREE.Color(), moonAlpha = 0, targetStage = null, shapeBlendLeft = 0;
+var ridgeTargets = layers.map(function () { return new Float32Array(count + 1); });
 P.horizon = {
   update: function () {
-    var z = P.Game ? P.Game.railZ : 0;
+    var game = P.Game, z = game ? game.railZ : 0, time = game ? game.time : 0;
+    var firstFrame = lastTime === null;
+    var dt = firstFrame || time < lastTime ? 1 / 60 : Math.min(.1, time - lastTime); lastTime = time;
+    var ep = P.world && game ? P.world.EPISODES[game.epIndex] : null, stage = ep ? ep.id : 'ep1';
+    var blend = firstFrame ? 1 : 1 - Math.exp(-dt * 2.4);
+    if (targetStage !== stage) {
+      targetStage = stage;
+      shapeBlendLeft = 1;
+      ridgeTargets.forEach(function (profile, i) {
+        for (var point = 0; point <= count; point++) profile[point] = ridgeHeight(point / count * Math.PI * 2, i, stage);
+      });
+    }
+    var reshape = shapeBlendLeft > 0 && blend > 0;
+    shapeBlendLeft *= 1 - blend;
+    if (shapeBlendLeft < .001) shapeBlendLeft = 0;
     layers.forEach(function (mesh, i) {
       mesh.position.set(P.camera.position.x * .94, -16, z);
       mesh.rotation.y = Math.sin(z * .000025) * (.1 - i * .02);
+      if (reshape) {
+        var a = mesh.geometry.attributes.position;
+        for (var point = 0; point <= count; point++) {
+          var index = point * 6 + 4;
+          a.array[index] += (ridgeTargets[i][point] - a.array[index]) * (shapeBlendLeft ? blend : 1);
+        }
+        a.needsUpdate = true;
+      }
       mesh.material.uniforms.haze.value.copy(P.scene.fog.color);
-      mesh.material.uniforms.ridge.value.copy(P.scene.fog.color).lerp(P.skyUni.cHi.value, .25 - i * .06);
+      ridgeColor.setHex(colors[stage] || colors.ep1).lerp(P.scene.fog.color, .36 + i * .18);
+      mesh.material.uniforms.ridge.value.lerp(ridgeColor, blend);
     });
+    var moonTarget = stage === 'ep3' ? .86 : stage === 'boss' ? .6 : 0;
+    moonAlpha += (moonTarget - moonAlpha) * blend;
+    moon.position.set(P.camera.position.x - 275, 300, z + 1080);
+    moonRing.position.copy(moon.position);
+    moon.material.uniforms.alpha.value = moonAlpha; moonRing.material.opacity = moonAlpha * .4;
+    moon.visible = moonRing.visible = moonAlpha > .002;
+    moon.material.uniforms.tint.value.setHex(stage === 'boss' ? 0xf3ae9a : 0xc5c4ef);
   },
-  layers: layers
+  layers: layers,
+  celestial: [moon, moonRing]
 };
 })();
 
@@ -4418,7 +4864,7 @@ var Game = {
   state: 'title',
   time: 0, railZ: 0, epIndex: 0, epStartZ: 0, epProgress: 0,
   age: 89, startAge: 89, score: 0, kills: 0, shots: 0, hits: 0,
-  bestCombo: 0, combo: 0, comboT: 0,
+  bestCombo: 0, combo: 0, comboT: 0, reflections: 0,
   hurtT: 0, invulnT: 0, shakeT: 0, shakeMag: 0, hitConfirmT: 0, killConfirmT: 0,
   ending: false, bossActive: false, orbsTaken: 0, cinematic: false
 };
@@ -5000,6 +5446,22 @@ function fireLasers() {
   Locks.list.length = 0;
 }
 
+// The opening beat of a roll can turn one close hostile shot back on its shooter.
+var reflectedThisRoll = false;
+function reflectShot(shot) {
+  reflectedThisRoll = true;
+  var origin = shot.m.position, mesh = laserPool.get(), trail = ribbonPool.get();
+  mesh.position.copy(origin);
+  if (P.fx) P.fx.attachLaser(mesh);
+  ribbonReset(trail, origin.x, origin.y, origin.z);
+  lasers.push({ m: mesh, rib: trail, v: shot.v.clone().negate(), target: shot.source,
+    life: 2.5, dmg: 2, delay: 0, age: .5, reflected: true });
+  spawnImpact(origin, 0xffdc80, 1.45);
+  Game.reflections++;
+  Game.score += 180;
+  toast('RETURN FIRE · +180');
+  A.sReflect();
+}
 function getMuzzle() {
   var v = new V3();
   dragon.gun.getWorldPosition(v);
@@ -5008,7 +5470,10 @@ function getMuzzle() {
 var _aimNdc = new THREE.Vector3();
 function getAimDir(origin) {
   _aimNdc.set(Input.ndx, Input.ndy, 0.5).unproject(camera);
-  return _aimNdc.sub(origin).normalize();
+  // Unprojection gives a point near the camera, behind the rider. Extend the
+  // camera ray to combat distance before converging the muzzle onto it.
+  return _aimNdc.sub(camera.position).normalize().multiplyScalar(260)
+    .add(camera.position).sub(origin).normalize();
 }
 function getAimPoint(dist) {
   var v = new V3(Input.ndx, Input.ndy, 0.5).unproject(camera);
@@ -5024,23 +5489,41 @@ var Boss = {
   atkT: 2.5, dead: false, deathT: 0, entering: 0
 };
 P.Boss = Boss;
+var bossApproachTime = 8, bossApproachDistance = 880;
 
+function restoreBossPose() {
+  if (!Boss.restPose) return;
+  Boss.restPose.forEach(function (p) {
+    p.node.position.copy(p.position); p.node.quaternion.copy(p.quaternion);
+    p.node.scale.copy(p.scale); p.node.visible = p.visible;
+  });
+}
 function bossStart() {
   if (!Boss.built) {
     Boss.built = mdl.buildBoss();
     Boss.group = Boss.built.group;
     scene.add(Boss.group);
+    Boss.restPose = [];
+    Boss.group.traverse(function (node) {
+      Boss.restPose.push({ node: node, position: node.position.clone(), quaternion: node.quaternion.clone(),
+        scale: node.scale.clone(), visible: node.visible });
+    });
+    Boss.built.cores.forEach(function (c) { c.restMaterial = c.core.material; });
   }
+  restoreBossPose();
   Boss.group.visible = true;
-  Boss.active = true; Boss.dead = false; Boss.phase = 0; Boss.t = 0;
-  Boss.angle = 0; Boss.angleTarget = 0; Boss.atkT = 3.4; Boss.entering = 3.2;
-  Boss.dist = 230;
+  Boss.active = true; Boss.dead = false; Boss.deathT = 0; Boss.phase = 0; Boss.t = 0;
+  Boss.angle = 0; Boss.angleTarget = 0; Boss.atkT = 3.4; Boss.entering = bossApproachTime;
+  Boss.dist = bossApproachDistance;
+  Boss.group.position.copy(Player.pos).add(new V3(0, Boss.height + 45, Boss.dist));
+  Boss.group.rotation.y = Math.PI;
   for (var i = 0; i < Boss.built.cores.length; i++) {
     var c = Boss.built.cores[i];
     c.hp = c.maxHp; c.alive = true;
     c.group.visible = true;
-    c.core.material = G(0x6affd0, { transparent: true, opacity: 0.95 });
+    c.core.material = c.restMaterial;
   }
+  Boss.group.updateMatrixWorld(true);
   Game.bossActive = true;   // the HP bar sums the cores directly; Boss has no pool of its own
 }
 
@@ -5115,16 +5598,21 @@ function updateBoss(dt) {
     B.group.scale.multiplyScalar(1 - dt * 0.13);
     Game.shakeT = 0.3; Game.shakeMag = 1.6;
     if (B.deathT <= 0) {
-      B.active = false; B.group.visible = false; B.group.scale.setScalar(1);
+      B.active = false; restoreBossPose(); B.group.visible = false;
       endGame(true);
     }
     return;
   }
 
   // ---- placement: orbit the player, forcing view rotation
+  var approachHeight = 0;
   if (B.entering > 0) {
-    B.entering -= dt;
-    B.dist = damp(B.dist, 128, 1.1, dt);
+    // The full-size silhouette descends from behind the final sector's fog.
+    B.entering = Math.max(0, B.entering - dt);
+    var remaining = B.entering / bossApproachTime;
+    var approach = remaining * remaining * (3 - 2 * remaining);
+    B.dist = 128 + (bossApproachDistance - 128) * approach;
+    approachHeight = 45 * approach;
   } else {
     // phase 2+: drift between angles
     // angleTarget is otherwise set on core destruction; from phase 2 it also
@@ -5134,7 +5622,7 @@ function updateBoss(dt) {
   B.angle += P.angDelta(B.angle, B.angleTarget) * dampF(0.9, dt);
   var dir = new V3(Math.sin(B.angle), 0, Math.cos(B.angle));
   var bp = Player.pos.clone().add(dir.multiplyScalar(B.dist));
-  bp.y += B.height + Math.sin(B.t * 0.6) * 4;
+  bp.y += B.height + approachHeight + Math.sin(B.t * 0.6) * 4;
   B.group.position.copy(bp);
   B.group.rotation.y = B.angle + Math.PI;
   B.group.rotation.z = Math.sin(B.t * 0.4) * 0.08;
@@ -5313,6 +5801,8 @@ function updatePlayer(dt) {
   var ix = cine ? 0 : (k['d'] || k['arrowright'] ? 1 : 0) - (k['a'] || k['arrowleft'] ? 1 : 0);
   var iy = cine ? 0 : (k['w'] || k['arrowup'] ? 1 : 0) - (k['s'] || k['arrowdown'] ? 1 : 0);
   if (Player.invertY) iy = -iy;                  // flight-stick pitch
+  // Touch steering is direct: pushing the pad upward always climbs.
+  if (!cine) { ix = clamp(ix + (Input.touchX || 0), -1, 1); iy = clamp(iy + (Input.touchY || 0), -1, 1); }
   var yaw = Player.camYaw;
   // the camera looks along +Z, so screen-right is world -X (not +X)
   var rx = -Math.cos(yaw), rz = Math.sin(yaw);
@@ -5464,7 +5954,8 @@ function updateProjectiles(dt) {
     p.m.position.addScaledVector(p.v, dt);
     p.m.lookAt(P.tmpB.copy(p.m.position).add(p.v));
     ribbonAdvance(p.rib, p.m.position.x, p.m.position.y, p.m.position.z, 3.4);
-    ribbonBuild(p.rib, 0.85, 0xffffff, 0x166dff, 1.25);
+    var tailColor = p.reflected ? 0xffaf42 : 0x166dff;
+    ribbonBuild(p.rib, 0.85, 0xffffff, tailColor, 1.25);
     p.life -= dt;
     var hit = false;
     if (tp && segPointD2(previousLaserPos, p.m.position, tp) < Math.pow(p.target.def ? p.target.def.radius + 1.6 : 7.0, 2)) {
@@ -5473,10 +5964,10 @@ function updateProjectiles(dt) {
       spawnImpact(p.m.position, 0x7fe8ff, 1.15);
       boom(p.m.position, 0.7, [SHARD_MATS.cyan, SHARD_MATS.white], 4);
       A.sZap(p.m.position);
-      hit = true; Game.hits++;
+      hit = true; if (!p.reflected) Game.hits++;
     }
     if (hit || p.life <= 0) {
-      releaseTrail(p.rib, 0.85, 0xffffff, 0x166dff);
+      releaseTrail(p.rib, 0.85, 0xffffff, tailColor);
       p.rib = null;
       laserPool.put(p.m); lasers.splice(i, 1);
     }
@@ -5547,6 +6038,7 @@ function updateProjectiles(dt) {
     }
   }
   // enemy bullets
+  if (!(Player.rollT > .43)) reflectedThisRoll = false;
   for (i = ebullets.length - 1; i >= 0; i--) {
     p = ebullets[i];
     _segA.copy(p.m.position);
@@ -5554,12 +6046,18 @@ function updateProjectiles(dt) {
     p.m.rotation.x += dt * 6; p.m.rotation.y += dt * 4;
     p.life -= dt;
     var dead = p.life <= 0;
-    if (!dead && segPointD2(_segA, p.m.position, Player.pos) < 9.0) {
+    var passDistanceSq = segPointD2(_segA, p.m.position, Player.pos);
+    if (!dead && !reflectedThisRoll && Player.rollT > .43 && passDistanceSq < 49 &&
+        p.source && p.source.alive && !(P.opening && P.opening.active) && !Game.ending) {
+      reflectShot(p);
+      dead = true;
+    }
+    if (!dead && passDistanceSq < 9.0) {
       damagePlayer(p.dmg || 2.6, false);
       boom(p.m.position, 0.8, [SHARD_MATS.fire, SHARD_MATS.hot], 6);
       dead = true;
     }
-    if (!dead && !p.nearHeard && segPointD2(_segA, p.m.position, Player.pos) < 144 && P.tmpA.copy(p.m.position).sub(Player.pos).dot(p.v) > 0) {
+    if (!dead && !p.nearHeard && passDistanceSq < 144 && P.tmpA.copy(p.m.position).sub(Player.pos).dot(p.v) > 0) {
       p.nearHeard = true; if (A.sNear) A.sNear(p.m.position);
     }
     if (dead) { ebPool.put(p.m); ebullets.splice(i, 1); }
@@ -5624,7 +6122,7 @@ function enemyShoot(e, speed, dmg, spread, aim, angle) {
   if (angle) d.applyAxisAngle(new V3(0, 1, 0), angle);
   d.x += rand(-spread, spread); d.y += rand(-spread, spread); d.z += rand(-spread, spread);
   d.normalize();
-  var shot = { m: b, v: d.clone().multiplyScalar(speed), life: 6, dmg: dmg };
+  var shot = { m: b, v: d.clone().multiplyScalar(speed), life: 6, dmg: dmg, source: e };
   ebullets.push(shot);
   if (A.sEnemy) A.sEnemy(e.pos);
   return shot;
@@ -5864,7 +6362,8 @@ P.entities = {
   },
   reset: function () {
     var i;
-    Game.hitConfirmT = Game.killConfirmT = 0;
+    Game.hitConfirmT = Game.killConfirmT = Game.reflections = 0;
+    reflectedThisRoll = false;
     for (i = enemies.length - 1; i >= 0; i--) { freeEnemyMesh(enemies[i].type, enemies[i].g); }
     enemies.length = 0;
     for (i = 0; i < lasers.length; i++) {
@@ -5886,7 +6385,9 @@ P.entities = {
     Locks.list.length = 0;
     spawnT = 1.5;
     if (P.encounters) P.encounters.reset();
-    if (Boss.group) { Boss.group.visible = false; Boss.active = false; Boss.group.scale.setScalar(1); }
+    if (Boss.group) {
+      restoreBossPose(); Boss.group.visible = false; Boss.active = Boss.dead = false; Boss.deathT = 0;
+    }
     Game.bossActive = false;
   },
   getFlash: function () { return flashV; },
@@ -5902,7 +6403,7 @@ P.entities = {
 if (window.__PFLOAD) __PFLOAD.set(0.55, 'TUNING THE ORGAN');
 
 
-/* An authored guided opening. All clocks use simulation time, including pause. */
+/* Judge Dean LLC — Guided flight practice, using simulation time including pause. */
 (function () {
 var P = window.__PF, E = P.entities, Game = P.Game, Player = P.Player;
 var panel = document.getElementById('briefing');
@@ -5914,6 +6415,12 @@ var state = P.opening = {
   targets: [], incoming: [], shot: null, hit: false, wave: false
 };
 function copy(title, text, label) {
+  if (P.touch && P.touch.enabled) {
+    title = title.replace('A or D', 'use the pad');
+    text = text.replace('Use Q or E', 'Tap VIEW ‹ or VIEW ›').replace(/A or D/g, 'the flight pad')
+      .replace(/(^|[.!?] )the flight pad/g, '$1The flight pad')
+      .replace('Hold the left mouse button and sweep', 'Touch the sky and sweep');
+  }
   if (heading.textContent !== title) heading.textContent = title;
   if (body.textContent !== text) body.textContent = text;
   if (step.textContent !== label) step.textContent = label;
@@ -5937,7 +6444,7 @@ state.start = function () {
   state.reset();
   if (!document.getElementById('guidedOpening').checked) return;
   state.active = true; state.startAge = Game.age;
-  phase('arrival');
+  practice();
 };
 state.skip = function () {
   if (!state.active) return;
@@ -5966,7 +6473,7 @@ function practice() {
   }
   if (approaching(state.targets)) {
     phase('practice-approach');
-    copy('Three scouts on the horizon', 'Watch them approach. Get ready to hold, sweep and release your volley.', '01 / INCOMING');
+    copy('Bank into the canyon', 'Steer left or right, then hold BOOST briefly. Complete the flight check while three scouts approach.', '01 / FLIGHT CHECK');
   }
 }
 function approaching(list) { return list.some(function (e) { return e.alive && e.arrival; }); }
@@ -6343,7 +6850,7 @@ P.fx = {
 })();
 
 
-/* Flight maneuvers and authored encounters layered over the ambient patrols. */
+/* Judge Dean LLC — Flight maneuvers, sector objectives and authored encounters. */
 (function () {
 'use strict';
 var P = window.__PF, Player = P.Player, Game = P.Game, E = P.entities, A = P.Audio_;
@@ -6385,7 +6892,38 @@ for (var i = 0; i < 6; i++) {
   ring.add(halo); ring.add(arc); ring.userData.halo = halo; ring.userData.arc = arc;
   ring.visible = false; P.scene.add(ring); rings.push(ring);
 }
-var episode = null, events = {}, routeDone = false, routeHits = 0, count = 0, previousPos = new P.V3();
+var episode = null, events = {}, routeDone = false, routeHits = 0, previousPos = new P.V3();
+var mission = null, credited = [], launchX = 0, launchBanked = false, boostTime = 0, orbBaseline = 0;
+function finish(success, detail) {
+  if (!mission || mission.status !== 'active') return;
+  mission.status = success ? 'success' : 'failed';
+  mission.hint = detail || (success ? 'Objective complete. Keep flying.' : 'Window closed. Continue the mission.');
+  if (success) {
+    Game.score += mission.score; Player.energy = Math.min(100, (Player.energy || 0) + mission.power);
+    if (mission.years) P.deAge(mission.years);
+    A.sOrb(); P.toast(mission.id === 'gates' ? 'CLEAN PASS · +500 BONUS · +50 WING POWER'
+      : 'OBJECTIVE COMPLETE · ' + mission.rewardLabel);
+  } else P.toast('OBJECTIVE MISSED · ' + mission.title);
+  P.campaign.results.push({ id: mission.id, title: mission.title, sector: episode, status: mission.status,
+    current: mission.current, target: mission.target, score: success ? mission.score : 0 });
+}
+function begin(id, title, hint, target, seconds, score, power, years, tag) {
+  if (mission && mission.status === 'active') finish(false);
+  credited = [];
+  mission = { id: id, title: title, hint: hint, current: 0, target: target, progress: 0, status: 'active',
+    remaining: seconds, score: score, power: power || 0, years: years || 0, tag: tag || null,
+    rewardLabel: '+' + score + ' SCORE' + (power ? ' · +' + power + ' WING POWER' : '') + (years ? ' · −' + years + ' YEARS' : '') };
+  P.campaign.objective = mission;
+}
+function progress(value) {
+  if (!mission || mission.status !== 'active') return;
+  mission.current = Math.min(mission.target, value); mission.progress = mission.current / mission.target;
+  if (mission.current >= mission.target) finish(true);
+}
+function credit(e) {
+  if (!mission || mission.status !== 'active' || !mission.tag || e.tag !== mission.tag || credited.indexOf(e) >= 0) return;
+  credited.push(e); progress(credited.length);
+}
 function once(id, distance, fn) {
   if (!events[id] && Game.railZ - Game.epStartZ >= distance) { events[id] = true; fn(); }
 }
@@ -6394,28 +6932,69 @@ function formation(type, x, y, z, tag) {
   e.fireT = 4; return e;
 }
 P.campaign = {
+  // HUD contract: objective is null or {id,title,hint,current,target,progress,
+  // status:'active'|'success'|'failed',remaining:seconds|null,rewardLabel}.
+  // results holds one {id,title,sector,status,current,target,score} per resolved
+  // objective. reset() begins a fresh run; enter() retains prior sector results.
+  objective: null, results: [],
+  reset: function () { mission = null; this.objective = null; this.results.length = 0; episode = null; credited = []; },
+  finishRun: function () { if (mission && mission.status === 'active') finish(false, 'Flight ended before completion.'); },
   enter: function (ep) {
-    episode = ep.id; events = {}; routeDone = false; routeHits = 0; count = 0; previousPos.copy(Player.pos);
+    if (mission && mission.status === 'active') finish(false, 'Sector completed before this objective.');
+    episode = ep.id; events = {}; routeDone = false; routeHits = 0; previousPos.copy(Player.pos);
+    mission = null; this.objective = null;
     rings.forEach(function (r) {
       r.visible = false; r.userData.collected = false; r.userData.resolved = false; r.userData.fade = 0;
       r.scale.setScalar(1); r.material.color.setHex(0x7befff); r.material.opacity = .8;
       r.userData.halo.material.opacity = .12; r.userData.arc.material.opacity = .6;
     });
     if (episode === 'ep1') rings.forEach(function (r, i) {
-      r.position.set(i % 2 ? 54 : -54, 30, 4700 + Math.floor(i / 2) * 220); r.visible = true;
+      r.position.set(i % 2 ? 54 : -54, 30, Game.epStartZ + 4700 + Math.floor(i / 2) * 220); r.visible = true;
     });
-  },
-  onKill: function (e) {
-    if (e.tag === 'foundry-convoy' && episode === 'foundry') {
-      count++;
-      if (count === 3) { Game.score += 2000; P.deAge(3); P.toast('SUPPLY LINE BROKEN · +3 YEARS · +2000'); A.sOrb(); }
-      else P.toast('CONVOY ' + count + ' / 3');
+    if (episode === 'ep1') {
+      launchX = Player.x; launchBanked = false; boostTime = 0;
+      begin('launch', 'Take command', 'Bank left or right, then hold BOOST briefly.', 2, 40, 500, 25);
+    } else if (episode === 'ep2') {
+      orbBaseline = Game.orbsTaken;
+      begin('salvage', 'Recover lost time', 'Collect 5 cyan orbs. Boost toward the trail; nearby orbs pull in.', 5, 20, 1000, 35);
+    } else if (episode === 'foundry') {
+      begin('convoy', 'Break the supply line', 'Destroy all 3 marked carriers. Flank or climb for double damage.', 3, 55, 2000, 25, 3, 'foundry-convoy');
+    } else if (episode === 'ep3') {
+      begin('shield-guard', 'Silence the mountain guard', 'Break a charge or destroy each marked sentinel. Flank the blue shields.', 2, 55, 1500, 35, 0, 'citadel-guard');
+    } else if (episode === 'boss') {
+      begin('fountain', 'Open the Fountain', 'Destroy all 3 cores. Rotate your view to follow the Sphinx.', 3, null, 2500, 0);
     }
   },
+  onKill: function (e) {
+    credit(e);
+  },
+  onChargeBreak: function (e) { if (mission && (mission.id === 'breach' || mission.id === 'shield-guard')) credit(e); },
   update: function (dt) {
     if (Game.state !== 'playing' || !episode) return;
+    // A direct sector launch has an opening camera flight. Place the salvage
+    // ahead only when control begins, so that intro cannot fly past the trail.
+    if (episode === 'ep2' && !events.salvageTrail) {
+      events.salvageTrail = true;
+      for (var o = 0; o < 6; o++) E.spawnOrb(new P.V3((o % 3 - 1) * 18, Player.railY + 12, Game.railZ + 170 + o * 24), true);
+    }
+    if (mission && mission.status === 'active') {
+      if (mission.id === 'launch') {
+        launchBanked = launchBanked || Math.abs(Player.x - launchX) >= 18;
+        if (Player.boosting) boostTime += dt;
+        progress((launchBanked ? 1 : 0) + (boostTime >= .8 ? 1 : 0));
+        if (mission.status === 'active') mission.hint = !launchBanked ? 'Bank left or right out of the centre lane.' : 'Hold BOOST briefly. Wing power recharges when released.';
+      } else if (mission.id === 'salvage') progress(Game.orbsTaken - orbBaseline);
+      else if (mission.id === 'fountain' && E.Boss.active && E.Boss.built) progress(E.Boss.built.cores.filter(function (c) { return !c.alive; }).length);
+      if (mission.status === 'active' && mission.remaining !== null) {
+        mission.remaining = Math.max(0, mission.remaining - dt);
+        if (mission.remaining === 0) finish(false);
+      }
+    }
     if (episode === 'ep1') {
-      once('fork', 3500, function () { P.toast('SPLIT CANYON · 3 BLUE GATES RECHARGE WING POWER'); });
+      once('fork', 3500, function () {
+        begin('gates', 'Run the canyon gates', 'Choose either passage and fly through all 3 blue gates.', 3, null, 500, 25);
+        P.toast('SPLIT CANYON · 3 BLUE GATES RECHARGE WING POWER');
+      });
       rings.forEach(function (r) {
         if (!r.visible) return;
         var ud = r.userData;
@@ -6438,21 +7017,21 @@ P.campaign = {
             ud.collected = true; ud.fade = .45; routeHits++;
             r.material.color.setHex(0xffe9a0); Game.score += 350; Player.energy = Math.min(100, Player.energy + 25);
             A.sOrb(); P.fx.burst(r.position, 2, 0x69eaff, true);
-            if (routeHits === 3) {
-              Game.score += 500; Player.energy = Math.min(100, Player.energy + 25);
-              P.toast('CLEAN PASS · +500 BONUS · +50 WING POWER');
-            } else P.toast('GATE ' + routeHits + ' / 3 · +350 · +25 WING POWER');
+            if (mission && mission.id === 'gates') progress(routeHits);
+            if (routeHits < 3) P.toast('GATE ' + routeHits + ' / 3 · +350 · +25 WING POWER');
             if (!routeDone) { routeDone = true;
               formation(crossX < 0 ? 'ray' : 'carrier', crossX, 14, 230); }
           }
           if (!ud.collected) r.visible = false;
         }
       });
+      if (mission && mission.id === 'gates' && Game.railZ - Game.epStartZ > 5220) finish(false, 'A gate was missed. Each collected gate still keeps its reward.');
       once('maneuvers', 5700, function () { P.toast('SHIFT BOOST · X AIR BRAKE · SPACE EVASIVE ROLL'); });
     } else if (episode === 'ep2') {
       once('crossfire', 1400, function () {
+        begin('crossfire', 'Break the crossing squadron', 'Destroy 4 marked skimmers before they leave the sector.', 4, 38, 1400, 30, 0, 'drowned-patrol');
         P.toast('CROSSING SQUADRON · KEEP MOVING');
-        [-1, 1].forEach(function (side) { for (var i = 0; i < 3; i++) formation('ray', side * (48 + i * 8), 10 + i * 6, 220 + i * 35); });
+        [-1, 1].forEach(function (side) { for (var i = 0; i < 3; i++) formation('ray', side * (48 + i * 8), 10 + i * 6, 220 + i * 35, 'drowned-patrol'); });
       });
       once('ambush', 3800, function () { P.toast('INTERCEPTORS INBOUND · WATCH YOUR FLANKS'); formation('chaser', -24, 8, -85); formation('chaser', 24, 8, -110); });
     } else if (episode === 'foundry') {
@@ -6460,10 +7039,16 @@ P.campaign = {
         P.toast('BREAK THE CONVOY · FLANK CARRIERS FOR DOUBLE DAMAGE');
         [-36, 0, 36].forEach(function (x, i) { formation('carrier', x, 8, 210 + i * 50, 'foundry-convoy'); });
       });
-      once('guard', 3300, function () { P.toast('FOUNDRY DEFENCE WING'); for (var i = 0; i < 5; i++) formation('wasp', (i - 2) * 25, 18, 190 + i * 18); });
+      once('guard', 3300, function () {
+        begin('breach', 'Stop the heavy barrage', 'Charge-break or destroy both marked bombers. Fire during CHARGING.', 2, 38, 1600, 40, 0, 'foundry-breach');
+        [-1, 1].forEach(function (side) { formation('bomber', side * 42, 18, 180, 'foundry-breach'); });
+      });
     } else if (episode === 'ep3') {
-      once('gate', 900, function () { P.toast('THE MOUNTAIN GATE · CLIMB TO FLANK THE GUARD'); formation('carrier', -24, 0, 230); formation('carrier', 24, 0, 280); });
-      once('last', 4400, function () { P.toast('THE LAST DEFENCE'); for (var i = 0; i < 4; i++) formation('wasp', (i - 1.5) * 30, 15, 190 + i * 20); });
+      once('gate', 900, function () { P.toast('THE MOUNTAIN GATE · CLIMB TO FLANK THE GUARD'); formation('sentinel', -30, 0, 180, 'citadel-guard'); formation('sentinel', 30, 0, 210, 'citadel-guard'); });
+      once('last', 4400, function () {
+        begin('last-defence', 'Clear the final defence', 'Destroy all 4 marked fighters before the Fountain approach.', 4, 35, 1800, 40, 0, 'citadel-last');
+        P.toast('THE LAST DEFENCE'); for (var i = 0; i < 4; i++) formation('wasp', (i - 1.5) * 30, 15, 190 + i * 20, 'citadel-last');
+      });
     }
     previousPos.copy(Player.pos);
   }
@@ -6635,6 +7220,7 @@ P.enemyCombat = {
         } else P.toast('CHARGE BROKEN · +50% DAMAGE');
         if (P.fx) P.fx.burst(e.pos, 2.1, 0x73fff0, true);
         P.Audio_.sZap(e.pos);
+        if (P.campaign && P.campaign.onChargeBreak) P.campaign.onChargeBreak(e);
       }
     }
     return damage;
@@ -6816,6 +7402,27 @@ var scene = P.scene, camera = P.camera, renderer = P.renderer;
 var Game = P.Game, Player = P.Player, Input = P.Input, Locks = P.Locks;
 var E = P.entities, Boss = P.Boss, A = P.Audio_, hx = P.hx, HUD = P.HUD;
 var EPISODES = P.world.EPISODES;
+var departure = document.getElementById('departureStage');
+var guideChoice = document.getElementById('guidedOpening').closest('label');
+EPISODES.forEach(function (ep, i) {
+  var option = document.createElement('option');
+  option.value = i;
+  option.textContent = String(i + 1).padStart(2, '0') + '  /  ' + ep.name;
+  departure.appendChild(option);
+});
+function refreshDeparture() {
+  var index = departure.selectedIndex;
+  guideChoice.hidden = index !== 0;
+  document.getElementById('departureBrief').textContent = EPISODES[index].sub;
+}
+refreshDeparture();
+departure.addEventListener('change', function () {
+  refreshDeparture();
+  if (Game.state === 'title') {
+    Game.railZ = 0;
+    enterEpisode(departure.selectedIndex, true, true, true);
+  }
+});
 
 // -------------------------------------------------------------- world setup
 var terrain = new P.world.Terrain();
@@ -6908,7 +7515,7 @@ function enterEpisode(i, instant, silent, keepMusic) {
   if (!silent) showCard(ep);
   if (!keepMusic) P.playMusic(ep.music);
   Game.bossDelay = ep.id === 'boss' ? 2.6 : 0;
-  if (P.campaign) P.campaign.enter(ep);
+  if (P.campaign && Game.state !== 'title') P.campaign.enter(ep);
 }
 
 P.enterEpisode = enterEpisode; // Used by the development scene preview.
@@ -6994,11 +7601,11 @@ function bracket(x, y, s, col, lw) {
   hx.stroke();
 }
 function txt(s, x, y, size, col, align, weight) {
-  hx.font = (weight || 'bold') + ' ' + size + 'px "Courier New", monospace';
+  hx.font = (weight || '650') + ' ' + size + 'px system-ui, sans-serif';
   hx.textAlign = align || 'left';
   hx.textBaseline = 'alphabetic';
   hx.fillStyle = 'rgba(0,0,0,0.7)';
-  hx.fillText(s, x + 2, y + 2);
+  hx.fillText(s, x + 1, y + 1);
   hx.fillStyle = col;
   hx.fillText(s, x, y);
 }
@@ -7011,19 +7618,52 @@ function targetHealth(t, x, y, width) {
   hx.fillRect(x - width / 2, y, width * clamp(t.hp / t.maxHp, 0, 1), 3);
 }
 
+function objectiveBeacon(target, point, size) {
+  var task = P.campaign && P.campaign.objective;
+  if (!task || !task.tag || task.status !== 'active' || task.tag !== target.tag) return;
+  var x = point.x + size + 8, y = point.y - size;
+  hx.save(); hx.fillStyle = '#ffdb83'; hx.strokeStyle = '#402c19'; hx.lineWidth = 1.5;
+  hx.beginPath(); hx.moveTo(x, y - 6); hx.lineTo(x + 5, y); hx.lineTo(x, y + 6); hx.lineTo(x - 5, y);
+  hx.closePath(); hx.fill(); hx.stroke(); hx.restore();
+}
 function staggerArc(target, x, y, radius) {
   if (!(target.staggerT > 0)) return;
   hx.save(); hx.strokeStyle = '#80f7ff'; hx.lineWidth = 2;
   hx.beginPath(); hx.arc(x, y, radius, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(target.staggerT / (P.enemyCombat.staggerDuration || 1.8), 0, 1));
   hx.stroke(); hx.restore();
 }
+var missionPanel = document.getElementById('objective');
+var missionTitle = document.getElementById('objectiveTitle');
+var missionHint = document.getElementById('objectiveHint');
+var missionState = document.getElementById('objectiveState');
+var missionCount = document.getElementById('objectiveCount');
+var missionMeter = document.getElementById('objectiveMeter');
+function updateText(node, text) {
+  if (node.textContent !== text) node.textContent = text;
+}
+function updateObjectivePanel() {
+  var objective = P.campaign && P.campaign.objective;
+  var hidden = Game.state !== 'playing' || !objective;
+  if (missionPanel.hidden !== hidden) missionPanel.hidden = hidden;
+  if (hidden) return;
+  var active = objective.status === 'active';
+  updateText(missionState, active ? (objective.tag ? '◆  Mission target' : 'Flight objective') : objective.status === 'success' ? 'Objective complete' : 'Objective missed');
+  var clock = active && Number.isFinite(objective.remaining) ? '  ·  ' + Math.ceil(objective.remaining) + 's' : '';
+  updateText(missionCount, objective.current + ' / ' + objective.target + clock);
+  updateText(missionTitle, objective.title);
+  updateText(missionHint, active ? objective.hint : objective.status === 'success' ? objective.rewardLabel : 'Continue the flight.');
+  if (missionMeter.value !== objective.progress) missionMeter.value = objective.progress;
+}
 function drawHUD(dt) {
   var w = HUD.w, h = HUD.h;
   hx.clearRect(0, 0, w, h);
   if (Game.state !== 'playing') return;
   var S = Math.min(w, h) / 900;
-  var pad = 26;
+  var compactTop = w < 900;
+  var pad = compactTop ? 12 : 26;
+  var touchUI = P.touch && P.touch.visible;
   // Wing power and maneuver status stay near the lower edge, clear of targets.
+  if (!touchUI) {
   hx.save();
   var powerW = Math.min(240, w * 0.38), powerX = (w - powerW) / 2;
   hx.fillStyle = 'rgba(8,12,25,.78)'; hx.fillRect(powerX - 12, h - 76, powerW + 24, 63);
@@ -7041,6 +7681,7 @@ function drawHUD(dt) {
   hx.fillStyle = ready ? '#a2f5cf' : '#ffcf8d';
   hx.fillText(Player.exhausted ? 'BOOST RECHARGING · ' + rollLabel : rollLabel, w / 2, h - 63);
   hx.restore();
+  }
 
   // ---------- lock brackets on locked targets
   var i, pp;
@@ -7054,6 +7695,7 @@ function drawHUD(dt) {
     bracket(pp.x, pp.y, sz + 2, 'rgba(0,0,0,.8)', 5);
     bracket(pp.x, pp.y, sz, t.staggerT > 0 ? '#80f7ff' : t.attack || t.volley ? '#ff9868' : '#8fffc4', 2.5);
     if (dup === 0) {
+      objectiveBeacon(t, pp, sz);
       targetHealth(t, pp.x, pp.y + sz + 6, Math.max(26, Math.min(48, sz * 2)));
       if (t.staggerT > 0 || t.attack || t.volley) txt(P.enemyCombat ? P.enemyCombat.label(t) : t.volley ? 'FIRING' : 'CHARGING', pp.x, pp.y + sz + 24, 11, t.staggerT > 0 ? '#80f7ff' : '#ff9868', 'center');
       staggerArc(t, pp.x, pp.y, sz + 10);
@@ -7079,6 +7721,7 @@ function drawHUD(dt) {
         bracket(pp.x, pp.y, s2 + 1, 'rgba(0,0,0,.7)', 4);
         bracket(pp.x, pp.y, s2, e.staggerT > 0 ? '#80f7ff' : e.attack || e.volley ? '#ff9868' : lesson ? '#ffd25e' : 'rgba(143,217,255,.8)', 2);
         if (!lesson && P.enemyCombat && (e.staggerT > 0 || e.attack || e.volley || e.type === 'sentinel' || e.type === 'bomber')) txt(P.enemyCombat.label(e), pp.x, pp.y + s2 + 15, 11, e.staggerT > 0 ? '#80f7ff' : e.attack || e.volley ? '#ff9868' : '#91e8ff', 'center');
+        objectiveBeacon(e, pp, s2);
         staggerArc(e, pp.x, pp.y, s2 + 9);
         if (e.type === 'carrier') txt(Math.abs(Player.x - e.pos.x) > 26 || Player.pos.y - e.pos.y > 18 ? 'CORE EXPOSED ×2' : 'FLANK TO EXPOSE CORE', pp.x, pp.y - s2 - 9, 11, '#ffcf88', 'center');
         if (lesson) txt(e.tag === 'opening-target' ? '−1 YEAR' : 'SENTRY', pp.x, pp.y - s2 - 9, 12, '#ffd25e', 'center');
@@ -7153,12 +7796,14 @@ function drawHUD(dt) {
   }
 
   // ---------- age gauge (top-left)
-  var gx = pad, gy = pad + 6, gw = Math.min(360, w * 0.32), gh = 20;
+  var gx = pad, gy = compactTop ? 22 : pad + 6;
+  var gw = compactTop ? Math.min(210, (w - pad * 2) * .43) : Math.min(270, w * .23);
+  var gh = compactTop ? 10 : 17;
   var age = Game.age;
   var frac = clamp((100 - age) / (100 - 24), 0, 1);
   var col = age > 88 ? '#ff4a3a' : age > 70 ? '#ffa03a' : age > 50 ? '#ffd25e' : '#8fffc4';
-  txt('AGE', gx, gy + 2, 15, '#cbb894');
-  txt(age.toFixed(1), gx + 54, gy + 6, 30, col);
+  txt('AGE', gx, gy + 2, compactTop ? 10 : 15, '#cbb894');
+  txt(age.toFixed(1), gx + (compactTop ? 32 : 54), gy + 6, compactTop ? 24 : 30, col);
   hx.fillStyle = 'rgba(0,0,0,.55)';
   hx.fillRect(gx, gy + 16, gw, gh);
   hx.fillStyle = col;
@@ -7169,18 +7814,24 @@ function drawHUD(dt) {
   var tmx = gx + gw * ((100 - 30) / (100 - 24));
   hx.strokeStyle = '#8fffc4'; hx.lineWidth = 2;
   hx.beginPath(); hx.moveTo(tmx, gy + 12); hx.lineTo(tmx, gy + 16 + gh + 4); hx.stroke();
-  txt('30', tmx, gy + 16 + gh + 20, 12, '#8fffc4', 'center');
-  txt('100 → DUST', gx, gy + 16 + gh + 20, 12, '#7e7192');
+  var ageFooter = compactTop ? 62 : gy + 16 + gh + 20;
+  txt('30', tmx, ageFooter, compactTop ? 9 : 12, '#8fffc4', 'center');
+  txt('100 → DUST', gx, ageFooter, compactTop ? 9 : 12, '#9fa9b3');
 
   // ---------- score / combo (top-right)
-  txt(('' + Game.score).padStart(8, '0'), w - pad, gy + 22, 26, '#ffd25e', 'right');
-  txt('SCORE', w - pad, gy + 40, 12, '#7e7192', 'right');
-  if ((Game.heat || 0) > 0.01) {
+  txt(('' + Game.score).padStart(8, '0'), w - pad, compactTop ? gy + 6 : gy + 22, compactTop ? 22 : 26, '#ffd25e', 'right');
+  txt('SCORE', w - pad, compactTop ? gy + 23 : gy + 40, compactTop ? 9 : 12, '#9fa9b3', 'right');
+  if (compactTop && (Game.combo > 1 || (Game.heat || 0) > .01)) {
+    var combatLine = Game.combo > 1 ? '×' + Game.combo + ' CHAIN' : '';
+    if ((Game.heat || 0) > .01) combatLine += (combatLine ? ' · ' : '') + 'HEAT ' + Math.round(Game.heat * 100) + '%';
+    txt(combatLine, w - pad, 62, 10, '#a7e9d5', 'right');
+  }
+  if (!compactTop && (Game.heat || 0) > 0.01) {
     var _ht = Game.heat;
     var _hc = 'rgb(255,' + Math.round(210 - _ht * 130) + ',' + Math.round(148 - _ht * 110) + ')';
     txt('HEAT ' + Math.round(_ht * 100) + '%  ·  ' + Locks.max + ' LOCKS', w - pad, gy + 88, 13, _hc, 'right');
   }
-  if (Game.combo > 1) {
+  if (!compactTop && Game.combo > 1) {
     txt('×' + Game.combo + ' CHAIN', w - pad, gy + 66, 17, '#8fffc4', 'right');
     hx.fillStyle = 'rgba(143,255,196,.18)'; hx.fillRect(w - pad - 120, gy + 71, 120, 3);
     hx.fillStyle = Game.comboT < .7 ? '#ffcb7e' : '#8fffc4';
@@ -7189,9 +7840,13 @@ function drawHUD(dt) {
 
   // ---------- episode + progress (top centre)
   var ep = EPISODES[Game.epIndex];
-  txt(ep.label + ' · ' + ep.name, w / 2, gy + 16, 13, 'rgba(203,184,148,.9)', 'center');
+  var sectorText = compactTop ? String(Game.epIndex + 1).padStart(2, '0') + ' / ' + ep.name : ep.label + ' · ' + ep.name;
+  var sectorWidth = compactTop ? w - pad * 2 : w * .42;
+  hx.save(); hx.beginPath(); hx.rect(w / 2 - sectorWidth / 2, compactTop ? 72 : gy, sectorWidth, 22); hx.clip();
+  txt(sectorText, w / 2, compactTop ? 86 : gy + 16, compactTop ? 10 : 12, 'rgba(225,215,191,.95)', 'center');
+  hx.restore();
   if (ep.id !== 'boss') {
-    var pw = Math.min(420, w * 0.34), px = w / 2 - pw / 2, py = gy + 26;
+    var pw = compactTop ? w - pad * 2 : Math.min(420, w * 0.34), px = w / 2 - pw / 2, py = compactTop ? 93 : gy + 26;
     hx.fillStyle = 'rgba(0,0,0,.5)'; hx.fillRect(px, py, pw, 7);
     hx.fillStyle = '#8fd9ff'; hx.fillRect(px + 1, py + 1, (pw - 2) * clamp(Game.epProgress, 0, 1), 5);
     hx.strokeStyle = 'rgba(255,255,255,.35)'; hx.lineWidth = 1; hx.strokeRect(px, py, pw, 7);
@@ -7203,7 +7858,7 @@ function drawHUD(dt) {
     for (i = 0; i < Boss.built.cores.length; i++) {
       totalHp += Math.max(0, Boss.built.cores[i].hp); maxHp += Boss.built.cores[i].maxHp;
     }
-    var bw = Math.min(620, w * 0.6), bx = w / 2 - bw / 2, by = h - pad - 84;
+    var bw = Math.min(620, w * 0.6), bx = w / 2 - bw / 2, by = h - (touchUI ? 185 : pad + 84);
     txt('CHRONOS · HOUR-SPHINX', w / 2, by - 8, 14, '#ff8a5a', 'center');
     hx.fillStyle = 'rgba(0,0,0,.6)'; hx.fillRect(bx, by, bw, 16);
     hx.fillStyle = '#ff5a3a'; hx.fillRect(bx + 2, by + 2, (bw - 4) * (totalHp / maxHp), 12);
@@ -7215,6 +7870,7 @@ function drawHUD(dt) {
   }
 
   // ---------- radar (bottom-left)
+  if (!touchUI) {
   var rcx = pad + 62, rcy = h - pad - 62, rr2 = 54;
   hx.fillStyle = 'rgba(6,3,14,.62)';
   hx.beginPath(); hx.arc(rcx, rcy, rr2, 0, TAU); hx.fill();
@@ -7261,6 +7917,7 @@ function drawHUD(dt) {
   // ---------- stats bottom-right
   txt('KILLS ' + Game.kills, w - pad, h - pad - 26, 13, 'rgba(203,184,148,.8)', 'right');
   txt('ORBS ' + Game.orbsTaken, w - pad, h - pad - 8, 13, 'rgba(203,184,148,.8)', 'right');
+  }
 
   // ---------- damage vignette
   if (Game.hurtT > 0) {
@@ -7286,6 +7943,7 @@ function keyName(e) { return (e.key || '').toLowerCase(); }
 window.addEventListener('keydown', function (e) {
   var k = keyName(e);
   if (e.target && /^(INPUT|SELECT|BUTTON)$/.test(e.target.tagName) && Game.state === 'paused' && k !== 'p' && k !== 'escape' && k !== 'm') return;
+  if (Game.state === 'title' && e.target.closest && e.target.closest('select,input,button,summary')) return;
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].indexOf(k) >= 0) e.preventDefault();
   if (Input.keys[k]) return;
   Input.keys[k] = true;
@@ -7349,16 +8007,8 @@ window.addEventListener('mouseup', function (e) {
 });
 window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
-// touch: drag to aim, tap to fire
-window.addEventListener('touchstart', function (e) {
-  if (Game.state !== 'playing') return;
-  var t = e.touches[0]; updMouse(t); Input.lmb = true;
-}, { passive: true });
-window.addEventListener('touchmove', function (e) { updMouse(e.touches[0]); }, { passive: true });
-window.addEventListener('touchend', function () {
-  if (Input.lmb) { if (Locks.list.length) E.fireLasers(); else E.fireGun(); }
-  Input.lmb = false;
-});
+// Touch input is isolated in p5b_touch; menus keep their native pointer behavior.
+P.touchActions = { pause: togglePause, skipIntro: skipIntro };
 
 function togglePause() {
   if (Game.state === 'playing') { Game.state = 'paused'; P.el.pause.classList.add('on'); }
@@ -7447,8 +8097,8 @@ function endIntro() {
   camera.fov = 56; camera.updateProjectionMatrix();
   P.hudCanvas.style.display = 'block';
   P.el.skip.classList.remove('on');
-  showCard(EPISODES[0]);
-  P.opening.start();
+  showCard(EPISODES[Game.epIndex]);
+  if (Game.epIndex === 0) P.opening.start();
 }
 P.setIntroT = function (frac) { introT = INTRO_LEN * frac; };
 P.getIntroT = function () { return introT; };
@@ -7459,8 +8109,10 @@ function skipIntro() {
 
 // ================================================================= GAME FLOW
 function resetGame() {
+  if (P.voice) P.voice.reset();
   if (P.sound) P.sound.reset();
   P.opening.reset();
+  if (P.campaign && P.campaign.reset) P.campaign.reset();
   if (P.flight) P.flight.reset();
   if (P.fx) P.fx.reset();
   E.reset();
@@ -7499,7 +8151,15 @@ function startGame() {
   P.el.over.classList.remove('on');
   P.el.win.classList.remove('on');
   P.el.skip.classList.add('on');
-  enterEpisode(0, true, true, true);   // the title theme carries the cinematic
+  var launchIndex = departure.selectedIndex;
+  Player.railY = EPISODES[launchIndex].railY;
+  Player.pos.set(0, Player.railY, 0);
+  enterEpisode(launchIndex, true, true, true);
+  if (launchIndex !== 0) {
+    camera.position.set(0, Player.railY + 8, -28);
+    camera.lookAt(0, Player.railY + 3, 12);
+    endIntro();
+  }
 }
 
 function rankFor(age) {
@@ -7512,6 +8172,9 @@ function rankFor(age) {
 
 P.onEnd = function (won) {
   P.opening.reset();
+  if (P.campaign) P.campaign.finishRun();
+  var objectiveResults = P.campaign ? P.campaign.results : [];
+  var completed = objectiveResults.filter(function (result) { return result.status === 'success'; }).length;
   var acc = Game.shots ? Math.round(Game.hits / Game.shots * 100) : 0;
   var finalAge = won ? clamp(Game.age - 4, 24, 100) : Game.age;
   if (won) { Game.age = finalAge; P.dragon.setAge(finalAge); }
@@ -7523,6 +8186,8 @@ P.onEnd = function (won) {
   var stats = ageStat + ' &nbsp;·&nbsp; KILLS <b>' + Game.kills +
               '</b> &nbsp;·&nbsp; BEST CHAIN <b>×' + Game.bestCombo + '</b><br>ACCURACY <b>' + acc +
               '%</b> &nbsp;·&nbsp; ORBS <b>' + Game.orbsTaken + '</b> &nbsp;·&nbsp; SCORE <b>' + Game.score + '</b>';
+  if (Game.reflections) stats += '<br>SHOTS RETURNED <b>' + Game.reflections + '</b>';
+  if (objectiveResults.length) stats += '<br>OBJECTIVES <b>' + completed + ' / ' + objectiveResults.length + '</b>';
   if (won) {
     var rk = rankFor(finalAge);
     document.getElementById('winAge').textContent = finalAge.toFixed(0);
@@ -7555,6 +8220,19 @@ P.onEnd = function (won) {
 // Arming and the autoplay retry both live in p1_core now — it owns the stream,
 // so it is the only place that knows whether a track actually started.
 
+function returnToDeck() {
+  resetGame();
+  Game.state = 'title';
+  P.hudCanvas.style.display = 'none';
+  [P.el.win,P.el.over,P.el.pause,P.el.card,P.el.skip].forEach(function (el) { el.classList.remove('on'); });
+  E.setToastT(0); E.setQuipT(0); cardT = 0;
+  P.el.title.classList.add('on');
+  enterEpisode(departure.selectedIndex, true, true, true);
+  P.playMusic('title');
+}
+document.querySelectorAll('.deck-link').forEach(function (button) { button.addEventListener('click', returnToDeck); });
+document.getElementById('resumeFlight').addEventListener('click', togglePause);
+document.getElementById('leaveFlight').addEventListener('click', returnToDeck);
 document.getElementById('startBtn').addEventListener('click', startGame);
 document.getElementById('againBtn').addEventListener('click', startGame);
 document.getElementById('winBtn').addEventListener('click', startGame);
@@ -7571,6 +8249,7 @@ function frame(now) {
   _frameId++; P.frames = _frameId;
 
   A.update();
+  if (P.voice) P.voice.update(dt);
 
   if (Game.state === 'playing') {
     Game.time += dt;
@@ -7598,7 +8277,7 @@ function frame(now) {
     var ep = EPISODES[Game.epIndex];
     if (ep.id !== 'boss') {
       Game.epProgress = (Game.railZ - Game.epStartZ) / ep.length;
-      if (Game.epProgress >= 1) {
+      if (Game.epProgress >= 1 && Game.state === 'playing') {
         P.flashScreen(0.85, '#ffffff');
         enterEpisode(Game.epIndex + 1, false);
       }
@@ -7610,18 +8289,20 @@ function frame(now) {
     // slow idle orbit over the canyon for the title screen
     Game.time += dt;
     Game.railZ += 26 * dt;
-    Player.pos.set(Math.sin(Game.time * 0.3) * 8, 26 + Math.sin(Game.time * 0.4) * 3, Game.railZ);
+    Player.pos.set(Math.sin(Game.time * 0.3) * 8, EPISODES[Game.epIndex].railY + 12 + Math.sin(Game.time * 0.4) * 3, Game.railZ);
     P.dragon.root.position.copy(Player.pos);
     P.dragon.root.rotation.y = Math.sin(Game.time * 0.25) * 0.35;
     P.dragon.update(dt, Game.time, { strafeX: Math.sin(Game.time * 0.25) * 0.4, strafeY: 0,
       vy: Math.sin(Game.time * 0.42) * 26, aimX: 0, aimY: 0, boost: 0 });
-    var yaw2 = Math.sin(Game.time * 0.22) * 0.8;
-    camera.position.set(
-      Player.pos.x + Math.sin(yaw2) * -34 + Math.cos(Game.time * 0.18) * 12,
-      Player.pos.y + 8,
-      Player.pos.z + Math.cos(yaw2) * -34
-    );
-    camera.lookAt(Player.pos.x, Player.pos.y + 1.5, Player.pos.z + 6);
+    // Three-quarter portrait, framed beside the launch controls.
+    var yaw2 = 2.15 + Math.sin(Game.time * .15) * .46;
+    var wide = HUD.w > 700;
+    var distance = wide ? 25 : 38;
+    var offset = wide ? distance * .19 * camera.aspect : 3;
+    camera.position.set(Player.pos.x + Math.sin(yaw2) * distance, Player.pos.y + 5,
+      Player.pos.z + Math.cos(yaw2) * distance);
+    camera.lookAt(Player.pos.x - Math.cos(yaw2) * offset, Player.pos.y + 1.1,
+      Player.pos.z + Math.sin(yaw2) * offset);
     P.skyMesh.position.copy(camera.position);
     terrain.update(Game.railZ);
     props.update(Game.railZ);
@@ -7692,6 +8373,7 @@ function frame(now) {
   // across and follows the player, so the map stays dense where it is looked at.
   if (P.shadowsOn()) P.trackShadow(Player.pos.x, Player.pos.y - 12, Player.pos.z + 40);
 
+  updateObjectivePanel();
   drawHUD(dt);
   // weather rides the camera, so it updates after the camera is final
   if (P.weather) P.weather.update(dt, camera.position, Game.time);
@@ -7787,6 +8469,177 @@ var BOOT = [
   });
 })(0);
 
+})();
+
+
+/* Judge Dean LLC — independent multitouch flight, aiming and maneuver controls. */
+(function () {
+'use strict';
+var P = window.__PF, Input = P.Input, Game = P.Game, Player = P.Player;
+var enabled = !!(navigator.maxTouchPoints || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches));
+var pointers = new Map(), aimPointer = null, stickPointer = null, lastState = Game.state, lastTime = Game.time;
+var keyOwners = {}, previousKeys = {}, mouseFireBefore = false, shown = false, menuHelp = null;
+Input.touchX = Input.touchY = 0;
+var style = document.createElement('style');
+style.textContent = [
+  "#gl{touch-action:none}#touch-flight{position:fixed;inset:0;z-index:14;pointer-events:none;display:none;user-select:none;-webkit-user-select:none}",
+  "#touch-flight.on{display:block}#touch-flight button,#touch-stick{pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent}",
+  "#touch-stick{position:absolute;left:max(12px,env(safe-area-inset-left));bottom:max(20px,env(safe-area-inset-bottom));width:112px;height:112px;border-radius:50%;border:1px solid #a3d9d466;background:radial-gradient(circle,#152b3655,#08142299);box-shadow:inset 0 0 30px #78d7d812}",
+  "#touch-stick:before,#touch-stick:after{content:\"\";position:absolute;background:#a4dddd33;pointer-events:none}#touch-stick:before{left:55px;top:12px;width:1px;height:86px}#touch-stick:after{left:12px;top:55px;width:86px;height:1px}",
+  "#touch-knob{position:absolute;left:36px;top:36px;width:38px;height:38px;border:1px solid #b4f5e9aa;border-radius:50%;background:#87d6d64d;pointer-events:none}",
+  "#touch-stick-label{position:absolute;top:-22px;left:0;right:0;text-align:center;font:10px system-ui;color:#c2e8e1;letter-spacing:.14em}",
+  "#touch-buttons{position:absolute;right:max(12px,env(safe-area-inset-right));bottom:max(20px,env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(4,48px);gap:6px}",
+  "#touch-flight button{min-width:44px;min-height:46px;border:1px solid #8eb8bc88;border-radius:12px;background:#10232cba;color:#e3f6ee;font:600 10px system-ui;letter-spacing:.07em;padding:8px 3px}",
+  "#touch-flight button.held{background:#518b8bbf;border-color:#c1fff0}#touch-flight button[data-touch-action=boost]{color:#ffd998;border-color:#e5b46f99}",
+  "#touch-status{position:absolute;right:12px;bottom:123px;width:210px;text-align:center;color:#c8f1e3;font:10px system-ui;pointer-events:none}",
+  "#touch-hint{position:absolute;bottom:147px;right:12px;width:210px;color:#bedcd7;font:9px system-ui;text-align:center;pointer-events:none}",
+  "body.touch-mode #briefing{top:108px;bottom:auto;left:12px;transform:none;width:min(330px,calc(50vw - 24px));max-height:calc(100vh - 282px);overflow:auto;padding:8px 10px;touch-action:pan-y}",
+  "body.touch-mode #voice-caption{top:108px;bottom:auto;right:12px;max-width:none;width:min(330px,calc(50vw - 24px));max-height:calc(100vh - 282px);overflow:hidden;padding:8px 10px;font-size:12px;line-height:1.35}",
+  "body.touch-mode #objective{top:108px;left:12px;width:min(280px,calc(50vw - 24px));padding:6px 8px}",
+  "body.touch-guided #objective{display:none}body.touch-mode #skipBriefing{margin-top:4px;min-height:28px}body.touch-mode #briefingText{margin:4px 0;line-height:1.35}",
+  "body.touch-mode #briefingTitle{font-size:14px;margin:4px 0}body.touch-mode #briefingStep{font-size:9px}",
+  "@media(max-width:620px) and (min-height:560px){body.touch-mode #briefing,body.touch-mode #voice-caption,body.touch-mode #objective{left:12px;right:auto;width:calc(100vw - 24px);max-width:none;box-sizing:border-box}body.touch-mode #briefing{max-height:185px}body.touch-mode #voice-caption{max-height:125px}}",
+  "@media(max-height:500px){#touch-stick{width:96px;height:96px;bottom:16px}#touch-knob{left:28px;top:28px}#touch-stick:before{left:47px;height:72px}#touch-stick:after{top:47px;width:72px}#touch-buttons{bottom:16px}#touch-hint{bottom:143px}#touch-status{bottom:119px}body.touch-mode #briefingTitle,body.touch-mode #briefingStep{display:none}body.touch-mode #briefing,body.touch-mode #voice-caption{max-height:calc(100vh - 270px);font-size:11px}body.touch-mode #briefingText{font-size:11px}body.touch-mode #objectiveHint{display:none}}",
+  "@media(max-width:350px){#touch-buttons{grid-template-columns:repeat(4,43px);gap:4px;right:8px}#touch-flight button{min-width:43px;font-size:9px}#touch-stick{width:94px;height:94px;left:8px}#touch-knob{left:27px;top:27px}#touch-stick:before{left:46px;height:70px}#touch-stick:after{top:46px;width:70px}#touch-status,#touch-hint{width:184px;right:8px}}"
+].join("\n");
+document.head.appendChild(style);
+var root = document.createElement('div'); root.id = 'touch-flight'; root.setAttribute('aria-label', 'Touch flight controls');
+var stick = document.createElement('div'); stick.id = 'touch-stick'; stick.dataset.touchAction = 'steer';
+stick.setAttribute('role', 'group'); stick.setAttribute('aria-label', 'Drag to steer. Up climbs.');
+var knob = document.createElement('div'); knob.id = 'touch-knob'; stick.appendChild(knob);
+var label = document.createElement('span'); label.id = 'touch-stick-label'; label.textContent = 'FLIGHT'; stick.appendChild(label); root.appendChild(stick);
+var buttons = document.createElement('div'); buttons.id = 'touch-buttons'; root.appendChild(buttons);
+[['boost', 'BOOST'], ['gun', 'FIRE'], ['roll', 'ROLL'], ['brake', 'BRAKE'], ['left', 'VIEW ‹'], ['right', 'VIEW ›'], ['pause', 'PAUSE']].forEach(function (item) {
+  var button = document.createElement('button'); button.type = 'button'; button.dataset.touchAction = item[0];
+  button.textContent = item[1]; button.setAttribute('aria-label', item[1]); buttons.appendChild(button);
+});
+var hint = document.createElement('span'); hint.id = 'touch-hint'; hint.textContent = 'DRAG SKY TO LOCK · RELEASE TO FIRE'; root.appendChild(hint);
+var status = document.createElement('span'); status.id = 'touch-status'; root.appendChild(status);
+document.body.appendChild(root);
+function playing() { return Game.state === 'playing' && !Game.cinematic && !Game.ending; }
+function aim(e) {
+  Input.mx = e.clientX; Input.my = e.clientY;
+  Input.ndx = e.clientX / Math.max(1, P.HUD.w) * 2 - 1; Input.ndy = 1 - e.clientY / Math.max(1, P.HUD.h) * 2;
+}
+function steer(e) {
+  var bounds = stick.getBoundingClientRect(), radius = bounds.width * .36;
+  var x = (e.clientX - bounds.left - bounds.width / 2) / radius;
+  var y = (bounds.top + bounds.height / 2 - e.clientY) / radius;
+  var length = Math.hypot(x, y), scale = length > 1 ? 1 / length : 1;
+  x *= scale; y *= scale;
+  // A small center dead zone avoids drift when resting a thumb on the pad.
+  var strength = length < .10 ? 0 : Math.min(1, (length - .10) / .90);
+  if (length > .001) { x = x / Math.min(1, length) * strength; y = y / Math.min(1, length) * strength; }
+  Input.touchX = x; Input.touchY = y;
+  knob.style.transform = 'translate(' + (x * radius) + 'px,' + (-y * radius) + 'px)';
+}
+function holdKey(key) {
+  if (!keyOwners[key]) { previousKeys[key] = !!Input.keys[key]; keyOwners[key] = 0; }
+  keyOwners[key]++; Input.keys[key] = true;
+}
+function releaseKey(key) {
+  if (!keyOwners[key]) return;
+  keyOwners[key]--; if (!keyOwners[key]) { Input.keys[key] = !!previousKeys[key]; delete previousKeys[key]; }
+}
+function end(id, canceled) {
+  var item = pointers.get(id); if (!item) return;
+  pointers.delete(id); if (item.element) item.element.classList.remove('held');
+  if (item.action === 'steer') { stickPointer = null; Input.touchX = Input.touchY = 0; knob.style.transform = ''; }
+  if (item.action === 'boost') releaseKey('shift');
+  if (item.action === 'brake') releaseKey('x');
+  if (item.action === 'gun' && !Array.from(pointers.values()).some(function (p) { return p.action === 'gun'; })) Input.rmb = mouseFireBefore;
+  if (item.action === 'aim') {
+    aimPointer = null; Input.lmb = false;
+    if (!canceled && playing()) { if (P.Locks.list.length) P.entities.fireLasers(); else P.entities.fireGun(); }
+    else { P.Locks.list.length = 0; P.Locks.cd = 0; }
+  }
+}
+function reset() {
+  var heldKeys = Object.keys(keyOwners).filter(function (key) { return keyOwners[key] > 0; });
+  var hadGun = Array.from(pointers.values()).some(function (p) { return p.action === 'gun'; });
+  Array.from(pointers.keys()).forEach(function (id) { end(id, true); });
+  heldKeys.forEach(function (key) { Input.keys[key] = false; });
+  if (hadGun) Input.rmb = false;
+  Input.touchX = Input.touchY = 0; knob.style.transform = '';
+}
+function down(e) {
+  if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+  enabled = true;
+  update();
+  var target = e.target, control = target.closest && target.closest('[data-touch-action]');
+  if (!control && target.closest && target.closest('button,input,select,a,summary,#briefing')) return;
+  if (Game.state === 'intro') { e.preventDefault(); P.touchActions.skipIntro(); return; }
+  if (!playing()) return;
+  var action = control ? control.dataset.touchAction : 'aim';
+  if ((action === 'aim' && aimPointer !== null) || (action === 'steer' && stickPointer !== null)) return;
+  e.preventDefault(); e.stopPropagation();
+  pointers.set(e.pointerId, { action: action, element: control });
+  if (control) control.classList.add('held');
+  if (action === 'aim') { aimPointer = e.pointerId; aim(e); Input.lmb = true; }
+  else if (action === 'steer') { stickPointer = e.pointerId; steer(e); }
+  else if (action === 'boost') holdKey('shift');
+  else if (action === 'brake') holdKey('x');
+  else if (action === 'gun') { if (!Array.from(pointers.values()).some(function (p) { return p.action === 'gun' && p !== pointers.get(e.pointerId); })) mouseFireBefore = Input.rmb; Input.rmb = true; }
+  else if (action === 'roll' && P.flight) { if (P.flight.roll()) Player.rollDir = Input.touchX < -.15 ? -1 : 1; }
+  else if (action === 'left' || action === 'right') {
+    Player.viewIndex += action === 'left' ? -1 : 1; Player.camYawTarget = Player.viewIndex * Math.PI / 2; P.Audio_.sView();
+  } else if (action === 'pause') { reset(); P.touchActions.pause(); }
+}
+window.addEventListener('pointerdown', down, { capture: true, passive: false });
+window.addEventListener('pointermove', function (e) {
+  var item = pointers.get(e.pointerId); if (!item) return;
+  if (!playing()) { reset(); return; }
+  e.preventDefault();
+  if (item.action === 'aim') aim(e); else if (item.action === 'steer') steer(e);
+}, { capture: true, passive: false });
+window.addEventListener('pointerup', function (e) { if (pointers.has(e.pointerId)) { e.preventDefault(); end(e.pointerId, false); } }, { capture: true, passive: false });
+window.addEventListener('pointercancel', function (e) { end(e.pointerId, true); }, true);
+['keydown','keyup'].forEach(function (eventName) {
+  window.addEventListener(eventName, function (e) {
+    var key = (e.key || '').toLowerCase();
+    if (!keyOwners[key]) return;
+    previousKeys[key] = eventName === 'keydown'; Input.keys[key] = true;
+  });
+});
+window.addEventListener('blur', reset);
+document.addEventListener('visibilitychange', function () { if (document.hidden) reset(); });
+// Control buttons never bubble compatibility mouse events into the weapon bindings.
+['mousedown','mouseup','click'].forEach(function (name) { root.addEventListener(name, function (e) { e.stopPropagation(); e.preventDefault(); }); });
+function update() {
+  if (Game.state !== lastState || Game.time < lastTime || !playing()) reset();
+  lastState = Game.state; lastTime = Game.time;
+  var visible = enabled && playing();
+  if (shown !== visible) { shown = visible; root.classList.toggle('on', visible); document.body.classList.toggle('touch-mode', visible); }
+  P.touch.enabled = enabled; P.touch.visible = visible;
+  if (enabled && !menuHelp && document.querySelector) {
+    var menu = document.querySelector('.extra-controls');
+    if (menu) {
+      menuHelp = document.createElement('p');
+      menuHelp.textContent = 'TOUCH · Use the left pad to steer; up climbs. Drag across enemies to lock, then lift to fire. Hold BOOST, BRAKE or FIRE. Tap ROLL to evade and VIEW to look around.';
+      menuHelp.style.cssText = 'font:12px/1.5 system-ui,sans-serif;color:#cce8df;max-width:430px;margin:14px 0 0';
+      menu.appendChild(menuHelp);
+    }
+  }
+  if (!visible) { document.body.classList.remove('touch-guided'); return; }
+  var text = 'POWER ' + Math.round(Player.energy === undefined ? 100 : Player.energy) + '% · ' +
+    (Player.rollT > 0 ? 'ROLLING' : Player.rollCD > 0 ? 'ROLL ' + Player.rollCD.toFixed(1) + 's' : Player.energy < 28 ? 'RECHARGING' : 'ROLL READY');
+  if (status.textContent !== text) status.textContent = text;
+  var briefing = document.getElementById ? document.getElementById('briefing') : null;
+  var caption = document.getElementById ? document.getElementById('voice-caption') : null;
+  var objective = document.getElementById ? document.getElementById('objective') : null;
+  var guided = !!(briefing && !briefing.hidden);
+  document.body.classList.toggle('touch-guided', guided);
+  if (caption) {
+    var occupied = guided ? briefing : objective;
+    var top = P.HUD.w <= 620 && P.HUD.h >= 560 && occupied && !occupied.hidden
+      ? Math.max(108, occupied.getBoundingClientRect().bottom + 8) : 108;
+    var cssTop = top + 'px'; if (caption.style.top !== cssTop) caption.style.top = cssTop;
+  }
+  var skip = document.getElementById ? document.getElementById('skipBriefing') : null;
+  if (skip && skip.textContent !== 'Skip briefing') skip.textContent = 'Skip briefing';
+}
+P.touch = { reset: reset, update: update, root: root, enabled: enabled, visible: false, activePointers: function () { return pointers.size; } };
+(function frame() { update(); window.requestAnimationFrame(frame); })();
 })();
 
 </script>

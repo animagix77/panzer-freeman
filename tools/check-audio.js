@@ -29,6 +29,8 @@ P.Input.lmb=true;P.Locks.list=[1,2,3];A.update();assert(loops.charge.gain.gain.v
 P.Game.epIndex=1;A.update();assert.equal(loops.world.filter.frequency.value,110,'foundry rumble');
 P.Game.state='paused';A.update();for(const l of Object.values(loops))assert.equal(l.gain.gain.value,0,'pause fades loops');
 P.Game.state='playing';P.sound.set('effects',0);assert.equal(A.sfxGain.gain.value,0);P.sound.set('effects',1);
+P.sound.set('voice',0);assert.equal(A.sfxGain.gain.value,.95,'rider voice level leaves effects bus unchanged');
+assert.equal(JSON.parse(store['pf-audio-v1']).voice,0,'voice silence persists independently');P.sound.set('voice',1);
 P.sound.set('ambience',.25);assert.equal(A.ambienceBus.gain.value,.25);assert.equal(JSON.parse(store['pf-audio-v1']).ambience,.25);
 P.sound.set('music',0);A.update();assert.equal(P.music,0);P.sound.set('music',.8);
 A.effect('blast',.8);A.update();assert(P.music<.8,'heavy impacts duck music');for(let i=0;i<40;i++){ctx.currentTime+=.1;A.update();}assert(P.music>.79,'music recovers');

@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="author" content="Judge Dean LLC">
+<meta name="theme-color" content="#101b22">
 <title>PANZER FREEMAN — Chronos Requiem</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -160,6 +162,7 @@
   #pausebox { flex-direction:column; gap:24px; }
   .audio-mixer { width:min(380px,88vw); padding:22px; border:1px solid #796a86; background:#151023; color:#e0d9ea; font:14px system-ui,sans-serif; }
   .audio-mixer label { display:grid; grid-template-columns:80px 1fr 42px; gap:12px; align-items:center; margin:14px 0; }
+  .audio-mixer [hidden] { display:none; }
   .audio-mixer input { width:100%; accent-color:#8de9e9; }
   .audio-mixer output { text-align:right; color:#8de9e9; font-size:12px; }
   .audio-mixer button { cursor:pointer; padding:7px 10px; margin:6px 3px 0 0; border:1px solid #766785; background:#2a2039; color:#eee2cd; }
@@ -250,6 +253,73 @@
     #briefingTitle { font-size:16px; margin:5px 0; }
     #briefingText { font-size:12px; }
   }
+
+  #title {
+    padding:clamp(24px,5vh,64px) clamp(22px,6vw,100px); align-items:flex-start;
+    text-align:left; justify-content:flex-start; color:#f3f0df;
+    background:linear-gradient(90deg,rgba(6,15,22,.98) 0%,rgba(6,15,22,.86) 28%,rgba(6,15,22,.36) 51%,transparent 76%);
+  }
+  #title .plate { width:min(440px,96%); margin:auto 0; padding:8px 0; border:0; background:none; box-shadow:none; }
+  #title,#over,#win { overflow-y:auto; overscroll-behavior:contain; }
+  #over,#win { justify-content:flex-start; background:linear-gradient(135deg,#08151be8,#15282ac9); }
+  #over .plate,#win .plate { margin:auto; width:min(660px,100%); padding:clamp(24px,5vw,48px); background:#102129ed;
+    border:1px solid #90c4bc66; box-shadow:0 20px 80px #0006; border-radius:4px; }
+  #over h1,#win h1 { font:italic 700 clamp(34px,5vw,62px)/1.1 Georgia,serif; letter-spacing:-.04em; color:#f7dfaf; text-shadow:none; }
+  #over .statline,#win .statline { font:13px/1.9 system-ui,sans-serif; letter-spacing:.04em; color:#c9ddd6; }
+  #over .lede,#win .lede { font:15px/1.7 Georgia,serif; letter-spacing:0; color:#e5e3d6; }
+  #pausebox { background:#07141cdb; overflow-y:auto; padding:24px 12px; justify-content:flex-start; }
+  #pausebox .pause-heading { margin-top:auto; font:italic 700 clamp(30px,4vw,48px)/1.1 Georgia,serif; letter-spacing:-.03em; color:#f7dfaf; }
+  .audio-mixer { margin-bottom:auto; flex-shrink:0; border-color:#8abdbb66; border-radius:4px; background:#11252deb; color:#dcebe4; }
+  .audio-mixer input { accent-color:#e7bf80; }
+  .audio-mixer button { border-color:#7aa5a977; border-radius:3px; background:#233e47; color:#ecf3e9; }
+  .audio-mixer button:hover { background:#34565f; }
+  #resumeFlight { background:#eac284; color:#14232c; border-color:#eac284; }
+  #title h1 { text-transform:uppercase; font:italic 800 clamp(52px,7vw,108px)/.79 Georgia,serif;
+    letter-spacing:-.085em; color:#fff3d9; text-shadow:0 3px 20px #17202655; }
+  #title h2 { margin-top:16px; font:600 clamp(14px,1.6vw,24px)/1.2 Georgia,serif; color:#e9ba78; text-transform:uppercase; letter-spacing:.28em; }
+  .studio,.departure label { display:block; font:700 10px/1.3 system-ui,sans-serif; letter-spacing:.22em; text-transform:uppercase; }
+  .studio { color:#9ad2c7; margin:0 0 clamp(16px,3vh,34px); }
+  #title .lede { max-width:355px; margin:16px 0; color:#f1e8d6; font:16px/1.45 Georgia,serif; }
+  .departure { max-width:355px; border-block:1px solid #9ac2be65; padding:11px 0; }
+  .departure label { color:#a1cdc8; }
+  .departure select { width:100%; margin:4px 0; padding:5px 4px 5px 0; color:#fff5df; background:#142025; border:0;
+    font:600 16px/1.3 system-ui,sans-serif; cursor:pointer; }
+  #departureBrief { color:#dbdfd7; font:13px/1.4 system-ui,sans-serif; }
+  .guide-choice { margin:13px 0; font:13px system-ui,sans-serif; }
+  .guide-choice[hidden] { display:none; }
+  .btn { border:0; border-radius:2px; box-shadow:none; background:#f4c780; color:#16232a; transition:background .15s; font:750 13px/1 system-ui,sans-serif; letter-spacing:.1em; }
+  #title .btn { margin:3px 0; padding:16px 21px; min-width:220px; display:flex; align-items:center; justify-content:space-between; }
+  .btn:hover,.btn:active { background:#ffe0ad; box-shadow:none; transform:none; }
+  #title .extra-controls { margin-top:12px; color:#d1ddd9; }
+  #title .keys { gap:6px; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); }
+  #title .keys div { justify-content:flex-start; }
+  .deck-link { display:block; margin:16px auto 0; cursor:pointer; color:#c1e4dc; background:none; border:0; font:14px system-ui,sans-serif; text-decoration:underline; }
+  #card { align-items:flex-end; justify-content:flex-end; padding:0 5vw 24vh; text-align:right; }
+  #card .nm { max-width:56vw; margin-top:5px; font:italic bold clamp(24px,3.5vw,54px)/.99 Georgia,serif; letter-spacing:-.025em; color:#fff1cd; text-shadow:0 2px 8px #101a23; }
+  #card .sub { max-width:32ch; font:italic 14px/1.45 Georgia,serif; color:#faf1d6; margin-top:6px; text-shadow:0 1px 4px #111; }
+  #toast { max-width:min(80vw,740px); width:max-content; white-space:normal; text-align:center; top:17%; font:650 clamp(10px,1.2vw,14px)/1.4 system-ui,sans-serif; letter-spacing:.06em; padding:5px 12px; background:#09171dcf; border-block:1px solid #81bfba66; }
+  #briefing { background:linear-gradient(90deg,#0c191fef,#101e25dd); border-left-color:#edbd72; }
+  #briefingTitle { font:bold 19px/1.12 Georgia,serif; }
+  #briefingText { font:13px/1.4 system-ui,sans-serif; }
+  @media(min-width:900px) and (min-height:601px){#briefing{bottom:165px;}}
+  @media(max-width:700px) { #title {background:linear-gradient(90deg,#081319ed,#081319a6 70%,#08131944);} #card .sub{display:none;} }
+  @media(max-height:570px) {#title h1 br{display:inline;} #title h1 br::after{content:" ";} #title h1{font-size:40px;} #title .studio{margin-bottom:8px;} #title .lede{margin:8px 0;font-size:14px;} #title{padding-block:12px;} }
+  #objective { position:absolute; z-index:10; left:25px; top:108px; width:clamp(185px,23vw,296px); padding:10px 13px;
+    color:#f6efe0; background:linear-gradient(90deg,#0b1923ec,#14232cc9); border-left:2px solid #9bdccd; pointer-events:none; }
+  .objective-line { display:flex; justify-content:space-between; gap:8px; color:#a5daca;
+    font:700 10px/1.3 system-ui,sans-serif; letter-spacing:.1em; text-transform:uppercase; }
+  #objectiveTitle { display:block; font:600 17px/1.2 Georgia,serif; margin:4px 0; }
+  #objectiveHint { font:12px/1.4 system-ui,sans-serif; color:#dfe3dc; }
+  #objectiveMeter { display:block; border:0; appearance:none; height:3px; margin-top:7px; width:100%; background:#40505a; }
+  #objectiveMeter::-webkit-progress-bar { background:#40505a; }
+  #objectiveMeter::-webkit-progress-value { background:#9bdccd; }
+  #objectiveMeter::-moz-progress-bar { background:#9bdccd; }
+  @media (max-width:899px),(max-height:600px) {
+    #objective { left:10px; top:108px; width:min(230px,44vw); padding:6px 9px; }
+    #objectiveTitle {font-size:14px;} #objectiveHint {font-size:11px;}
+    #briefing { top:auto; bottom:105px; left:10px; transform:none; width:min(295px,44vw); padding:8px 10px; }
+    #briefingTitle { font-size:15px; } #briefingText { font-size:11px; }
+  }
 </style>
 </head>
 <body>
@@ -263,6 +333,11 @@
 
   <div id="card"><div class="ep"></div><div class="nm"></div><div class="sub"></div></div>
   <div id="toast"></div>
+  <aside id="objective" hidden aria-label="Current objective">
+    <div class="objective-line"><span id="objectiveState"></span><span id="objectiveCount"></span></div>
+    <strong id="objectiveTitle"></strong><p id="objectiveHint"></p>
+    <progress id="objectiveMeter" max="1" value="0" aria-label="Objective progress"></progress>
+  </aside>
   <aside id="briefing" hidden aria-label="Flight briefing">
     <div id="briefingStep"></div>
     <h3 id="briefingTitle"></h3>
@@ -276,8 +351,11 @@
       <strong>Sound mix</strong>
       <label for="audio-music">Music <input id="audio-music" type="range" min="0" max="100" value="80"><output id="audio-music-value">80%</output></label>
       <label for="audio-effects">Effects <input id="audio-effects" type="range" min="0" max="100" value="100"><output id="audio-effects-value">100%</output></label>
+      <label id="audio-voice-row" for="audio-voice" hidden>Rider voice <input id="audio-voice" type="range" min="0" max="100" value="100"><output id="audio-voice-value">100%</output></label>
       <label for="audio-ambience">Ambience <input id="audio-ambience" type="range" min="0" max="100" value="60"><output id="audio-ambience-value">60%</output></label>
       <button id="test-laser">Test laser</button><button id="test-blast">Test explosion</button><button id="test-wing">Test wings</button>
+      <p id="audio-voice-credit" hidden>AI parody voice generated with Parrot AI. Original dialogue.</p>
+      <div class="pause-actions"><button id="resumeFlight">Resume flight</button><button id="leaveFlight">Abandon flight &amp; choose sector</button></div>
       <p>Settings are saved on this device.<br>Press P or Escape to return to flight. M mutes all audio.</p>
     </section>
   </div>
@@ -285,23 +363,22 @@
 
   <div class="screen on" id="title">
     <div class="plate">
-      <h1>PANZER FREEMAN</h1>
-      <h2>CHRONOS REQUIEM</h2>
-      <p class="lede">
-        Eighty-nine years old, and the sky still owes him something.<br>
-        The old rider and his dragon fly east toward the Fountain — a machine buried
-        by a dead empire that runs time backward for anyone who can reach it.<br>
-        Every enemy defeated gives him time back. Every hit makes him older.
-      </p>
-      <div class="keys">
-        <div><span class="kbd">A</span><span class="kbd">D</span><span class="d">bank left / right</span></div>
-        <div><span class="kbd">HOLD LMB</span><span class="d">paint lock-ons</span></div>
-        <div><span class="kbd">RELEASE</span><span class="d">fire laser volley</span></div>
+      <div class="studio">JUDGE DEAN LLC</div>
+      <h1>Panzer <br>Freeman</h1>
+      <h2>Chronos Requiem</h2>
+      <p class="lede">At eighty-nine, he has one flight left. Ride east to the Fountain. Every enemy you defeat gives him time back.</p>
+      <div class="departure">
+        <label for="departureStage">Launch sector</label>
+        <select id="departureStage"></select>
+        <p id="departureBrief"></p>
       </div>
       <label class="guide-choice"><input id="guidedOpening" type="checkbox" checked>Guide my opening flight</label>
+      <button class="btn" id="startBtn">Begin the Descent <span aria-hidden="true">↗</span></button>
       <details class="extra-controls">
         <summary>All controls &amp; display options</summary>
         <div class="keys">
+        <div><span class="kbd">A / D</span><span class="d">bank sideways</span></div>
+        <div><span class="kbd">HOLD LMB</span><span class="d">sweep to lock, release to fire</span></div>
         <div><span class="kbd">W</span><span class="kbd">S</span><span class="d">dive / climb</span></div>
         <div><span class="kbd">MOUSE</span><span class="d">aim reticle</span></div>
         <div><span class="kbd">RMB</span><span class="d">rapid gun</span></div>
@@ -313,9 +390,8 @@
         <div><span class="kbd">G</span><span class="d">cast shadows</span></div>
         <div><span class="kbd">F3</span><span class="d">performance</span></div>
       </div>
-      <p style="font-size:12px;color:#a9dfe9">Shift: boost · X: air brake · Space + direction: evasive roll<br>Wing power refills when resting. Flank carriers to strike their exposed cores.<br>Focus fire on charging heavy enemies to interrupt them. Cyan targets take extra damage.</p></details>
-      <button class="btn" id="startBtn">Begin the Descent</button>
-      <div class="tiny">A LOW-POLY TRIBUTE TO PANZER DRAGOON (SEGA SATURN, 1995)</div>
+      <p style="font-size:12px;color:#a9dfe9">Shift: boost · X: air brake · Space + direction: evasive roll<br>Roll just as an enemy shot reaches your wings to send it back. Wing power refills when resting. Flank carriers to strike their exposed cores.<br>Focus fire on charging heavy enemies to interrupt them. Cyan targets take extra damage.</p></details>
+
     </div>
   </div>
 
@@ -325,6 +401,7 @@
       <div class="statline" id="overStats"></div>
       <p class="lede" id="overText"></p>
       <button class="btn" id="againBtn">Fly Again</button>
+      <button class="deck-link" type="button">Choose launch sector</button>
     </div>
   </div>
 
@@ -335,6 +412,7 @@
       <div class="statline" id="winStats"></div>
       <p class="lede" id="winText"></p>
       <button class="btn" id="winBtn">Fly Again</button>
+      <button class="deck-link" type="button">Choose launch sector</button>
     </div>
   </div>
 
