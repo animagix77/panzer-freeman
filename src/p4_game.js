@@ -1050,8 +1050,14 @@ function updatePlayer(dt) {
   var lateralLoad = (Player.motionX - targetVX) / (accel * 0.42);
   var liftDemand = (targetVY - Player.motionY) / 44;
   dragon.root.rotation.y = damp(dragon.root.rotation.y, heading * 0.72, 6, dt);
+  if (Player.rollT > 0) {
+    var rollProgress = 1 - Player.rollT / 0.65;
+    dragon.root.rotation.z = Player.rollFacing * Player.rollDir * TAU *
+                             rollProgress * rollProgress * (3 - 2 * rollProgress);
+  } else dragon.root.rotation.z = 0;
+
   dragon.update(dt, Game.time, {
-    strafeX: strafe,
+    strafeX: strafe, flightX: Player.motionX, flightZ: trackZ,
     bankDemand: clamp(lateralLoad * 1.45 + strafe * 0.44, -1, 1),
     pathPitch: Math.atan2(Player.motionY, Math.hypot(Player.motionX, trackZ)),
     liftDemand: clamp(liftDemand, -1, 1),
@@ -1059,12 +1065,6 @@ function updatePlayer(dt) {
     vy: Player.motionY,
     aimX: Player.aimX, aimY: Player.aimY, boost: Player.boosting ? 1 : 0
   });
-
-  if (Player.rollT > 0) {
-    var rollProgress = 1 - Player.rollT / 0.65;
-    dragon.root.rotation.z = Player.rollFacing * Player.rollDir * TAU *
-                             rollProgress * rollProgress * (3 - 2 * rollProgress);
-  } else dragon.root.rotation.z = 0;
 
   // blink while invulnerable
   if (Game.invulnT > 0) {

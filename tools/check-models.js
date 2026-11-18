@@ -87,5 +87,6 @@ P.entities.updateBoss(1 / 60);
 assert.equal(P.Game.state, 'win', 'death animation still hands off to the result flow');
 assert.equal(B.group.visible, false);
 assert(B.group.scale.equals(authoredScale), 'death cleanup also preserves the authored scale');
+require('./check-cape').checkCape();
 console.log('Model checks passed: bounded batched hulls, dynamic attachments, reused cloth buffers, muzzle/weak-point alignment and full boss replay pose/material reset.');
 console.log(budgets);

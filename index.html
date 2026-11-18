@@ -1798,6 +1798,66 @@ var DRAGON_COL = {
   eye:   0xffe066
 };
 
+function makeRiderCape() {
+  var columns = 11, rows = 13;
+  var positions = [], uvs = [], indices = [];
+  for (var row = 0; row < rows; row++) {
+    var drop = row / (rows - 1);
+    for (var col = 0; col < columns; col++) {
+      var u = col / (columns - 1), side = 2 * u - 1, edge = side * side;
+      // The yoke wraps over the shoulder blades. The bias-cut skirt has
+      // extra length through the middle and a shorter, rounded outer hem.
+      var length = drop * (1 - .19 * edge * Math.pow(drop, 2));
+      var halfWidth = .35 + .36 * Math.sin(drop * 1.37);
+      var gathers = Math.sin(side * 6.9 + .42 + .65 * drop) + .38 * Math.sin(side * 12.4 - .24);
+      var fold = gathers * (.027 + .098 * drop) * Math.min(1, 4 * drop);
+      positions.push(
+        side * halfWidth + .045 * drop * drop,
+        .835 - .080 * edge - .83 * Math.sin(length * 1.43) + fold * length,
+        -.217 + .066 * edge - .31 * drop - 1.17 * Math.pow(length, 1.65) - fold * (1 - .43 * length)
+      );
+      uvs.push(u, drop);
+      if (row && col) {
+        var br = row * columns + col, bl = br - 1, tr = br - columns, tl = tr - 1;
+        if ((row + col) % 2) indices.push(tl, tr, bl, tr, br, bl);
+        else indices.push(tl, tr, br, tl, br, bl);
+      }
+    }
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.userData.columns = columns;
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices); geo.computeVertexNormals();
+  geo.attributes.normal.setUsage(THREE.DynamicDrawUsage);
+
+  // One small hourglass stitched below the nape. The fine twill averages
+  // into the red dye at chase-camera distance but catches light in close-up.
+  var size = 128, pixels = new Uint8Array(size * size * 4);
+  for (var y = 0; y < size; y++) {
+    for (var x = 0; x < size; x++) {
+      var i = (y * size + x) * 4;
+      var weave = (x + 2 * y) % 5 === 0 ? 5 : 0;
+      var dx = Math.abs(x + .5 - size / 2), dy = Math.abs(y - 27);
+      var stitch = dy <= 8 && (Math.abs(dx - dy * .67) < .85 || (dy >= 7 && dx < 6));
+      var dye = 1 - .09 * y / size;
+      pixels[i] = stitch ? 229 : (173 + weave) * dye;
+      pixels[i + 1] = stitch ? 165 : (36 + weave) * dye;
+      pixels[i + 2] = stitch ? 99 : (44 + weave) * dye;
+      pixels[i + 3] = 255;
+    }
+  }
+  var fabric = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+  fabric.generateMipmaps = true; fabric.minFilter = THREE.LinearMipmapLinearFilter;
+  fabric.magFilter = THREE.LinearFilter; fabric.needsUpdate = true;
+  var material = new THREE.MeshPhongMaterial({ map: fabric, side: THREE.DoubleSide,
+    shininess: 3, specular: 0x160b0b, emissive: 0x100303 });
+  P.retroPatch(material);
+  var cape = mesh(geo, material);
+  cape.name = 'rider-flight-mantle'; cape.frustumCulled = false;
+  return cape;
+}
+
 function buildDragon() {
   var root = new THREE.Group();      // faces +Z
   var body = new THREE.Group(); root.add(body);
@@ -1858,6 +1918,7 @@ function buildDragon() {
   for (var i = 0; i < 9; i++) {
     var f2 = i / 8;
     var pl = mesh(tet(0.40), mPlate);
+    pl.name = 'dragon-dorsal-plate';
     pl.position.set(0, 1.02 - f2 * 0.28 + Math.sin(f2 * 3.1) * 0.06, 2.5 - i * 0.72);
     pl.rotation.set(Math.PI * 0.5, 0, Math.PI * 0.25);
     pl.scale.set(0.42, 0.55 + Math.sin(f2 * 3.1) * 0.7, 1.0);
@@ -2722,6 +2783,7 @@ function buildDragon() {
   ], 10), M(0x5b3a26));
   saddle.position.set(0, 0.84, 0.5); body.add(saddle);
   var cantle = plate([[-0.44, -0.10], [0.44, -0.10], [0.34, 0.24], [-0.34, 0.24]], 0.10, M(0x4a2f1e));
+  cantle.name = 'rider-saddle-cantle';
   cantle.position.set(0, 0.98, -0.10); cantle.rotation.x = -0.22; body.add(cantle);
 
   // ------------------------------------------------------------- harness
@@ -3366,34 +3428,240 @@ function buildDragon() {
     setAge(89);
   }
 
-  // A short flight mantle makes the rider's silhouette readable from behind.
-  // Anchored shoulders and progressively freer trailing rows keep it out of the rig.
-  var mantleGeo = new THREE.PlaneGeometry(1.25, 1.7, 6, 8);
-  var mantle = mesh(mantleGeo, M(0x1d7784, { side: THREE.DoubleSide, shine: 16, spec: 0x5aa8aa }));
-  mantle.name = 'rider-flight-mantle'; mantle.frustumCulled = false; rider.add(mantle);
-  var mantleBase = mantleGeo.attributes.position.array.slice(), mantleColors = new Float32Array(mantleBase.length);
-  for (var mv = 0; mv < mantleBase.length; mv += 3) {
-    var edge = Math.abs(mantleBase[mv]) > .44;
-    var color = new THREE.Color(edge ? 0xe3c98d : 0x54bfc4);
-    mantleColors[mv] = color.r; mantleColors[mv + 1] = color.g; mantleColors[mv + 2] = color.b;
-  }
-  // A dedicated material avoids changing other objects sharing the cached tint.
-  mantle.material = mantle.material.clone(); mantle.material.color.setHex(0xffffff); mantle.material.vertexColors = true;
-  mantleGeo.setAttribute('color', new THREE.BufferAttribute(mantleColors, 3));
-  function solveMantle(t, st) {
-    var positions = mantleGeo.attributes.position.array;
-    for (var n = 0; n < mantleBase.length; n += 3) {
-      var free = (.85 - mantleBase[n + 1]) / 1.7;
-      positions[n] = mantleBase[n] * (1 - free * .2) + Math.sin(t * 6.5 - free * 5) * .075 * free + (st.strafeX || 0) * .14 * free;
-      positions[n + 1] = .88 - free * .4 + Math.sin(t * 8 - free * 6) * .08 * free;
-      positions[n + 2] = -.38 - free * 1.7;
-    }
-    mantleGeo.attributes.position.needsUpdate = true; mantleGeo.computeVertexNormals();
-  }
-  var updateWithRider = api.update;
-  api.update = function (dt, t, st) { updateWithRider(dt, t, st); solveMantle(t, st || {}); };
-  solveMantle(0, {});
+  var cape = makeRiderCape();
+  rider.add(cape);
+  var cloth = simulateCape(cape, rider, api.riderBones, bakeCapeClearance(body, flightArmour));
+  var updateWithRider = api.update, resetRig = api.resetMotion, ageRider = api.setAge;
+  api.update = function (dt, t, st) { updateWithRider(dt, t, st); cloth.update(dt, st); };
+  api.resetMotion = function () { resetRig(); cloth.reset(); };
+  api.setAge = function (age) { ageRider(age); cloth.fit(); };
   return api;
+}
+
+// Sample the actual saddle, armour and spine triangles once in dragon-body
+// space. At runtime cloth contacts need only a height lookup under each node.
+function bakeCapeClearance(body, armour) {
+  var cell = .06, x0 = -1.68, z0 = -2.64, width = 57, depth = 68;
+  var heights = new Float32Array(width * depth).fill(-3), padded = heights.slice();
+  var transform = new THREE.Matrix4(), a = new V3(), b = new V3(), c = new V3();
+  var surfaces = body.children.filter(function (item) { return item.isMesh; }).concat(armour.children);
+  surfaces.forEach(function (part) {
+    part.updateMatrix(); transform.copy(part.matrix);
+    if (part.parent === armour) transform.premultiply(armour.matrix);
+    var vertices = part.geometry.attributes.position, index = part.geometry.index;
+    for (var i = 0, count = index ? index.count : vertices.count; i < count; i += 3) {
+      a.fromBufferAttribute(vertices, index ? index.getX(i) : i).applyMatrix4(transform);
+      b.fromBufferAttribute(vertices, index ? index.getX(i+1) : i+1).applyMatrix4(transform);
+      c.fromBufferAttribute(vertices, index ? index.getX(i+2) : i+2).applyMatrix4(transform);
+      var ax = b.x-a.x, az = b.z-a.z, bx = c.x-a.x, bz = c.z-a.z;
+      var determinant = ax*bz-az*bx;
+      if (Math.abs(determinant) < .000001) continue;
+      var loX = Math.max(0, Math.ceil((Math.min(a.x,b.x,c.x)-x0)/cell));
+      var hiX = Math.min(width-1, Math.floor((Math.max(a.x,b.x,c.x)-x0)/cell));
+      var loZ = Math.max(0, Math.ceil((Math.min(a.z,b.z,c.z)-z0)/cell));
+      var hiZ = Math.min(depth-1, Math.floor((Math.max(a.z,b.z,c.z)-z0)/cell));
+      for (var z = loZ; z <= hiZ; z++) {
+        for (var x = loX; x <= hiX; x++) {
+          var px = x0+x*cell-a.x, pz = z0+z*cell-a.z;
+          var u = (px*bz-pz*bx)/determinant, v = (ax*pz-az*px)/determinant;
+          if (u >= 0 && v >= 0 && u+v <= 1) {
+            var j = z*width+x;
+            heights[j] = Math.max(heights[j], a.y + u*(b.y-a.y) + v*(c.y-a.y));
+          }
+        }
+      }
+    }
+  });
+  // Round the contact surface across one cloth cell. This keeps sharp tips
+  // from poking through the triangle between adjacent simulation nodes.
+  for (var z = 4; z < depth-4; z++) {
+    for (var x = 4; x < width-4; x++) {
+      var top = heights[z*width+x];
+      for (var dz = -4; dz <= 4; dz++) {
+        for (var dx = -4; dx <= 4; dx++) {
+          top = Math.max(top, heights[(z+dz)*width+x+dx] - .004*(dx*dx+dz*dz));
+        }
+      }
+      padded[z*width+x] = top + .075;
+    }
+  }
+  return function (x, z) {
+    var col = (x-x0)/cell, row = (z-z0)/cell;
+    var ix = Math.floor(col), iz = Math.floor(row);
+    if (ix < 0 || ix >= width-1 || iz < 0 || iz >= depth-1) return -3;
+    var i = iz*width+ix, fx = col-ix, fz = row-iz;
+    return lerp(lerp(padded[i], padded[i+1], fx), lerp(padded[i+width], padded[i+width+1], fx), fz);
+  };
+}
+
+// Position-based cloth, solved in the moving rider frame. All particle,
+// constraint and rendering buffers belong to this garment for its lifetime.
+function simulateCape(cape, rider, bones, backHeight) {
+  var geo = cape.geometry, attribute = geo.attributes.position, points = attribute.array;
+  var columns = geo.userData.columns, rows = attribute.count / columns, pinned = columns * 3;
+  var rest = points.slice(), previous = points.slice(), next = points.slice(), seam = rest.slice(0, pinned);
+  var links = [], step = 1 / 120, remainder = 0, clothTime = 0;
+  var orientation = new THREE.Quaternion(), lastOrientation = new THREE.Quaternion();
+  var sample = new THREE.Quaternion(), oldSample = new THREE.Quaternion(), inverse = new THREE.Quaternion();
+  var frameTurn = new THREE.Matrix4(), turnDelta = new THREE.Quaternion();
+  var wind = new V3(), gravity = new V3(), velocity = new V3(), lastVelocity = new V3(), inertia = new V3();
+  var initialized = false;
+
+  // The sewn yoke carries the load of the skirt. Distributed mass near the
+  // shoulders keeps the first few rows from stretching under a hard reversal.
+  var invMass = new Float32Array(attribute.count);
+  for (var k = columns; k < invMass.length; k++) {
+    var fromCollar = Math.floor(k / columns);
+    invMass[k] = .2 + .8 * Math.pow(1 - Math.exp(-.28 * fromCollar), 2);
+  }
+  var sqrt = Math.sqrt;
+  function link(a, b, stiffness) {
+    var i = a * 3, j = b * 3;
+    var length = Math.hypot(rest[i] - rest[j], rest[i+1] - rest[j+1], rest[i+2] - rest[j+2]);
+    var weightA = invMass[a], weightB = invMass[b];
+    if (weightA + weightB > 0) links.push({ i: i, j: j, length: length,
+      a: stiffness * weightA / (weightA + weightB), b: stiffness * weightB / (weightA + weightB) });
+  }
+  for (var row = 0; row < rows; row++) {
+    for (var col = 0; col < columns; col++) {
+      var p = row * columns + col;
+      if (col) link(p - 1, p, 1);
+      if (row) link(p - columns, p, 1);
+      if (row && col) {
+        link(p - columns - 1, p, .62);
+        link(p - columns, p - 1, .62);
+      }
+      // Second-neighbour yarns resist sharp creases but allow a loose fold.
+      if (col > 1) link(p - 2, p, .13);
+      if (row > 1) link(p - 2 * columns, p, .15);
+    }
+  }
+
+  var left = bones && bones.RightArm, right = bones && bones.LeftArm;
+  var leftFit = new V3(), rightFit = new V3(), leftShift = new V3(), rightShift = new V3();
+  function shoulder(bone, out) { return rider.worldToLocal(bone.getWorldPosition(out)); }
+  if (left && right) { shoulder(left, leftFit); shoulder(right, rightFit); }
+  function fitCollar() {
+    if (!left || !right) return;
+    shoulder(left, leftShift).sub(leftFit); shoulder(right, rightShift).sub(rightFit);
+    for (var c = 0; c < columns; c++) {
+      var u = c / (columns - 1), i = c * 3;
+      seam[i] = rest[i] + lerp(leftShift.x, rightShift.x, u);
+      seam[i+1] = rest[i+1] + lerp(leftShift.y, rightShift.y, u);
+      seam[i+2] = rest[i+2] + .7 * lerp(leftShift.z, rightShift.z, u);
+    }
+    points.set(seam); previous.set(seam); attribute.needsUpdate = true;
+  }
+  function reset() {
+    points.set(rest); fitCollar();
+    // Recreate the drape around the current collar, including a young rider.
+    for (var i = pinned; i < points.length; i++) points[i] += seam[i % pinned] - rest[i % pinned];
+    previous.set(points); remainder = clothTime = 0; initialized = false;
+    attribute.needsUpdate = true; geo.computeVertexNormals();
+  }
+
+  // Contact against the back of the jacket in rider space, and the saddle
+  // and dragon's spine in body space. The saddle stays put as the rider leans.
+  function collide() {
+    var m = rider.matrix.elements, jacketZ = (seam[2] - rest[2] + seam[pinned-1] - rest[pinned-1]) * .5;
+    for (var i = pinned; i < points.length; i += 3) {
+      var x = points[i], y = points[i+1], z = points[i+2];
+      var back = 1 - x*x / .165 - (y-.39)*(y-.39) / .265;
+      if (back > 0) z = Math.min(z, jacketZ - .048 - .253 * Math.sqrt(back));
+      points[i+2] = z;
+      var bx = m[0]*x + m[4]*y + m[8]*z + m[12];
+      var by = m[1]*x + m[5]*y + m[9]*z + m[13];
+      var bz = m[2]*x + m[6]*y + m[10]*z + m[14];
+      var depth = backHeight(bx, bz) - by;
+      if (depth > 0) { points[i] += depth*m[1]; points[i+1] += depth*m[5]; points[i+2] += depth*m[9]; }
+    }
+  }
+  function constrain(reverse) {
+    for (var n = 0; n < links.length; n++) {
+      var l = links[reverse ? links.length - 1 - n : n], a = l.i, b = l.j;
+      var x = points[b]-points[a], y = points[b+1]-points[a+1], z = points[b+2]-points[a+2];
+      var d = sqrt(x*x + y*y + z*z);
+      if (d < .00001) continue;
+      var error = (d - l.length) / d;
+      var moveA = error*l.a, moveB = error*l.b;
+      points[a] += x*moveA; points[a+1] += y*moveA; points[a+2] += z*moveA;
+      points[b] -= x*moveB; points[b+1] -= y*moveB; points[b+2] -= z*moveB;
+    }
+  }
+  // Preserve angular inertia when the shoulders roll underneath the hem.
+  function changeFrame(buffer, m) {
+    var center = 3 * Math.floor(columns / 2), cx = seam[center], cy = seam[center+1], cz = seam[center+2];
+    for (var i = pinned; i < buffer.length; i += 3) {
+      var x = buffer[i]-cx, y = buffer[i+1]-cy, z = buffer[i+2]-cz;
+      buffer[i] = cx + m[0]*x + m[4]*y + m[8]*z;
+      buffer[i+1] = cy + m[1]*x + m[5]*y + m[9]*z;
+      buffer[i+2] = cz + m[2]*x + m[6]*y + m[10]*z;
+    }
+  }
+  function advance() {
+    for (var row = 1; row < rows; row++) {
+      var free = row / (rows - 1);
+      var wake = clothTime * 9 - free * 6.3;
+      for (var col = 0; col < columns; col++) {
+        var i = (row * columns + col) * 3;
+        var x = points[i], y = points[i+1], z = points[i+2];
+        var vx = (x - previous[i]) / step, vy = (y - previous[i+1]) / step, vz = (z - previous[i+2]) / step;
+        var left = col ? i-3 : i, right = col+1 < columns ? i+3 : i;
+        var top = i-pinned, bottom = row+1 < rows ? i+pinned : i;
+        var ux = points[right]-points[left], uy = points[right+1]-points[left+1], uz = points[right+2]-points[left+2];
+        var dx = points[bottom]-points[top], dy = points[bottom+1]-points[top+1], dz = points[bottom+2]-points[top+2];
+        var nx = uy*dz-uz*dy, ny = uz*dx-ux*dz, nz = ux*dy-uy*dx;
+        var inverseLength = 1 / Math.max(.00001, sqrt(nx*nx + ny*ny + nz*nz));
+        nx *= inverseLength; ny *= inverseLength; nz *= inverseLength;
+        // The dragon's turbulent wake loads each fold at a different angle.
+        var side = col / (columns - 1) * 2 - 1;
+        var ax = wind.x - vx + free * Math.sin(wake * .74 + side * 2.2);
+        var ay = wind.y - vy + (.3 + free) * (1.6 * Math.sin(wake + side * 3.5) + .7 * Math.cos(wake * .67 - side * 2.1));
+        var az = wind.z - vz;
+        var normalSpeed = ax*nx + ay*ny + az*nz;
+        var pressure = clamp(.48*normalSpeed*Math.abs(normalSpeed), -95, 95);
+        var h2 = step * step;
+        next[i]   = x + .988*vx*step + (gravity.x + 1.25*ax + pressure*nx)*h2;
+        next[i+1] = y + .988*vy*step + (gravity.y + 1.25*ay + pressure*ny)*h2;
+        next[i+2] = z + .988*vz*step + (gravity.z + 1.25*az + pressure*nz)*h2;
+      }
+    }
+    previous.set(points); points.set(next); points.set(seam);
+    for (var pass = 0; pass < 8; pass++) {
+      constrain((pass & 1) === 1);
+      if (pass === 2 || pass === 5 || pass === 7) collide();
+    }
+  }
+  function update(dt, st) {
+    if (!(dt > 0)) return;
+    if (dt > .15) { reset(); return; }
+    rider.getWorldQuaternion(orientation);
+    velocity.set(st.flightX === undefined ? -(st.strafeX || 0)*44 : st.flightX,
+                 st.flightY === undefined ? st.vy || 0 : st.flightY, st.flightZ === undefined ? 50 + 29*(st.boost || 0) : st.flightZ);
+    if (!initialized) {
+      lastVelocity.copy(velocity); lastOrientation.copy(orientation); initialized = true;
+    }
+    remainder += dt;
+    var steps = Math.floor((remainder + 1e-9) / step);
+    if (!steps) return;
+    remainder = Math.max(0, remainder - steps * step);
+    inertia.subVectors(lastVelocity, velocity).multiplyScalar(.12 / (steps * step)).clampLength(0, 32);
+    oldSample.copy(lastOrientation);
+    for (var s = 1; s <= steps; s++) {
+      sample.copy(lastOrientation).slerp(orientation, s / steps);
+      inverse.copy(sample).invert();
+      turnDelta.multiplyQuaternions(inverse, oldSample);
+      frameTurn.makeRotationFromQuaternion(turnDelta);
+      changeFrame(points, frameTurn.elements); changeFrame(previous, frameTurn.elements);
+      gravity.set(0,-12,0).add(inertia).applyQuaternion(inverse);
+      wind.copy(lastVelocity).lerp(velocity, s / steps).multiplyScalar(-.19).applyQuaternion(inverse);
+      clothTime += step; advance(); oldSample.copy(sample);
+    }
+    lastVelocity.copy(velocity); lastOrientation.copy(orientation);
+    attribute.needsUpdate = true; geo.computeVertexNormals();
+  }
+  reset();
+  return { update: update, reset: reset, fit: fitCollar };
 }
 
 // ================================================================ ENEMIES
@@ -5959,8 +6227,14 @@ function updatePlayer(dt) {
   var lateralLoad = (Player.motionX - targetVX) / (accel * 0.42);
   var liftDemand = (targetVY - Player.motionY) / 44;
   dragon.root.rotation.y = damp(dragon.root.rotation.y, heading * 0.72, 6, dt);
+  if (Player.rollT > 0) {
+    var rollProgress = 1 - Player.rollT / 0.65;
+    dragon.root.rotation.z = Player.rollFacing * Player.rollDir * TAU *
+                             rollProgress * rollProgress * (3 - 2 * rollProgress);
+  } else dragon.root.rotation.z = 0;
+
   dragon.update(dt, Game.time, {
-    strafeX: strafe,
+    strafeX: strafe, flightX: Player.motionX, flightZ: trackZ,
     bankDemand: clamp(lateralLoad * 1.45 + strafe * 0.44, -1, 1),
     pathPitch: Math.atan2(Player.motionY, Math.hypot(Player.motionX, trackZ)),
     liftDemand: clamp(liftDemand, -1, 1),
@@ -5968,12 +6242,6 @@ function updatePlayer(dt) {
     vy: Player.motionY,
     aimX: Player.aimX, aimY: Player.aimY, boost: Player.boosting ? 1 : 0
   });
-
-  if (Player.rollT > 0) {
-    var rollProgress = 1 - Player.rollT / 0.65;
-    dragon.root.rotation.z = Player.rollFacing * Player.rollDir * TAU *
-                             rollProgress * rollProgress * (3 - 2 * rollProgress);
-  } else dragon.root.rotation.z = 0;
 
   // blink while invulnerable
   if (Game.invulnT > 0) {
@@ -8498,6 +8766,7 @@ function frame(now) {
     P.dragon.root.position.copy(Player.pos);
     P.dragon.root.rotation.y = Math.sin(Game.time * 0.25) * 0.35;
     P.dragon.update(dt, Game.time, { strafeX: Math.sin(Game.time * 0.25) * 0.4, strafeY: 0,
+      flightX: 2.4 * Math.cos(Game.time * .3), flightY: 1.2 * Math.cos(Game.time * .4), flightZ: 26,
       vy: Math.sin(Game.time * 0.42) * 26, aimX: 0, aimY: 0, boost: 0 });
     // Three-quarter portrait, framed beside the launch controls.
     var yaw2 = 2.15 + Math.sin(Game.time * .15) * .46;
@@ -8527,6 +8796,7 @@ function frame(now) {
     P.dragon.root.rotation.z += P.angDelta(P.dragon.root.rotation.z, 0) * (1 - Math.exp(-4 * dt));
     if (P.fx) P.fx.update(dt);
     P.dragon.update(dt, Game.time, { strafeX: 0, strafeY: 0,
+      flightX: -.5 * Player.pos.x, flightY: .45 * (Player.railY + 5 - Player.pos.y), flightZ: 20,
       vy: Math.sin(Game.time * 0.45) * 7, aimX: 0, aimY: 0, boost: 0 });
     var oy = Math.sin(Game.time * 0.16) * 0.5;
     camera.position.set(

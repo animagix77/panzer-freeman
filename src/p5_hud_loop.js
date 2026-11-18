@@ -900,6 +900,7 @@ function frame(now) {
     P.dragon.root.position.copy(Player.pos);
     P.dragon.root.rotation.y = Math.sin(Game.time * 0.25) * 0.35;
     P.dragon.update(dt, Game.time, { strafeX: Math.sin(Game.time * 0.25) * 0.4, strafeY: 0,
+      flightX: 2.4 * Math.cos(Game.time * .3), flightY: 1.2 * Math.cos(Game.time * .4), flightZ: 26,
       vy: Math.sin(Game.time * 0.42) * 26, aimX: 0, aimY: 0, boost: 0 });
     // Three-quarter portrait, framed beside the launch controls.
     var yaw2 = 2.15 + Math.sin(Game.time * .15) * .46;
@@ -929,6 +930,7 @@ function frame(now) {
     P.dragon.root.rotation.z += P.angDelta(P.dragon.root.rotation.z, 0) * (1 - Math.exp(-4 * dt));
     if (P.fx) P.fx.update(dt);
     P.dragon.update(dt, Game.time, { strafeX: 0, strafeY: 0,
+      flightX: -.5 * Player.pos.x, flightY: .45 * (Player.railY + 5 - Player.pos.y), flightZ: 20,
       vy: Math.sin(Game.time * 0.45) * 7, aimX: 0, aimY: 0, boost: 0 });
     var oy = Math.sin(Game.time * 0.16) * 0.5;
     camera.position.set(

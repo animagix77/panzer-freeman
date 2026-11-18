@@ -64,8 +64,10 @@ award score, wing power and occasional recovered years; missed objectives do not
 stop the run. The result screen records completed objectives and reflected shots.
 
 **A rebuilt cast.** The dragon wears ivory flight armor over a deep teal body, with
-cyan and gold bands that deform with its articulated wing membranes. A short cloth
-mantle follows the rider's motion. Six enemy hulls have distinct sculpted silhouettes,
+cyan and gold bands that deform with its articulated wing membranes. A crimson cape fastens to
+the rider’s shoulders. Its hem lifts in the slipstream, folds on braking and swings wide when the dragon reverses a bank.
+The cloth rests against the saddle and the armoured ridge along the dragon’s back.
+Six enemy hulls have distinct sculpted silhouettes,
 engine nacelles and exposed machinery, batched into four to six mesh draws apiece.
 The Sphinx has a faceted face, an obelisk crown and layered stone flight feathers.
 Replays restore its original scale, rings, shields and core state.
