@@ -7,6 +7,8 @@ const parts = [
   'p1c_soundscape.js',
   'p1d_voice.js',
   'gen/rider_model.js',   // baked from model/*.glb by tools/bake-glb.js
+  'gen/flight_dragon.js',   // rest mesh, skeleton and Wingbeat action from Blender
+  'p2a_flight_dragon.js',
   'p2_models.js',
   'p2b_rider_model.js',
   'p3_world.js',
@@ -23,7 +25,9 @@ const parts = [
 ];
 // Judge Dean LLC: publish only voice assets that actually exist in this build.
 const voiceIds = ['opening', 'salvage', 'foundry', 'citadel', 'victory',
-  'counter', 'chargebreak', 'gates', 'pickup', 'streak'];
+  'counter', 'chargebreak', 'gates', 'pickup', 'streak',
+  'wasp', 'ray', 'turret', 'chaser', 'carrier', 'mine', 'sentinel', 'bomber',
+  'nearmiss', 'wounded', 'hotstreak', 'decade', 'boss', 'core', 'boost', 'brake', 'momcarrier', 'momlock'];
 const voiceFiles = {};
 for (const id of voiceIds) {
   const name = 'voice-' + id + '.mp3';

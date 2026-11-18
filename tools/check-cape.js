@@ -37,35 +37,52 @@ function capeRig() {
   return { P, step, dragon, geometry, positions, rest, collar, hem };
 }
 
-// Compare the triangles of the moving fabric against the actual tips of the
-// saddle and back plates, independently of the solver's collision surface.
+// Sample the real cantle corners and the exported skin beneath the cloth.
+// Barycentric coordinates keep each back sample on its triangle as bones move.
 function checkGearClearance() {
-  const { P, dragon, step } = capeRig(), tips = [];
-  const cloth = dragon.rider.getObjectByName('rider-flight-mantle');
-  for (const part of dragon.body.children) {
-    if (part.name !== 'rider-saddle-cantle' && part.name !== 'dragon-dorsal-plate') continue;
-    const vertices = part.geometry.attributes.position;
-    const points = Array.from({ length: vertices.count }, (_, i) =>
-      new THREE.Vector3().fromBufferAttribute(vertices, i).applyMatrix4(part.matrix));
-    const maxY = Math.max(...points.map(p => p.y));
-    for (const point of points) {
-      if (point.y < maxY - .0001 || point.z > .1 || point.z < -2.2) continue;
-      if (!tips.some(t => t.point.equals(point))) tips.push({ point, gear: part.name });
+  const { P, dragon, step } = capeRig();
+  const cloth = dragon.rider.getObjectByName('rider-flight-mantle'), skin = dragon.flightRig.mesh;
+  const cantle = dragon.body.getObjectByName('rider-saddle-cantle');
+  const vertices = cantle.geometry.attributes.position;
+  const corners = Array.from({ length: vertices.count }, (_, i) =>
+    new THREE.Vector3().fromBufferAttribute(vertices, i).applyMatrix4(cantle.matrix));
+  const top = Math.max(...corners.map(p => p.y));
+  const cantlePoints = corners.filter(p => p.y > top - .0001);
+  const ray = new THREE.Raycaster(), origin = new THREE.Vector3(), down = new THREE.Vector3();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), point = new THREE.Vector3();
+  const back = [];
+  function aimAt(x, z) {
+    down.set(0, -1, 0).transformDirection(dragon.body.matrixWorld);
+    ray.set(dragon.body.localToWorld(origin.set(x, 4, z)), down);
+  }
+  for (const x of [-.26, 0, .26]) {
+    for (const z of [-1.6, -1, -.5, -.1]) {
+      aimAt(x, z);
+      const hit = ray.intersectObject(skin, false)[0];
+      assert(hit, 'the dragon skin spans the saddle');
+      const f = hit.face;
+      const weights = THREE.Triangle.getBarycoord(skin.worldToLocal(hit.point),
+        skin.boneTransform(f.a, a), skin.boneTransform(f.b, b), skin.boneTransform(f.c, c), new THREE.Vector3());
+      back.push({ f, weights });
     }
   }
-  const ray = new THREE.Raycaster(), origin = new THREE.Vector3(), down = new THREE.Vector3();
   const covered = new Set();
+  function checkPoint(p, name) {
+    aimAt(p.x, p.z);
+    for (const hit of ray.intersectObject(cloth, false)) {
+      const gap = dragon.body.worldToLocal(hit.point).y - p.y;
+      assert(gap > -.01, 'cape triangle clips ' + name + ' by ' + (-gap).toFixed(3));
+      covered.add(name);
+    }
+  }
   function sample() {
     cloth.geometry.computeBoundingSphere();
-    down.set(0, -1, 0).transformDirection(dragon.body.matrixWorld);
-    for (const { point, gear } of tips) {
-      origin.copy(point); origin.y += 4;
-      ray.set(dragon.body.localToWorld(origin), down);
-      for (const hit of ray.intersectObject(cloth, false)) {
-        const gap = dragon.body.worldToLocal(hit.point).y - point.y;
-        assert(gap > -.01, `cape triangle clips ${gear} by ${(-gap).toFixed(3)}`);
-        covered.add(gear);
-      }
+    for (const p of cantlePoints) checkPoint(p, 'cantle');
+    for (const { f, weights } of back) {
+      point.copy(skin.boneTransform(f.a, a)).multiplyScalar(weights.x);
+      point.addScaledVector(skin.boneTransform(f.b, b), weights.y);
+      point.addScaledVector(skin.boneTransform(f.c, c), weights.z);
+      checkPoint(dragon.body.worldToLocal(skin.localToWorld(point)), 'back');
     }
   }
   function fly(keys, frames) {
@@ -74,7 +91,7 @@ function checkGearClearance() {
   fly(['d', 's', 'shift'], 30); fly(['a', 'w'], 30);
   P.Input.keys = { a: true }; assert(P.flight.roll());
   fly('a', 48); fly('x', 60);
-  assert.equal(covered.size, 2, 'sample cloth where it actually covers both cantle and dorsal armour');
+  assert.equal(covered.size, 2, 'sample cloth where it covers both the cantle and the skinned dragon');
 }
 
 function checkCape() {

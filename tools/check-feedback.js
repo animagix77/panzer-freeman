@@ -68,3 +68,47 @@ for (let view = 0; view < 4; view++) for (const aim of [[0,0],[.4,.25],[-.35,-.2
   assert(enemy.hp < enemy.maxHp, 'actual projectile hits the reticle target in view ' + view);
 }
 console.log('Rapid-gun aim checks passed: forward and off-center hits in all four camera views.');
+
+// Drive real combat outcomes into the rider's event hooks. The narration
+// scheduler and actual media lifetime are exercised separately in check-voice.
+{
+  const { P, step } = flight(['p4d_campaign.js']), E = P.entities, cues = [];
+  P.voice = { react(id) { cues.push(id); return true; }, isSpeaking() { return false; } };
+  P.terrain.heightAt = () => 0;
+  step('shift', 1); step('x', 1);
+  assert.deepEqual(cues.splice(0), ['boost', 'brake'], 'sustained speed changes trigger once each');
+  const types = ['wasp','ray','turret','chaser','carrier','mine','sentinel','bomber'];
+  for (const type of types) {
+    const e = E.spawnEnemy(type);
+    P.Game.combo = 0; E.killEnemy(e, true); E.killEnemy(e, true);
+    E.killEnemy(E.spawnEnemy(type), false);
+  }
+  assert.deepEqual(cues.splice(0), types, 'each species reacts to a confirmed player kill only');
+  P.Game.age = 81; P.deAge(.5); assert.deepEqual(cues, []);
+  P.deAge(1.5); P.deAge(.1);
+  assert.deepEqual(cues.splice(0), ['decade'], 'crossing into a younger decade is a single event');
+  E.reset(); P.Player.pos.set(0,22,0); P.Game.invulnT = P.Player.rollT = 0;
+  const enemy = E.spawnEnemy('carrier', {pos: new P.V3(0,22,100)});
+  function incoming(x) {
+    const shot = E.enemyShoot(enemy, 60, 2, 0);
+    shot.m.position.set(x,22,5); shot.v.set(0,0,-60);
+  }
+  incoming(8); E.updateProjectiles(.2); E.updateProjectiles(.2);
+  incoming(0); E.updateProjectiles(.2); P.damagePlayer(2);
+  assert.deepEqual(cues.splice(0), ['nearmiss','wounded'], 'a passing shot is distinct from a hit and invulnerability blocks a second hit');
+  const scout = E.spawnEnemy('wasp');
+  for (const target of [enemy, scout, scout, scout, enemy]) P.Locks.add(target);
+  assert.deepEqual(cues, [], 'three spread-out locks or three on a light fighter cannot trigger the radar joke');
+  P.Locks.add(enemy); assert.deepEqual(cues.splice(0), ['momlock']);
+  E.reset(); P.Game.railZ = 0; P.Game.age = 86;
+  E.bossStart(); assert.deepEqual(cues.splice(0), ['boss']);
+  // Bring the first actual weak point into range, fire a locked laser and
+  // verify the phase transition and its corresponding reaction.
+  const core = E.Boss.built.cores[0];
+  core.hp = 4.5; E.Boss.group.position.set(0,22,90); E.Boss.group.updateMatrixWorld(true);
+  P.Locks.add(core); E.fireLasers();
+  for (let i = 0; i < 180 && core.alive; i++) E.updateProjectiles(1/60);
+  assert.equal(core.alive, false); assert.equal(E.Boss.phase, 1);
+  assert.deepEqual(cues, ['core'], 'only a destroyed boss weak point earns the comment');
+}
+console.log('Rider reactions checked against real targets, flight controls, damage, near misses, age changes, lock slots and boss cores.');

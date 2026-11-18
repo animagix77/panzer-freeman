@@ -12,12 +12,40 @@ var lines = {
   chargebreak: 'He had a whole speech prepared. Then I shot the microphone.',
   gates: 'Three gates. Not one of them validated parking.',
   pickup: 'That was my left knee in nineteen eighty-six. I would know it anywhere.',
-  streak: 'At my age, a hot streak usually means the electric blanket is on.'
+  streak: 'At my age, a hot streak usually means the electric blanket is on.',
+  wasp: 'That was the squadron leader. The promotion process just got interesting.',
+  ray: 'A flying stingray. Somewhere, an aquarium is getting a very bad review.',
+  turret: 'All that swiveling, and he still picked the wrong pensioner.',
+  chaser: 'He followed me for three miles. I hope he kept the receipt.',
+  carrier: 'That ship had a crew of forty. Apparently none of them drove.',
+  mine: 'If you want to be a surprise, son, turn off the blinking light.',
+  sentinel: 'A shield on the front. A whole committee signed off on that.',
+  bomber: 'He dropped everything to be here. Mostly on his own side.',
+  nearmiss: 'That shot went by so slowly, I had time to rewrite my last will and testament.',
+  wounded: "That one hurt. And I haven't even earned that knee back yet.",
+  hotstreak: 'They sent reinforcements. Bless them. They brought me seconds.',
+  decade: 'There goes another decade. I was hoping to lose the pants from that era, too.',
+  boss: 'So that is the keeper of time. He missed our appointment by three thousand years.',
+  core: "That glowing bit was important. You can tell by the way he's taking it.",
+  boost: 'Easy, dragon. My face is still back at the last checkpoint.',
+  brake: 'Air brakes. At my age, you appreciate anything that stops on request.',
+  momcarrier: "Your mom's so fat, the carrier asked her for docking clearance.",
+  momlock: "Your mom's so fat, I tried to lock on and my radar asked, which hemisphere?"
 };
 var sectorCue = { ep1: 'opening', ep2: 'salvage', foundry: 'foundry', ep3: 'citadel' };
 var seen = {}, active = null, pending = null, duck = 0, lastSector = null;
-var reactionPriority = { pickup: 1, streak: 2, chargebreak: 3, counter: 3, gates: 4 };
-var reaction = null, quietTime = 0;
+var reactionPriority = {
+  boost: 1, brake: 1, pickup: 1, nearmiss: 1,
+  wasp: 2, ray: 2, chaser: 2, turret: 2, carrier: 2, mine: 2, sentinel: 2, bomber: 2,
+  wounded: 3, decade: 3, streak: 3, hotstreak: 3,
+  chargebreak: 4, counter: 4, momlock: 4, momcarrier: 4,
+  gates: 5, core: 5, boss: 6
+};
+// Keep take counts between flights on this page. Short runs can discover both
+// delivery variants even if the pilot always performs exactly the same trick.
+var heard = {};
+var variations = { streak: ['streak', 'hotstreak'], foundryKill: ['momcarrier', 'carrier'] };
+var reaction = null, quietTime = 0, lastGap = 0;
 var narrator = null, unlocked = false;
 var document = window.document, caption = null, captionText = null, credit = null, wrap = null;
 if (document && document.createElement) {
@@ -98,15 +126,28 @@ P.voice = {
   arm: arm,
   hasAudio: Object.keys(lines).some(function (id) { return !!files[id]; }),
   isSpeaking: function () { return !!active; },
-  react: function (id) {
-    if (!reactionPriority[id] || seen[id] || P.Game.state !== 'playing' ||
-        P.Game.ending || P.Game.cinematic || (document && document.hidden)) return;
-    // A single short-lived reaction can wait for the current line. A trick
-    // shot takes precedence over an orb picked up by the same volley.
-    if (!reaction || reactionPriority[id] >= reactionPriority[reaction.id]) {
-      var sectorSpeaking = pending || (active && !reactionPriority[active.id]);
-      reaction = { id: id, remaining: sectorSpeaking ? 16 : 8 };
+  react: function (event) {
+    if (P.Game.state !== 'playing' || P.Game.ending || P.Game.cinematic || (document && document.hidden)) return false;
+    var choices = variations[event], id = event;
+    if (choices) {
+      id = null;
+      choices.forEach(function (take) {
+        if (!seen[take] && (!id || (heard[take] || 0) < (heard[id] || 0))) id = take;
+      });
     }
+    var priority = reactionPriority[id];
+    if (!priority || seen[id]) return false;
+    if (reaction && reaction.id !== id && (priority < reaction.priority ||
+        (priority === reaction.priority && (heard[id] || 0) >= (heard[reaction.id] || 0)))) return false;
+    var briefing = pending || (active && !reactionPriority[active.id]);
+    // A collected salvage trail can wait until the briefing ends. A flyby or
+    // kill only makes sense while the player can still connect it to the shot.
+    var lifetime = id === 'pickup' && briefing ? 16 : id === 'boss' ? 7 : priority >= 4 ? 3.5 : 2;
+    if (reaction && reaction.id === id) reaction.remaining = lifetime;
+    else reaction = { id: id, priority: priority, remaining: lifetime,
+      // Leave ordinary events a beat for the outcome of this volley to arrive.
+      delay: priority <= 2 ? .42 : 0 };
+    return true;
   },
   reset: function () {
     stop(); pending = reaction = null; seen = {}; duck = quietTime = 0; lastSector = null;
@@ -135,10 +176,14 @@ P.voice = {
       }
     }
     if (running && reaction) {
-      reaction.remaining -= dt;
+      reaction.remaining -= dt; reaction.delay -= dt;
       if (reaction.remaining <= 0) reaction = null;
-      else if (!pending && !active && !cardVisible && quietTime === 0) {
+      // Six seconds between incidental remarks. A special achievement can
+      // answer the action sooner, with a minimum breath between recordings.
+      else if (!pending && !active && !cardVisible && reaction.delay <= 0 &&
+          quietTime <= (reaction.priority >= 4 ? Math.max(0, lastGap - 1.25) : 0)) {
         seen[reaction.id] = true;
+        heard[reaction.id] = (heard[reaction.id] || 0) + 1;
         start(reaction.id); reaction = null;
       }
     }
@@ -158,7 +203,7 @@ P.voice = {
         cue.elapsed += dt;
         var duration = media && !cue.failed ? Math.max(cue.duration, Number.isFinite(media.duration) ? media.duration + 1 : cue.duration + 6) : cue.duration;
         if (cue.elapsed >= (cue.endAt === null ? duration : cue.endAt)) {
-          quietTime = reactionPriority[cue.id] ? 6 : 2;
+          quietTime = lastGap = reactionPriority[cue.id] ? 6 : 2;
           stop();
         }
       }

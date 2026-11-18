@@ -24,8 +24,11 @@ P.flight = {
     if (Player.energy >= 24) Player.exhausted = false;
     Player.boosting = !Game.cinematic && !!keys.shift && !Player.braking && !Player.exhausted && Player.energy > 0 && Player.rollT === 0;
     Player.energy = P.clamp(Player.energy + (Player.boosting ? -34 : Player.rollT > 0 ? 0 : 19) * dt, 0, 100);
-    Player.speedFactor = P.damp(Player.speedFactor, Player.braking ? .55 : Player.boosting ? 1.65 : 1, 5, dt);
+    var before = Player.speedFactor;
+    Player.speedFactor = P.damp(before, Player.braking ? .55 : Player.boosting ? 1.65 : 1, 5, dt);
     if (Player.boosting && !wasBoosting) A.sBoost();
+    if (P.voice && Player.boosting && before < 1.35 && Player.speedFactor >= 1.35) P.voice.react('boost');
+    if (P.voice && Player.braking && before > .76 && Player.speedFactor <= .76) P.voice.react('brake');
   }
 };
 P.flight.reset();

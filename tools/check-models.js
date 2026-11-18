@@ -1,7 +1,8 @@
 // Judge Dean LLC — model budgets, live rig deformation and gameplay attachments.
 const assert = require('node:assert/strict');
 const THREE = require('three');
-const { flight } = require('./check-motion');
+const { flight, checkMotion } = require('./check-motion');
+checkMotion();
 const { P, step } = flight();
 const budgets = [];
 for (const type of ['wasp', 'ray', 'chaser', 'carrier', 'sentinel', 'bomber']) {
@@ -24,20 +25,57 @@ for (const type of ['wasp', 'ray', 'chaser', 'carrier', 'sentinel', 'bomber']) {
   if (type === 'bomber') assert.equal(g.userData.core.parent, g, 'bomber core remains independently animated');
   budgets.push({ type, meshes, vertices });
 }
-const sails = [];
-P.dragon.root.traverse(o => { if (o.name === 'dragon-banded-membrane') sails.push(o); });
-assert.equal(sails.length, 2);
-const mantle = P.dragon.root.getObjectByName('rider-flight-mantle');
-assert(mantle && mantle.parent === P.dragon.rider, 'mantle follows the rider');
-const buffers = sails.concat(mantle).map(o => o.geometry.attributes.position.array);
-const before = buffers.map(a => a.slice());
-step('s', .7); step('d', .6);
-for (const [i, o] of sails.concat(mantle).entries()) {
-  const data = o.geometry.attributes.position.array;
-  assert.equal(data, buffers[i], 'animation reuses its vertex storage');
-  assert(data.every(Number.isFinite), 'deformed cloth remains finite');
-  assert(data.some((n, j) => Math.abs(n - before[i][j]) > .01), 'new surfaces follow the actual animated rig');
+// Measure the visible, skinned surface at the ends of the Blender wing rig.
+const skin = P.dragon.flightRig.mesh;
+const visible = [];
+P.dragon.body.traverseVisible(part => { if (part.isSkinnedMesh) visible.push(part); });
+assert(visible.includes(skin) && skin !== P.dragon.riderMesh, 'the flight model must render its own skinned body');
+assert(skin.material.skinning, 'the visible dragon material must render the weighted mesh');
+const attributes = skin.geometry.attributes, bindPositions = attributes.position;
+const jointIndex = new THREE.Vector4(), jointWeight = new THREE.Vector4();
+let blended = 0;
+for (let i = 0; i < bindPositions.count; i++) {
+  jointIndex.fromBufferAttribute(attributes.skinIndex, i);
+  jointWeight.fromBufferAttribute(attributes.skinWeight, i);
+  assert(Math.abs(jointWeight.manhattanLength() - 1) < .005, 'each surface vertex has normalized weights');
+  let influences = 0;
+  for (let j = 0; j < 4; j++) {
+    if (jointWeight.getComponent(j) <= 0) continue;
+    const joint = jointIndex.getComponent(j);
+    assert(Number.isInteger(joint) && joint >= 0 && joint < skin.skeleton.bones.length);
+    influences++;
+  }
+  if (influences > 1) blended++;
 }
+assert(blended > 0, 'joints blend continuously into the skin');
+const tips = P.dragon.wingTips.map(bone => {
+  assert(skin.skeleton.bones.includes(bone), 'tip belongs to the same armature as the visible wing');
+  const tip = bone.getWorldPosition(new THREE.Vector3()), point = new THREE.Vector3();
+  let closest = Infinity, index = -1;
+  for (let i = 0; i < bindPositions.count; i++) {
+    skin.boneTransform(i, point).applyMatrix4(skin.matrixWorld);
+    const distance = point.distanceTo(tip);
+    if (distance < closest) { closest = distance; index = i; }
+  }
+  assert(closest < .35, 'wingtip marker sits on the actual mesh');
+  return { bone, index };
+});
+const surface = new THREE.Vector3(), marker = new THREE.Vector3();
+const range = tips.map(() => [Infinity, -Infinity]);
+for (let tick = 0; tick < 90; tick++) {
+  step(tick < 36 ? 's' : 'a', 1 / 60);
+  for (const [i, tip] of tips.entries()) {
+    skin.boneTransform(tip.index, surface).applyMatrix4(skin.matrixWorld);
+    assert(surface.distanceTo(tip.bone.getWorldPosition(marker)) < .4, 'the rendered wing must follow the fingertip through a maneuver');
+    P.dragon.body.worldToLocal(surface);
+    range[i][0] = Math.min(range[i][0], surface.y);
+    range[i][1] = Math.max(range[i][1], surface.y);
+  }
+}
+assert(range.every(([low, high]) => high - low > 3), 'the actual flight mesh completes a powered stroke');
+assert.equal(skin.geometry.attributes.position, bindPositions, 'the skinned mesh reuses its bind geometry');
+const mantle = P.dragon.rider.getObjectByName('rider-flight-mantle');
+assert(mantle && mantle.parent === P.dragon.rider, 'mantle follows the rider');
 const gun = new THREE.Vector3(); P.dragon.gun.getWorldPosition(gun);
 assert(gun.distanceTo(P.Player.pos) < 10, 'weapon muzzle stays attached to rider');
 const boss = P.models.buildBoss();

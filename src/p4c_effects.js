@@ -232,9 +232,7 @@ function updateTrails(dt) {
   if (!desired && trailPower < .004) { resetTrails(); return; }
   dragon.root.updateMatrixWorld(true);
   trails.forEach(function (t, wingIndex) {
-    var wing = dragon.wings[wingIndex], wrist = wing.userData.wrist;
-    // Outer finger tip relative to the wrist, matching the authored wing rig.
-    t.tip.set(wing.userData.side * 2.7, .12, .5).applyMatrix4(wrist.matrixWorld);
+    t.tip.setFromMatrixPosition(dragon.wingTips[wingIndex].matrixWorld);
     if (!t.ready || t.previous.distanceToSquared(t.tip) > 90 * 90) {
       t.count = 0; t.previous.copy(t.tip); t.nextSample = wasTime; t.ready = true;
     }

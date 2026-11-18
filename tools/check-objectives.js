@@ -87,7 +87,8 @@ for (const boost of [false, true]) {
   assert.equal(P.campaign.objective.status, 'success');
   bombers.forEach(e => E.killEnemy(e, true));
   assert.equal(P.campaign.results.filter(r => r.id === 'breach').length, 1, 'break then kill cannot double-credit');
-  assert.deepEqual(reactions, ['chargebreak', 'chargebreak', 'streak'], 'react to interrupted attacks and the third credited kill');
+  assert.deepEqual(reactions, ['foundryKill', 'foundryKill', 'chargebreak', 'chargebreak', 'bomber', 'streak', 'bomber'],
+    'foundry kills, interrupted attacks and the third confirmed kill earn their own remarks');
 }
 // Every sector supports direct entry and carries outcomes into the finale.
 {

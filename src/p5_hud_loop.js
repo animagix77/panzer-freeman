@@ -165,11 +165,6 @@ function targetPos(t) {
 // Panzer-Dragoon style painting: sweeping the reticle stacks locks, and a big
 // target can soak several of them. One lock lands every LOCK_CD seconds.
 var LOCK_CD = 0.075;
-function countLocks(t) {
-  var n = 0;
-  for (var i = 0; i < Locks.list.length; i++) if (Locks.list[i] === t) n++;
-  return n;
-}
 function updateLocks(dt) {
   if (!Input.lmb) { Locks.cd = 0; return; }
   if (Locks.list.length >= Locks.max) return;
@@ -182,7 +177,7 @@ function updateLocks(dt) {
     for (var i = 0; i < list.length; i++) {
       var t = list[i];
       var cap = t.tag === 'opening-target' ? 1 : t.def ? 3 : 8;
-      if (countLocks(t) >= cap) continue;
+      if (Locks.count(t) >= cap) continue;
       var pp = project(targetPos(t));
       if (!pp.front || pp.depth > 460) continue;
       var dx = pp.x - Input.mx, dy = pp.y - Input.my;
@@ -190,7 +185,7 @@ function updateLocks(dt) {
       if (d2 < bestD) { bestD = d2; best = t; }
     }
     if (!best) { Locks.cd = 0; break; }
-    Locks.list.push(best); Locks.cd += LOCK_CD * (1 - (Game.heat || 0) * 0.45); A.sLock();
+    Locks.add(best); Locks.cd += LOCK_CD * (1 - (Game.heat || 0) * 0.45); A.sLock();
   }
 }
 
@@ -897,11 +892,13 @@ function frame(now) {
     Game.time += dt;
     Game.railZ += 26 * dt;
     Player.pos.set(Math.sin(Game.time * 0.3) * 8, EPISODES[Game.epIndex].railY + 12 + Math.sin(Game.time * 0.4) * 3, Game.railZ);
+    var cruiseX = 2.4 * Math.cos(Game.time * .3), cruiseY = 1.2 * Math.cos(Game.time * .4);
+    var cruiseBank = .11 * Math.sin(Game.time * .3);
     P.dragon.root.position.copy(Player.pos);
-    P.dragon.root.rotation.y = Math.sin(Game.time * 0.25) * 0.35;
-    P.dragon.update(dt, Game.time, { strafeX: Math.sin(Game.time * 0.25) * 0.4, strafeY: 0,
-      flightX: 2.4 * Math.cos(Game.time * .3), flightY: 1.2 * Math.cos(Game.time * .4), flightZ: 26,
-      vy: Math.sin(Game.time * 0.42) * 26, aimX: 0, aimY: 0, boost: 0 });
+    P.dragon.root.rotation.y = Math.atan2(cruiseX, 26);
+    P.dragon.update(dt, Game.time, { strafeX: -cruiseX / 44, bankDemand: cruiseBank,
+      flightX: cruiseX, flightZ: 26, vy: cruiseY,
+      pathPitch: Math.atan2(cruiseY, Math.hypot(cruiseX, 26)), aimX: 0, aimY: 0, boost: 0 });
     // Three-quarter portrait, framed beside the launch controls.
     var yaw2 = 2.15 + Math.sin(Game.time * .15) * .46;
     var wide = HUD.w > 700;
@@ -925,13 +922,14 @@ function frame(now) {
     Player.pos.z = Game.railZ;
     Player.pos.x = damp(Player.pos.x, 0, 0.5, dt);
     Player.pos.y = damp(Player.pos.y, Player.railY + 5, 0.45, dt);
+    var driftX = -.5 * Player.pos.x, driftY = .45 * (Player.railY + 5 - Player.pos.y);
     P.dragon.root.position.copy(Player.pos);
-    P.dragon.root.rotation.y = damp(P.dragon.root.rotation.y, 0, 1.0, dt);
+    P.dragon.root.rotation.y = damp(P.dragon.root.rotation.y, Math.atan2(driftX, 20), 1.0, dt);
     P.dragon.root.rotation.z += P.angDelta(P.dragon.root.rotation.z, 0) * (1 - Math.exp(-4 * dt));
     if (P.fx) P.fx.update(dt);
-    P.dragon.update(dt, Game.time, { strafeX: 0, strafeY: 0,
-      flightX: -.5 * Player.pos.x, flightY: .45 * (Player.railY + 5 - Player.pos.y), flightZ: 20,
-      vy: Math.sin(Game.time * 0.45) * 7, aimX: 0, aimY: 0, boost: 0 });
+    P.dragon.update(dt, Game.time, { strafeX: clamp(-driftX / 44, -1, 1),
+      flightX: driftX, flightZ: 20, vy: driftY,
+      pathPitch: Math.atan2(driftY, Math.hypot(driftX, 20)), aimX: 0, aimY: 0, boost: 0 });
     var oy = Math.sin(Game.time * 0.16) * 0.5;
     camera.position.set(
       Player.pos.x + Math.sin(oy) * -40,

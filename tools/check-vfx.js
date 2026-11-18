@@ -28,8 +28,7 @@ for (const fps of [30, 60, 120]) {
   for (const [i, ribbon] of ribbons.entries()) {
     const vertex = ribbon.geometry.attributes.position;
     const tip = new P.V3().fromBufferAttribute(vertex, 1);
-    const wing = P.dragon.wings[i];
-    const expected = new P.V3(wing.userData.side * 2.7, .12, .5).applyMatrix4(wing.userData.wrist.matrixWorld);
+    const expected = P.dragon.wingTips[i].getWorldPosition(new P.V3());
     assert(tip.distanceTo(expected) < .0001, 'ribbon head must follow the articulated wingtip');
     assert(vertex.array.every(Number.isFinite), 'ribbon geometry stays finite');
     assert.equal(ribbon.geometry, geometries[i], 'geometry must be reused');

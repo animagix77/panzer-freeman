@@ -422,8 +422,9 @@ function killEnemy(e, byPlayer) {
     deAge(e.deAge * (e.tag === 'opening-target' ? 1 : 2 + Math.min(Game.combo, 15) * 0.06));
     if (P.opening) P.opening.onKill(e);
     if (P.campaign) P.campaign.onKill(e);
-    if (Game.combo === 3 && P.voice) P.voice.react('streak');
-    else killQuip(e.type);
+    var voiced = P.voice && P.voice.react(e.tag === 'foundry-convoy' && e.type === 'carrier' ? 'foundryKill' : e.type);
+    if ((Game.combo === 3 || Game.combo === 5 || Game.combo === 9) && P.voice) voiced = P.voice.react('streak') || voiced;
+    if (!voiced) killQuip(e.type);
   }
   if (e.def.drops) for (var i = 0; i < e.def.drops; i++) spawnOrb(e.pos, true);
   else if (e.tag !== 'opening-target' && Math.random() < 0.055) spawnOrb(e.pos, false);
@@ -456,7 +457,18 @@ function spawnOrb(pos, guaranteed) {
 }
 
 // -------------------------------------------------------------------- locks
-var Locks = { list: [], max: 8, cd: 0 };
+var Locks = { list: [], max: 8, cd: 0,
+  count: function (target) {
+    var count = 0;
+    for (var i = 0; i < this.list.length; i++) if (this.list[i] === target) count++;
+    return count;
+  },
+  add: function (target) {
+    this.list.push(target);
+    var heavy = !target.def || target.type === 'carrier' || target.type === 'bomber' || target.type === 'sentinel';
+    if (P.voice && heavy && this.count(target) === 3) P.voice.react('momlock');
+  }
+};
 
 // ------------------------------------------------------------ vigour tiers
 // Every year he sheds makes him faster and deadlier — the upgrade curve IS the
@@ -517,7 +529,9 @@ P.Locks = Locks;
 
 // ------------------------------------------------------------------ age/dmg
 function deAge(y) {
+  var previous = Game.age;
   Game.age = clamp(Game.age - y, 24, 100);
+  if (P.voice && Math.floor(Game.age / 10) < Math.floor(previous / 10)) P.voice.react('decade');
   dragon.setAge(Game.age);
   applyVigour();
 }
@@ -533,13 +547,14 @@ function damagePlayer(amount, hard) {
   Game.hurtT = 0.55;
   Game.shakeT = 0.5; Game.shakeMag = hard ? 2.4 : 1.4;
   Game.combo = 0;
-  if ((Game.heat || 0) > 0.4) sayQuip('The rhythm broke. It had been a good rhythm.', true);
+  var voiced = Game.age < 100 && P.voice && P.voice.react('wounded');
+  if (!voiced && (Game.heat || 0) > 0.4) sayQuip('The rhythm broke. It had been a good rhythm.', true);
   Game.heat = 0;
   refreshWeapons();
   A.sHit();
   flashScreen(0.18, '#ff3b2a');
   if (P.opening) P.opening.onHit();
-  if (Math.random() < 0.5) sayQuip(pick([
+  if (!voiced && Math.random() < 0.5) sayQuip(pick([
     'That one cost him. They always cost him.',
     'He felt every year of it arrive at once.',
     'The sky, it seemed, wanted its time back.',
@@ -689,6 +704,7 @@ function bossStart() {
   }
   Boss.group.updateMatrixWorld(true);
   Game.bossActive = true;   // the HP bar sums the cores directly; Boss has no pool of its own
+  if (P.voice) P.voice.react('boss');
 }
 
 function bossCoreHit(c, dmg) {
@@ -704,7 +720,6 @@ function bossCoreHit(c, dmg) {
     A.sBoom(true);
     Game.score += 3000;
     deAge(3.0);
-    sayQuip('One eye of the Sphinx, closed for good.', true);
     flashScreen(0.5, '#8ffff0');
     Game.shakeT = 0.7; Game.shakeMag = 2.6;
     c.group.visible = false;
@@ -712,7 +727,10 @@ function bossCoreHit(c, dmg) {
     for (var i = 0; i < Boss.built.cores.length; i++) if (Boss.built.cores[i].alive) alive++;
     Boss.phase = 3 - alive;
     if (alive === 0) bossDie();
-    else { Boss.angleTarget = Boss.phase === 1 ? Math.PI * 0.5 : Math.PI; toast('CORE DESTROYED'); }
+    else {
+      Boss.angleTarget = Boss.phase === 1 ? Math.PI * 0.5 : Math.PI; toast('CORE DESTROYED');
+      if (!P.voice || !P.voice.react('core')) sayQuip('One eye of the Sphinx, closed for good.', true);
+    }
   }
 }
 
@@ -1048,6 +1066,10 @@ function updatePlayer(dt) {
   // Tip into the acceleration, then open the wings as the new course settles.
   // Braking and reversing require a brief bank back across the current course.
   var lateralLoad = (Player.motionX - targetVX) / (accel * 0.42);
+  // Easing off or meeting the corridor edge needs only a gentle check bank.
+  // A deliberate change of direction still tips the inside wing decisively.
+  var checking = targetVX * Player.motionX >= 0 && Math.abs(targetVX) < Math.abs(Player.motionX);
+  var bankLoad = lateralLoad * (checking ? .66 : 1.45);
   var liftDemand = (targetVY - Player.motionY) / 44;
   dragon.root.rotation.y = damp(dragon.root.rotation.y, heading * 0.72, 6, dt);
   if (Player.rollT > 0) {
@@ -1058,7 +1080,7 @@ function updatePlayer(dt) {
 
   dragon.update(dt, Game.time, {
     strafeX: strafe, flightX: Player.motionX, flightZ: trackZ,
-    bankDemand: clamp(lateralLoad * 1.45 + strafe * 0.44, -1, 1),
+    bankDemand: clamp(bankLoad + strafe * .44, -1, 1),
     pathPitch: Math.atan2(Player.motionY, Math.hypot(Player.motionX, trackZ)),
     liftDemand: clamp(liftDemand, -1, 1),
     strafeY: clamp(Player.motionY / 44, -1, 1),
@@ -1258,6 +1280,7 @@ function updateProjectiles(dt) {
     }
     if (!dead && !p.nearHeard && passDistanceSq < 144 && P.tmpA.copy(p.m.position).sub(Player.pos).dot(p.v) > 0) {
       p.nearHeard = true; if (A.sNear) A.sNear(p.m.position);
+      if (P.voice) P.voice.react('nearmiss');
     }
     if (dead) { ebPool.put(p.m); ebullets.splice(i, 1); }
   }

@@ -15,8 +15,8 @@ Defeating enemies gives him time back. Taking hits ages him.
 A tribute to **Panzer Dragoon** (Sega Saturn, 1995) — the rail flight, the four-way
 view rotation, the sweep-to-paint lock-on volleys — drawn as clean low-poly rather
 than as a Saturn emulation, with a soundtrack aimed squarely at **Lords of Thunder**
-(PC Engine CD). The HTML bundle embeds Three.js, the rider model,
-and procedural game systems. Six MP3 cues stream from `sound/`; effects use an
+(PC Engine CD). The HTML bundle embeds Three.js, the rider, and the dragon’s skinned mesh,
+skeleton and wingbeat animation. Six MP3 cues stream from `sound/`; effects use an
 original Web Audio sample bank rendered at startup. Serve the folder over HTTP.
 
 | | |
@@ -24,7 +24,7 @@ original Web Audio sample bank rendered at startup. Serve the folder over HTTP.
 | ![Drowned Choir salvage flight](docs/04-drowned-choir.png) | ![Canyon](docs/02-canyon.png) |
 | ![Lasers](docs/03-lasers.png) | ![Boss](docs/05-boss.png) |
 
-![The dragon](docs/06-model.png)
+![The Blender dragon carrying the rider](docs/06-model.png)
 
 ## Controls
 
@@ -63,8 +63,8 @@ cores. Diamond markers distinguish mission enemies from ambient patrols. Objecti
 award score, wing power and occasional recovered years; missed objectives do not
 stop the run. The result screen records completed objectives and reflected shots.
 
-**A rebuilt cast.** The dragon wears ivory flight armor over a deep teal body, with
-cyan and gold bands that deform with its articulated wing membranes. A crimson cape fastens to
+**A rebuilt cast.** The dragon has swept horns, a tapered tail and broad wings.
+Each membrane stretches from the arm to the fingers, with skin weights shared across the joints. A crimson cape fastens to
 the rider’s shoulders. Its hem lifts in the slipstream, folds on braking and swings wide when the dragon reverses a bank.
 The cloth rests against the saddle and the armoured ridge along the dragon’s back.
 Six enemy hulls have distinct sculpted silhouettes,
@@ -172,8 +172,9 @@ as the dragon banks. Hold a steady course and the bank shallows. Reverse into a
 climb or dive and the dragon rolls through level while pitching toward its new
 flight path. Forward speed matters: the same rise looks shallower under boost.
 
-The wingtips drive down as the body lifts on a powered stroke. The shoulder
-leads the elbow and wrist, and climbs bring the strokes closer together.
+The game samples the wingbeat keyed in Blender. The wings open for the power
+stroke, lift the torso as they press down, then fold for recovery. A climb
+shortens the glide between strokes. Banks and dives layer onto the current pose.
 In a dive the wings sweep aft into a glide. The rider braces and the tail
 follows the turn joint by joint. Changing the camera view preserves the
 direction of an evasive roll already in progress.
@@ -209,13 +210,13 @@ to audition the laser, explosion and wings. The existing recorded score is retai
 A 28-voice cap and per-effect rate limits control busy volleys.
 These are original procedural effects, with no external sample licenses required.
 
-**Rider dialogue.** The rider narrates the opening flight, salvage run, carrier
-convoy, mountain citadel and victory. He also reacts to a reflected shot, an
-interrupted charge, a clean three-gate run, an orb pickup and a three-kill chain.
-Sector dialogue gets priority, and each flight reaction plays at most once per
-run. Eight enemy-specific captions mix into the quieter stretches of combat.
-All rider lines have captions. The pause menu has a Rider voice level in builds
-with recorded clips. Music dips during speech, and pausing holds the line in place.
+**Rider dialogue.** The rider has 28 captioned AI parody recordings. He introduces
+each sector and heckles eight enemy types, comments on close calls and hard braking,
+and has a few words for the keeper of time. Two rarer roasts reward taking down a
+marked Foundry carrier and stacking three locks on one heavy target.
+Sector narration gets priority. Combat remarks leave room for the score and each
+line plays at most once per run. The pause menu has a Rider voice level. Music
+dips during speech, and pausing holds the line in place.
 
 ## Building
 
@@ -226,6 +227,21 @@ npm install          # pulls three.js, which gets inlined into the output
 node build.js        # concatenates src/ into index.html
 ```
 
+The editable dragon lives in [flight-dragon.blend](art/dragon/flight-dragon.blend),
+authored in Blender 5.3. Edit the rig’s active `Wingbeat` action in Pose Mode
+or paint the `DragonPigment` vertex color layer to change the hide and wings.
+After saving the model, run these commands from the repository root.
+
+```bash
+blender --background --factory-startup art/dragon/flight-dragon.blend \
+  --python-exit-code 1 --python tools/bake-flight-dragon.py
+node build.js
+node tools/check-models.js
+```
+
+The Blender export writes the mesh, weights, skeleton and sampled wingbeat
+to `src/gen/flight_dragon.js`. Regular game builds use that checked-in file.
+
 `src/` is split into modules that share one namespace:
 
 | File | Contents |
@@ -234,7 +250,8 @@ node build.js        # concatenates src/ into index.html
 | `p1b_audio.js` | layered effect bank, stereo mix, reverb and compression |
 | `p1c_soundscape.js` | flight ambience, charge loop, music ducking and saved mix controls |
 | `p1d_voice.js` | sector dialogue, captions, recorded clip playback and mix |
-| `p2_models.js` | procedural dragon + rider + enemies + boss, and the flight model |
+| `gen/flight_dragon.js` and `p2a_flight_dragon.js` | embedded Blender mesh, skeleton, action samples and skinning |
+| `p2_models.js` | dragon flight control, rider, rig attachments, enemies and boss |
 | `p3_world.js` | terrain chunking, batched prop fields, episode definitions |
 | `p3c_horizon.js` | layered distant mountain silhouettes |
 | `p3d_landmarks.js` | grounded aqueducts, cathedral arches, furnace gantries and mountain gates |

@@ -19,8 +19,8 @@ const path = require('path');
     const body = P.dragon.body;
     const o  = new T.Vector3(0,0,0).applyMatrix4(body.matrixWorld);
     const nz = new T.Vector3(0,0,10).applyMatrix4(body.matrixWorld).sub(o).normalize();
-    const tipL = new T.Vector3(-5,0,0).applyMatrix4(P.dragon.wings[0].matrixWorld);
-    const tipR = new T.Vector3( 5,0,0).applyMatrix4(P.dragon.wings[1].matrixWorld);
+    const tipL = P.dragon.wingTips[0].getWorldPosition(new T.Vector3());
+    const tipR = P.dragon.wingTips[1].getWorldPosition(new T.Vector3());
     const r = new T.Vector3(), u = new T.Vector3(), f = new T.Vector3();
     P.camera.matrixWorld.extractBasis(r, u, f);
     // which wingtip is on the viewer's right?

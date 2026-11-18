@@ -142,10 +142,10 @@ function setup(files = {}, deferPlay = false) {
   P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
   for (const id of ['pickup', 'streak', 'chargebreak', 'gates', 'pickup']) P.voice.react(id);
   tick(.02); assert.equal(P.voice.state().id, 'gates', 'a simultaneous gate completion takes priority');
-  tick(6.1); P.voice.react('counter'); tick(3);
-  assert.equal(P.voice.state().id, null, 'leave six seconds of quiet after a reaction');
+  tick(6.1); P.voice.react('counter'); tick(.7);
+  assert.equal(P.voice.state().id, null, 'leave breathing room even for a special maneuver');
   P.Game.state = 'paused'; tick(30); P.voice.react('gates');
-  P.Game.state = 'playing'; tick(3.1); assert.equal(P.voice.state().id, 'counter', 'pause keeps a pending counter in time');
+  P.Game.state = 'playing'; tick(.7); assert.equal(P.voice.state().id, 'counter', 'a counter answers promptly after resuming');
   P.voice.react('streak'); tick(15); assert.equal(audio.length, 2, 'stale reactions expire');
   P.voice.react('streak'); tick(.02); assert.equal(P.voice.state().id, 'streak', 'a fresh streak can be earned');
   P.voice.react('chargebreak'); P.Game.epIndex = 3; tick(4.7);
@@ -170,6 +170,37 @@ function setup(files = {}, deferPlay = false) {
   assert.equal(caption.children[0].textContent, 'THE RIDER');
   assert.equal(caption.children[1].textContent, P.voice.lines.chargebreak, 'missing event audio is still captioned');
   document.hidden = true; tick(.2); assert(caption.hidden);
+}
+// A whole volley can arrive before the next voice update. Give the rare earned
+// event the floor. Hearing a line consumes it, losing an arbitration does not.
+{
+  const { P, tick } = setup();
+  P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
+  P.voice.react('boost'); tick(.18); P.voice.react('wasp'); tick(.1);
+  P.voice.react('momlock'); P.voice.react('pickup'); tick(.02);
+  assert.equal(P.voice.state().id, 'momlock', 'a heavy lock wins over the kill and boost on approach');
+  tick(18); P.voice.react('momlock'); P.voice.react('wasp'); tick(.5);
+  assert.equal(P.voice.state().id, 'wasp', 'a later scout earns the line that lost the first arbitration');
+  tick(5.1); P.voice.react('brake'); tick(3);
+  assert.equal(P.voice.state().id, null, 'routine controls leave a gap after combat and expire promptly');
+  tick(4); P.voice.react('brake'); tick(.5); assert.equal(P.voice.state().id, 'brake');
+  P.voice.react('foundryKill'); tick(15);
+  assert.equal(P.voice.state().id, null, 'a carrier from before a long recording never gets a stale punch line');
+  P.voice.react('foundryKill'); tick(.02); assert.equal(P.voice.state().id, 'momcarrier');
+}
+// Replaying the very same short route discovers another take. In one flight,
+// a third equivalent event cannot repeat either take. Muted games retain both.
+{
+  const { P, tick } = setup();
+  P.Game.state = 'playing'; P.Game.epIndex = 4;
+  for (const [event, takes] of [['streak', ['streak','hotstreak']], ['foundryKill', ['momcarrier','carrier']]]) {
+    for (const take of takes) {
+      P.voice.reset(); tick(.02); P.voice.react(event); tick(.5);
+      assert.equal(P.voice.state().id, take);
+    }
+    tick(15); P.voice.react(event); tick(.5); assert.equal(P.voice.state().id, takes[0]);
+    tick(15); assert.equal(P.voice.react(event), false);
+  }
 }
 // Existing pf-audio-v1 saves gain the new default without losing their mix.
 const soundscape = fs.readFileSync(path.join(__dirname, '../src/p1c_soundscape.js'), 'utf8');
