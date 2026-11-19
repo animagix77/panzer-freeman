@@ -73,7 +73,7 @@ function setup(files = {}, deferPlay = false) {
   assert.equal(P.voice.state().id, null, 'sector caption waits until the title card is gone');
   cardVisible = false; tick(.02); assert.equal(P.voice.state().id, 'opening');
   cardVisible = true; P.Game.state = 'win'; tick(.6);
-  assert.equal(P.voice.state().id, 'victory', 'victory caption does not wait for a sector card');
+  assert.equal(P.voice.state().id, 'birthcertificate', 'ending caption does not wait for a sector card');
 }
 {
   const { P, audio, tick, nodes } = setup({ opening: 'sound/voice-opening.mp3' });
@@ -154,7 +154,7 @@ function setup(files = {}, deferPlay = false) {
   document.hidden = true; P.voice.react('chargebreak'); document.hidden = false; tick(.02);
   assert.equal(P.voice.state().id, null);
   P.voice.react('chargebreak'); tick(.02); assert.equal(P.voice.state().id, 'chargebreak');
-  P.Game.state = 'win'; tick(.6); assert.equal(P.voice.state().id, 'victory');
+  P.Game.state = 'win'; tick(.6); assert.equal(P.voice.state().id, 'birthcertificate');
   assert(audio[3].paused, 'victory stops the reaction clip');
   P.voice.reset(); P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
   P.voice.react('counter'); tick(.02); assert.equal(P.voice.state().id, 'counter', 'a new flight resets reactions');
@@ -193,7 +193,9 @@ function setup(files = {}, deferPlay = false) {
 {
   const { P, tick } = setup();
   P.Game.state = 'playing'; P.Game.epIndex = 4;
-  for (const [event, takes] of [['streak', ['streak','hotstreak']], ['foundryKill', ['momcarrier','carrier']]]) {
+  for (const [event, takes] of [['streak', ['streak','hotstreak']], ['foundryKill', ['momcarrier','carrier']],
+    ['gates', ['momgates','gates']], ['pickup', ['momorb','pickup']], ['counter', ['counter','momreturn']],
+    ['bomber', ['mombomber','bomber']], ['core', ['momclock','core']]]) {
     for (const take of takes) {
       P.voice.reset(); tick(.02); P.voice.react(event); tick(.5);
       assert.equal(P.voice.state().id, take);
@@ -201,6 +203,43 @@ function setup(files = {}, deferPlay = false) {
     tick(15); P.voice.react(event); tick(.5); assert.equal(P.voice.state().id, takes[0]);
     tick(15); assert.equal(P.voice.react(event), false);
   }
+}
+// The repeated opening of the seven mom jokes needs room between deliveries.
+// A real achievement inside that window can still get its other recording.
+{
+  const files = Object.fromEntries(['momlock','gates','momgates','momclock','core'].map(id => [id,id+'.mp3']));
+  const { P, audio, tick } = setup(files);
+  P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
+  P.voice.react('momlock'); tick(.02); tick(10);
+  P.Game.state = 'paused'; tick(60); P.Game.state = 'playing';
+  P.voice.react('gates'); tick(.02);
+  assert.equal(P.voice.state().id, 'gates', 'paused time cannot unlock consecutive mom jokes');
+  tick(16); P.voice.react('core'); tick(.02);
+  assert.equal(P.voice.state().id, 'momclock');
+  assert.deepEqual(audio.map(clip => clip.src), ['', '', 'momclock.mp3']);
+}
+// The portrait and numerical age get a quiet beat. Only the visible reveal
+// starts playback. Fast forwarding and replaying follow the same rule.
+for (const [files, expected] of [
+  [{ birthcertificate:'new.mp3', victory:'old.mp3', core:'core.mp3' }, 'birthcertificate'],
+  [{ victory:'old.mp3', core:'core.mp3' }, 'victory'], [{}, 'birthcertificate']
+]) {
+  const { P, audio, nodes, tick } = setup(files);
+  P.Game.state = 'playing'; P.Game.epIndex = 4; tick(.02);
+  P.voice.react('core'); tick(.1); assert(P.voice.isSpeaking());
+  P.Game.ending = true; P.Game.victoryRevealed = false; tick(.02);
+  const count = audio.length;
+  assert.equal(P.voice.state().id, null, 'combat speech stops as the finale begins');
+  P.Game.state = 'win'; tick(3); assert.equal(audio.length, count);
+  assert.equal(P.voice.state().id, null, 'no punch line over the age reveal');
+  P.Game.victoryRevealed = true; tick(.02);
+  assert.equal(P.voice.state().id, expected); assert.equal(P.voice.state().hasAudio, !!files[expected]);
+  assert.equal(nodes.find(n => n.id === 'voice-caption').hidden, expected === 'birthcertificate',
+    'the authored card supplies the new line while the optional legacy recording retains its own caption');
+  const after = audio.length;
+  tick(20); assert.equal(audio.length, after); assert.equal(P.voice.state().id, null);
+  P.voice.reset(); P.Game.victoryRevealed = false; tick(.02);
+  P.Game.victoryRevealed = true; tick(.02); assert.equal(P.voice.state().id, expected);
 }
 // Existing pf-audio-v1 saves gain the new default without losing their mix.
 const soundscape = fs.readFileSync(path.join(__dirname, '../src/p1c_soundscape.js'), 'utf8');

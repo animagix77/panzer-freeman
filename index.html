@@ -261,8 +261,8 @@
   }
   #title .plate { width:min(440px,96%); margin:auto 0; padding:8px 0; border:0; background:none; box-shadow:none; }
   #title,#over,#win { overflow-y:auto; overscroll-behavior:contain; }
-  #over,#win { justify-content:flex-start; background:linear-gradient(135deg,#08151be8,#15282ac9); }
-  #over .plate,#win .plate { margin:auto; width:min(660px,100%); padding:clamp(24px,5vw,48px); background:#102129ed;
+  #over { justify-content:flex-start; background:linear-gradient(135deg,#08151be8,#15282ac9); }
+  #over .plate { margin:auto; width:min(660px,100%); padding:clamp(24px,5vw,48px); background:#102129ed;
     border:1px solid #90c4bc66; box-shadow:0 20px 80px #0006; border-radius:4px; }
   #over h1,#win h1 { font:italic 700 clamp(34px,5vw,62px)/1.1 Georgia,serif; letter-spacing:-.04em; color:#f7dfaf; text-shadow:none; }
   #over .statline,#win .statline { font:13px/1.9 system-ui,sans-serif; letter-spacing:.04em; color:#c9ddd6; }
@@ -294,6 +294,33 @@
   #title .keys { gap:6px; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); }
   #title .keys div { justify-content:flex-start; }
   .deck-link { display:block; margin:16px auto 0; cursor:pointer; color:#c1e4dc; background:none; border:0; font:14px system-ui,sans-serif; text-decoration:underline; }
+  #win { align-items:flex-start; justify-content:flex-start; text-align:left; padding:clamp(16px,5vh,58px) 5vw;
+    background:linear-gradient(90deg,#08141af5 0%,#0b191eea 30%,#0b191eb8 45%,transparent 65%); }
+  #win .plate { flex:none; margin:auto 0; width:min(40vw,480px); padding:0; border:0; box-shadow:none; background:none; }
+  #win h2 { margin:0 0 10px; color:#ace1d7; font:700 11px/1.3 system-ui,sans-serif; letter-spacing:.19em; text-shadow:none; }
+  .win-age { display:flex; align-items:baseline; gap:10px; color:#e8d7b7; font:italic 18px Georgia,serif; }
+  #winAge { color:#fff1d1; font:italic bold clamp(54px,8vw,106px)/.9 Georgia,serif;
+    letter-spacing:-.07em; font-variant-numeric:tabular-nums; }
+  #winOrigin { margin-top:7px; color:#aec9c2; font:12px system-ui,sans-serif; }
+  #winText { margin-top:20px; color:#fff0d4; font:bold clamp(20px,2.6vw,33px)/1.1 Georgia,serif; letter-spacing:-.02em; }
+  #winQuote { margin:12px 0 0; color:#fff7e7; font:italic clamp(16px,2vw,23px)/1.38 Georgia,serif; }
+  #winCredit { margin-top:8px; color:#a3c9be; font:650 9px/1.3 system-ui,sans-serif; letter-spacing:.1em; }
+  #win details { margin-top:20px; color:#bdd8d0; font:14px system-ui,sans-serif; }
+  #win summary { cursor:pointer; }
+  #win .statline { margin-top:6px; }
+  #win .btn { margin-top:18px; }
+  #win .deck-link { display:inline-block; margin:0 0 0 12px; padding:12px 0; }
+  #skipEnding { padding:10px 0; margin-top:16px; border:0; background:none; color:#d5e8de;
+    font:14px system-ui,sans-serif; text-decoration:underline; cursor:pointer; }
+  @media (max-aspect-ratio:1/1) {
+    #win { padding:8px 6vw 24px; background:linear-gradient(180deg,transparent 13%,#08141a25 28%,#08141adf 42%,#08141afa 57%); }
+    #win .plate { margin:38vh 0 0; width:min(100%,520px); }
+    #winAge { font-size:clamp(48px,15vw,80px); }
+  }
+  @media (max-height:500px) {
+    #win { padding-block:12px; } #winText,#win details { margin-top:10px; }
+    #winQuote { margin-top:6px; } #win .btn { margin-top:8px; padding:12px 15px; }
+  }
   #card { align-items:flex-end; justify-content:flex-end; padding:0 5vw 24vh; text-align:right; }
   #card .nm { max-width:56vw; margin-top:5px; font:italic bold clamp(24px,3.5vw,54px)/.99 Georgia,serif; letter-spacing:-.025em; color:#fff1cd; text-shadow:0 2px 8px #101a23; }
   #card .sub { max-width:32ch; font:italic 14px/1.45 Georgia,serif; color:#faf1d6; margin-top:6px; text-shadow:0 1px 4px #111; }
@@ -407,12 +434,20 @@
 
   <div class="screen" id="win">
     <div class="plate">
-      <h2>THE FOUNTAIN OPENS</h2>
-      <div class="rank" id="winAge">30</div>
-      <div class="statline" id="winStats"></div>
-      <p class="lede" id="winText"></p>
-      <button class="btn" id="winBtn">Fly Again</button>
-      <button class="deck-link" type="button">Choose launch sector</button>
+      <h2>The Fountain opens</h2>
+      <div class="win-age"><span id="winAge"></span> years old</div>
+      <p id="winOrigin"></p>
+      <p id="winText" hidden>Twenty-four again. Same face.</p>
+      <div id="winReveal" hidden>
+        <blockquote id="winQuote" aria-live="polite" tabindex="-1">“I was born looking old.<span id="winPunch" hidden> The nurse handed me my birth certificate and asked me to sign for the baby.”</span></blockquote>
+        <p id="winCredit" hidden>AI PARODY VOICE · PARROT AI</p>
+        <div id="winActions" hidden>
+          <details id="winReport"><summary>Flight report</summary><div class="statline" id="winStats"></div></details>
+          <button class="btn" id="winBtn">Fly Again</button>
+          <button class="deck-link" type="button">Choose launch sector</button>
+        </div>
+      </div>
+      <button id="skipEnding" type="button">Skip to reveal</button>
     </div>
   </div>
 
@@ -494,7 +529,7 @@
 </script>
 <script>__PFLOAD.set(0.30, 'LOADING THE RENDERER');</script>
 <script>
-window.__PF_VOICE_FILES = {"opening":"sound/voice-opening.mp3","salvage":"sound/voice-salvage.mp3","foundry":"sound/voice-foundry.mp3","citadel":"sound/voice-citadel.mp3","victory":"sound/voice-victory.mp3","counter":"sound/voice-counter.mp3","chargebreak":"sound/voice-chargebreak.mp3","gates":"sound/voice-gates.mp3","pickup":"sound/voice-pickup.mp3","streak":"sound/voice-streak.mp3","wasp":"sound/voice-wasp.mp3","ray":"sound/voice-ray.mp3","turret":"sound/voice-turret.mp3","chaser":"sound/voice-chaser.mp3","carrier":"sound/voice-carrier.mp3","mine":"sound/voice-mine.mp3","sentinel":"sound/voice-sentinel.mp3","bomber":"sound/voice-bomber.mp3","nearmiss":"sound/voice-nearmiss.mp3","wounded":"sound/voice-wounded.mp3","hotstreak":"sound/voice-hotstreak.mp3","decade":"sound/voice-decade.mp3","boss":"sound/voice-boss.mp3","core":"sound/voice-core.mp3","boost":"sound/voice-boost.mp3","brake":"sound/voice-brake.mp3","momcarrier":"sound/voice-momcarrier.mp3","momlock":"sound/voice-momlock.mp3"};
+window.__PF_VOICE_FILES = {"opening":"sound/voice-opening.mp3","salvage":"sound/voice-salvage.mp3","foundry":"sound/voice-foundry.mp3","citadel":"sound/voice-citadel.mp3","victory":"sound/voice-victory.mp3","counter":"sound/voice-counter.mp3","chargebreak":"sound/voice-chargebreak.mp3","gates":"sound/voice-gates.mp3","pickup":"sound/voice-pickup.mp3","streak":"sound/voice-streak.mp3","wasp":"sound/voice-wasp.mp3","ray":"sound/voice-ray.mp3","turret":"sound/voice-turret.mp3","chaser":"sound/voice-chaser.mp3","carrier":"sound/voice-carrier.mp3","mine":"sound/voice-mine.mp3","sentinel":"sound/voice-sentinel.mp3","bomber":"sound/voice-bomber.mp3","nearmiss":"sound/voice-nearmiss.mp3","wounded":"sound/voice-wounded.mp3","hotstreak":"sound/voice-hotstreak.mp3","decade":"sound/voice-decade.mp3","boss":"sound/voice-boss.mp3","core":"sound/voice-core.mp3","boost":"sound/voice-boost.mp3","brake":"sound/voice-brake.mp3","momcarrier":"sound/voice-momcarrier.mp3","momlock":"sound/voice-momlock.mp3","momgates":"sound/voice-momgates.mp3","momorb":"sound/voice-momorb.mp3","momreturn":"sound/voice-momreturn.mp3","mombomber":"sound/voice-mombomber.mp3","momclock":"sound/voice-momclock.mp3","birthcertificate":"sound/voice-birthcertificate.mp3"};
 /* =========================================================================
    PANZER FREEMAN — CHRONOS REQUIEM
    A low-poly Sega-Saturn-flavoured rail shooter.
@@ -1347,6 +1382,7 @@ var lines = {
   foundry: 'Three carriers. The trick is getting them to show you the soft side.',
   citadel: 'The castle had stairs, once. I prefer the dragon.',
   victory: 'I came all this way for another year. I think I will spend it flying.',
+  birthcertificate: 'I was born looking old. The nurse handed me my birth certificate and asked me to sign for the baby.',
   counter: 'Return to sender. No forwarding address.',
   chargebreak: 'He had a whole speech prepared. Then I shot the microphone.',
   gates: 'Three gates. Not one of them validated parking.',
@@ -1369,21 +1405,31 @@ var lines = {
   boost: 'Easy, dragon. My face is still back at the last checkpoint.',
   brake: 'Air brakes. At my age, you appreciate anything that stops on request.',
   momcarrier: "Your mom's so fat, the carrier asked her for docking clearance.",
-  momlock: "Your mom's so fat, I tried to lock on and my radar asked, which hemisphere?"
+  momlock: "Your mom's so fat, I tried to lock on and my radar asked, which hemisphere?",
+  momgates: "Your momma's so fat, she flew through all three gates and was still in the first one.",
+  momorb: "Your momma's so fat, that orb's been circling her since Tuesday.",
+  momreturn: "Your momma's so fat, that shot went around her and came back with jet lag.",
+  mombomber: "Your momma's so fat, the bomber had to refuel halfway across her driver's license photo.",
+  momclock: "Your momma's so fat, she wears a watch on each wrist. Different time zones."
 };
 var sectorCue = { ep1: 'opening', ep2: 'salvage', foundry: 'foundry', ep3: 'citadel' };
 var seen = {}, active = null, pending = null, duck = 0, lastSector = null;
 var reactionPriority = {
-  boost: 1, brake: 1, pickup: 1, nearmiss: 1,
-  wasp: 2, ray: 2, chaser: 2, turret: 2, carrier: 2, mine: 2, sentinel: 2, bomber: 2,
+  boost: 1, brake: 1, pickup: 1, momorb: 1, nearmiss: 1,
+  wasp: 2, ray: 2, chaser: 2, turret: 2, carrier: 2, mine: 2, sentinel: 2, bomber: 2, mombomber: 2,
   wounded: 3, decade: 3, streak: 3, hotstreak: 3,
-  chargebreak: 4, counter: 4, momlock: 4, momcarrier: 4,
-  gates: 5, core: 5, boss: 6
+  chargebreak: 4, counter: 4, momreturn: 4, momlock: 4, momcarrier: 4,
+  gates: 5, momgates: 5, core: 5, momclock: 5, boss: 6
 };
 // Keep take counts between flights on this page. Short runs can discover both
 // delivery variants even if the pilot always performs exactly the same trick.
 var heard = {};
-var variations = { streak: ['streak', 'hotstreak'], foundryKill: ['momcarrier', 'carrier'] };
+var variations = {
+  streak: ['streak', 'hotstreak'], foundryKill: ['momcarrier', 'carrier'],
+  gates: ['momgates', 'gates'], pickup: ['momorb', 'pickup'], counter: ['counter', 'momreturn'],
+  bomber: ['mombomber', 'bomber'], core: ['momclock', 'core']
+};
+var momJokeCooldown = 0;
 var reaction = null, quietTime = 0, lastGap = 0;
 var narrator = null, unlocked = false;
 var document = window.document, caption = null, captionText = null, credit = null, wrap = null;
@@ -1423,7 +1469,8 @@ function arm() {
 function start(id) {
   stop();
   var text = lines[id], cue = active = { id: id, elapsed: 0, duration: Math.max(5, text.split(/\s+/).length * .37),
-    media: null, playPending: false, failed: false, endAt: null };
+    media: null, playPending: false, failed: false, endAt: null,
+    endingCaption: id === 'birthcertificate' && P.Game.victoryRevealed === true };
   // Missing clips deliberately remain caption-only; no placeholder audio URL.
   if (files[id] && typeof window.Audio === 'function') {
     cue.media = narrator || new window.Audio(); cue.media.preload = 'metadata'; cue.media.src = files[id];
@@ -1436,7 +1483,7 @@ function start(id) {
   if (caption) {
     captionText.textContent = text;
     credit.textContent = files[id] ? 'AI PARODY VOICE · PARROT AI' : 'THE RIDER';
-    caption.hidden = false; wrap.classList.add('voice-speaking');
+    caption.hidden = cue.endingCaption; wrap.classList.add('voice-speaking');
   }
 }
 function play(cue) {
@@ -1460,6 +1507,9 @@ function play(cue) {
     else cue.playPending = false;
   } catch (e) { cue.playPending = false; cue.failed = true; }
 }
+function availableTake(id) {
+  return id && !seen[id] && !(momJokeCooldown > 0 && id.startsWith('mom'));
+}
 P.voice = {
   lines: lines,
   arm: arm,
@@ -1471,17 +1521,19 @@ P.voice = {
     if (choices) {
       id = null;
       choices.forEach(function (take) {
-        if (!seen[take] && (!id || (heard[take] || 0) < (heard[id] || 0))) id = take;
+        if (!availableTake(take)) return;
+        if (!id || (files[take] && !files[id]) ||
+            (!!files[take] === !!files[id] && (heard[take] || 0) < (heard[id] || 0))) id = take;
       });
     }
     var priority = reactionPriority[id];
-    if (!priority || seen[id]) return false;
+    if (!priority || !availableTake(id)) return false;
     if (reaction && reaction.id !== id && (priority < reaction.priority ||
         (priority === reaction.priority && (heard[id] || 0) >= (heard[reaction.id] || 0)))) return false;
     var briefing = pending || (active && !reactionPriority[active.id]);
     // A collected salvage trail can wait until the briefing ends. A flyby or
     // kill only makes sense while the player can still connect it to the shot.
-    var lifetime = id === 'pickup' && briefing ? 16 : id === 'boss' ? 7 : priority >= 4 ? 3.5 : 2;
+    var lifetime = event === 'pickup' && briefing ? 16 : id === 'boss' ? 7 : priority >= 4 ? 3.5 : 2;
     if (reaction && reaction.id === id) reaction.remaining = lifetime;
     else reaction = { id: id, priority: priority, remaining: lifetime,
       // Leave ordinary events a beat for the outcome of this volley to arrive.
@@ -1489,7 +1541,7 @@ P.voice = {
     return true;
   },
   reset: function () {
-    stop(); pending = reaction = null; seen = {}; duck = quietTime = 0; lastSector = null;
+    stop(); pending = reaction = null; seen = {}; duck = quietTime = momJokeCooldown = 0; lastSector = null;
   },
   update: function (dt) {
     if (!P.Game) return;
@@ -1501,16 +1553,28 @@ P.voice = {
       if (lastSector !== null) { stop(); pending = reaction = null; }
       lastSector = ep.id;
     }
-    var id = state === 'win' ? 'victory' : state === 'playing' && ep ? sectorCue[ep.id] : null;
-    if (id && !seen[id]) {
-      seen[id] = true; stop(); pending = { id: id, delay: id === 'victory' ? .5 : 4.6 };
+    var finale = state === 'win' || (state === 'playing' && P.Game.ending);
+    var reveal = state === 'win' && P.Game.victoryRevealed !== false;
+    if (finale && !reveal) {
+      if (active) stop();
+      pending = reaction = null;
     }
-    if (state === 'win' || (P.Game.ending && state === 'playing')) reaction = null;
-    if (running) quietTime = Math.max(0, quietTime - dt);
+    // Older optional audio packs have the original victory recording. The
+    // current win screen supplies its own visible birth-certificate caption.
+    var winLine = files.victory && !files.birthcertificate ? 'victory' : 'birthcertificate';
+    var id = reveal ? winLine : !finale && state === 'playing' && ep ? sectorCue[ep.id] : null;
+    if (id && !seen[id]) {
+      seen[id] = true; stop(); pending = { id: id, delay: reveal ? 0 : 4.6 };
+    }
+    if (finale) reaction = null;
+    if (running) {
+      quietTime = Math.max(0, quietTime - dt);
+      momJokeCooldown = Math.max(0, momJokeCooldown - dt);
+    }
     var cardVisible = P.el && P.el.card && P.el.card.classList.contains('on');
     if (running && pending) {
       pending.delay -= dt;
-      if (pending.delay <= 0 && (pending.id === 'victory' || !cardVisible)) {
+      if (pending.delay <= 0 && (reveal || !cardVisible)) {
         var next = pending.id; pending = null; start(next);
       }
     }
@@ -1523,12 +1587,13 @@ P.voice = {
           quietTime <= (reaction.priority >= 4 ? Math.max(0, lastGap - 1.25) : 0)) {
         seen[reaction.id] = true;
         heard[reaction.id] = (heard[reaction.id] || 0) + 1;
+        if (reaction.id.startsWith('mom')) momJokeCooldown = 24;
         start(reaction.id); reaction = null;
       }
     }
     if (active) {
       var cue = active, media = cue.media;
-      if (caption) caption.hidden = !running;
+      if (caption) caption.hidden = !running || cue.endingCaption;
       if (media) {
         var voiceLevel = P.sound && Number.isFinite(P.sound.settings.voice) ? Math.max(0, Math.min(1, P.sound.settings.voice)) : 1;
         // iOS can ignore programmatic volume changes. Explicit mute guarantees
@@ -8069,6 +8134,12 @@ function drawHUD(dt) {
 function keyName(e) { return (e.key || '').toLowerCase(); }
 window.addEventListener('keydown', function (e) {
   var k = keyName(e);
+  if (Game.state === 'win') {
+    if (endingTime < PUNCH_AT && !e.repeat && (k === 'enter' || k === ' ' || k === 'escape')) {
+      e.preventDefault(); skipEnding(); return;
+    }
+    if ((k === 'enter' || k === ' ') && e.target.closest && e.target.closest('button,summary')) return;
+  }
   if (e.target && /^(INPUT|SELECT|BUTTON)$/.test(e.target.tagName) && Game.state === 'paused' && k !== 'p' && k !== 'escape' && k !== 'm') return;
   if (Game.state === 'title' && e.target.closest && e.target.closest('select,input,button,summary')) return;
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].indexOf(k) >= 0) e.preventDefault();
@@ -8248,6 +8319,7 @@ function resetGame() {
   Game.age = 89; Game.startAge = 89; Game.score = 0; Game.kills = 0;
   Game.shots = 0; Game.hits = 0; Game.combo = 0; Game.bestCombo = 0; Game.comboT = 0;
   Game.hurtT = 0; Game.invulnT = 0; Game.shakeT = 0; Game.ending = false; Game.orbsTaken = 0;
+  Game.victoryRevealed = false;
   Game.cinematic = false;
   Player.x = 0; Player.y = 0; Player.zOff = 0;
   Player.vx = Player.vy = Player.vz = 0;
@@ -8298,17 +8370,76 @@ function rankFor(age) {
   return { r: 'SURVIVED', c: '#ff8a5a' };
 }
 
+var endingTime = 0, ENDING_AGE = 24, REVEAL_AT = 4.4, PUNCH_AT = REVEAL_AT + 2.32;
+var winAge = document.getElementById('winAge'), winText = document.getElementById('winText');
+var winReveal = document.getElementById('winReveal'), skipEndingButton = document.getElementById('skipEnding');
+var winPunch = document.getElementById('winPunch'), winActions = document.getElementById('winActions');
+
+function updateEnding(dt) {
+  endingTime = Math.min(PUNCH_AT, endingTime + dt);
+  var age = Math.round(lerp(Game.startAge, ENDING_AGE, sstep(.2, 1.8, endingTime)));
+  if (winAge.textContent !== String(age)) winAge.textContent = age;
+  winText.hidden = endingTime < 2.55;
+  if (endingTime >= REVEAL_AT && !Game.victoryRevealed) {
+    Game.victoryRevealed = true;
+    winReveal.hidden = false;
+  }
+  if (endingTime >= PUNCH_AT && winPunch.hidden) {
+    var skipping = document.activeElement === skipEndingButton;
+    winPunch.hidden = false;
+    winActions.hidden = false;
+    skipEndingButton.hidden = true;
+    if (skipping) document.getElementById('winQuote').focus({ preventScroll: true });
+  }
+}
+
+function skipEnding() {
+  if (Game.state === 'win' && endingTime < PUNCH_AT) updateEnding(PUNCH_AT);
+}
+skipEndingButton.addEventListener('click', skipEnding);
+
+function frameVictoryPortrait() {
+  // As the counter winds down, push from his shoulders to the same sculpted
+  // face seen at takeoff. Place it beside the words, or above them on a phone.
+  var portrait = HUD.h >= HUD.w, push = sstep(.4, 2.1, endingTime);
+  P.dragon.headR.getWorldPosition(_headW);
+  _headW.y += .13;
+  var yaw = P.dragon.root.rotation.y + lerp(.64, .31, push);
+  var distance = lerp(3.5, 1.48, push);
+  var halfHeight = distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  var side = portrait ? 0 : .47 * halfHeight * camera.aspect;
+  _lookA.copy(_headW);
+  _lookA.x -= Math.cos(yaw) * side;
+  _lookA.z += Math.sin(yaw) * side;
+  _lookA.y -= (portrait ? .43 : .08) * halfHeight;
+  camera.position.set(_lookA.x + Math.sin(yaw) * distance, _lookA.y + .14 * distance,
+    _lookA.z + Math.cos(yaw) * distance);
+  camera.lookAt(_lookA);
+  // The Sphinx is lit from behind. Cross-light the pilot's cheek and brow
+  // with a soft neutral fill so his familiar face reads against the sunset.
+  P.ambLight.color.setHex(0xbfcbd9); P.ambLight.intensity = .65;
+  P.keyLight.color.setHex(0xffefe1); P.keyLight.intensity = .94;
+  P.rimLight.color.setHex(0xc2cde3); P.rimLight.intensity = .45;
+  P.setSunDir(_fwdV.set(Math.sin(yaw - .82), .55, Math.cos(yaw - .82)));
+}
+
 P.onEnd = function (won) {
   P.opening.reset();
   if (P.campaign) P.campaign.finishRun();
   var objectiveResults = P.campaign ? P.campaign.results : [];
   var completed = objectiveResults.filter(function (result) { return result.status === 'success'; }).length;
   var acc = Game.shots ? Math.round(Game.hits / Game.shots * 100) : 0;
-  var finalAge = won ? clamp(Game.age - 4, 24, 100) : Game.age;
-  if (won) { Game.age = finalAge; P.dragon.setAge(finalAge); }
+  // Grade the flight and its four-year victory bonus before the Fountain
+  // grants youth. A direct launch at the boss must still earn its rank.
+  var flightAge = won ? clamp(Game.age - 4, ENDING_AGE, 100) : Game.age;
+  if (won) {
+    Game.age = ENDING_AGE; P.dragon.setAge(ENDING_AGE);
+    // He has his younger posture and the silver hair from his opening close-up.
+    if (P.riderModel) P.riderModel.setHairAge(0);
+  }
   // A loss ends at 100, so "years shed" was always a negative number on the
   // over screen. Time took them; say so.
-  var shed = Game.startAge - finalAge;
+  var shed = Game.startAge - flightAge;
   var ageStat = shed >= 0 ? 'YEARS SHED <b>' + shed.toFixed(1) + '</b>'
                           : 'YEARS TAKEN <b>' + (-shed).toFixed(1) + '</b>';
   var stats = ageStat + ' &nbsp;·&nbsp; KILLS <b>' + Game.kills +
@@ -8317,17 +8448,17 @@ P.onEnd = function (won) {
   if (Game.reflections) stats += '<br>SHOTS RETURNED <b>' + Game.reflections + '</b>';
   if (objectiveResults.length) stats += '<br>OBJECTIVES <b>' + completed + ' / ' + objectiveResults.length + '</b>';
   if (won) {
-    var rk = rankFor(finalAge);
-    document.getElementById('winAge').textContent = finalAge.toFixed(0);
-    document.getElementById('winAge').style.color = rk.c;
-    document.getElementById('winStats').innerHTML = 'RANK <b style="color:' + rk.c + '">' + rk.r + '</b><br>' + stats;
-    document.getElementById('winText').innerHTML =
-      'The Hour-Sphinx breaks apart and the Fountain finally answers.<br>' +
-      'The old rider swings down off the dragon at <b>' + finalAge.toFixed(0) + '</b> — ' +
-      (finalAge <= 30 ? 'young enough to start the whole argument over again.'
-       : finalAge <= 55 ? 'with a good many years handed back to him.'
-       : 'a little lighter than he arrived, which is more than most manage.');
+    var rk = rankFor(flightAge);
+    document.getElementById('winStats').innerHTML = 'FLIGHT RANK <b style="color:' + rk.c + '">' + rk.r +
+      '</b> &nbsp;·&nbsp; AGE BEFORE FOUNTAIN <b>' + flightAge.toFixed(1) + '</b><br>' + stats;
+    document.getElementById('winOrigin').textContent = 'Age at takeoff · ' + Game.startAge;
+    document.getElementById('winReport').open = false;
+    document.getElementById('winCredit').hidden = !(window.__PF_VOICE_FILES && window.__PF_VOICE_FILES.birthcertificate);
+    endingTime = 0; Game.victoryRevealed = false;
+    winReveal.hidden = winPunch.hidden = winActions.hidden = true; skipEndingButton.hidden = false;
+    updateEnding(0);
     P.el.win.classList.add('on');
+    P.el.win.scrollTop = 0;
   } else {
     document.getElementById('overTitle').textContent = 'TIME WINS';
     document.getElementById('overStats').innerHTML = stats;
@@ -8440,9 +8571,7 @@ function frame(now) {
     props2.update(Game.railZ);
     stepColors(dt);
   } else if (Game.state === 'win' || Game.state === 'over') {
-    // The result plates are 74% opaque, not opaque. A hard-frozen 3D scene
-    // behind them reads as a crash, so the dragon keeps gliding out — slower,
-    // levelling off, with nobody at the reins.
+    // Keep the glide alive behind the results.
     Game.time += dt;
     Game.railZ += 20 * dt;
     Player.pos.z = Game.railZ;
@@ -8456,18 +8585,23 @@ function frame(now) {
     P.dragon.update(dt, Game.time, { strafeX: clamp(-driftX / 44, -1, 1),
       flightX: driftX, flightZ: 20, vy: driftY,
       pathPitch: Math.atan2(driftY, Math.hypot(driftX, 20)), aimX: 0, aimY: 0, boost: 0 });
-    var oy = Math.sin(Game.time * 0.16) * 0.5;
-    camera.position.set(
-      Player.pos.x + Math.sin(oy) * -40,
-      Player.pos.y + 8,
-      Player.pos.z + Math.cos(oy) * -40
-    );
-    camera.lookAt(Player.pos.x, Player.pos.y + 1.5, Player.pos.z + 8);
+    stepColors(dt);
+    if (Game.state === 'win') {
+      if (!document.hidden) updateEnding(Math.min(.5, rawDt));
+      frameVictoryPortrait();
+    } else {
+      var oy = Math.sin(Game.time * 0.16) * 0.5;
+      camera.position.set(
+        Player.pos.x + Math.sin(oy) * -40,
+        Player.pos.y + 8,
+        Player.pos.z + Math.cos(oy) * -40
+      );
+      camera.lookAt(Player.pos.x, Player.pos.y + 1.5, Player.pos.z + 8);
+    }
     P.skyMesh.position.copy(camera.position);
     terrain.update(Game.railZ);
     props.update(Game.railZ);
     props2.update(Game.railZ);
-    stepColors(dt);
   } else {
     stepColors(dt);   // paused — deliberately frozen
   }

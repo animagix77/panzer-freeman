@@ -261,8 +261,8 @@
   }
   #title .plate { width:min(440px,96%); margin:auto 0; padding:8px 0; border:0; background:none; box-shadow:none; }
   #title,#over,#win { overflow-y:auto; overscroll-behavior:contain; }
-  #over,#win { justify-content:flex-start; background:linear-gradient(135deg,#08151be8,#15282ac9); }
-  #over .plate,#win .plate { margin:auto; width:min(660px,100%); padding:clamp(24px,5vw,48px); background:#102129ed;
+  #over { justify-content:flex-start; background:linear-gradient(135deg,#08151be8,#15282ac9); }
+  #over .plate { margin:auto; width:min(660px,100%); padding:clamp(24px,5vw,48px); background:#102129ed;
     border:1px solid #90c4bc66; box-shadow:0 20px 80px #0006; border-radius:4px; }
   #over h1,#win h1 { font:italic 700 clamp(34px,5vw,62px)/1.1 Georgia,serif; letter-spacing:-.04em; color:#f7dfaf; text-shadow:none; }
   #over .statline,#win .statline { font:13px/1.9 system-ui,sans-serif; letter-spacing:.04em; color:#c9ddd6; }
@@ -294,6 +294,33 @@
   #title .keys { gap:6px; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); }
   #title .keys div { justify-content:flex-start; }
   .deck-link { display:block; margin:16px auto 0; cursor:pointer; color:#c1e4dc; background:none; border:0; font:14px system-ui,sans-serif; text-decoration:underline; }
+  #win { align-items:flex-start; justify-content:flex-start; text-align:left; padding:clamp(16px,5vh,58px) 5vw;
+    background:linear-gradient(90deg,#08141af5 0%,#0b191eea 30%,#0b191eb8 45%,transparent 65%); }
+  #win .plate { flex:none; margin:auto 0; width:min(40vw,480px); padding:0; border:0; box-shadow:none; background:none; }
+  #win h2 { margin:0 0 10px; color:#ace1d7; font:700 11px/1.3 system-ui,sans-serif; letter-spacing:.19em; text-shadow:none; }
+  .win-age { display:flex; align-items:baseline; gap:10px; color:#e8d7b7; font:italic 18px Georgia,serif; }
+  #winAge { color:#fff1d1; font:italic bold clamp(54px,8vw,106px)/.9 Georgia,serif;
+    letter-spacing:-.07em; font-variant-numeric:tabular-nums; }
+  #winOrigin { margin-top:7px; color:#aec9c2; font:12px system-ui,sans-serif; }
+  #winText { margin-top:20px; color:#fff0d4; font:bold clamp(20px,2.6vw,33px)/1.1 Georgia,serif; letter-spacing:-.02em; }
+  #winQuote { margin:12px 0 0; color:#fff7e7; font:italic clamp(16px,2vw,23px)/1.38 Georgia,serif; }
+  #winCredit { margin-top:8px; color:#a3c9be; font:650 9px/1.3 system-ui,sans-serif; letter-spacing:.1em; }
+  #win details { margin-top:20px; color:#bdd8d0; font:14px system-ui,sans-serif; }
+  #win summary { cursor:pointer; }
+  #win .statline { margin-top:6px; }
+  #win .btn { margin-top:18px; }
+  #win .deck-link { display:inline-block; margin:0 0 0 12px; padding:12px 0; }
+  #skipEnding { padding:10px 0; margin-top:16px; border:0; background:none; color:#d5e8de;
+    font:14px system-ui,sans-serif; text-decoration:underline; cursor:pointer; }
+  @media (max-aspect-ratio:1/1) {
+    #win { padding:8px 6vw 24px; background:linear-gradient(180deg,transparent 13%,#08141a25 28%,#08141adf 42%,#08141afa 57%); }
+    #win .plate { margin:38vh 0 0; width:min(100%,520px); }
+    #winAge { font-size:clamp(48px,15vw,80px); }
+  }
+  @media (max-height:500px) {
+    #win { padding-block:12px; } #winText,#win details { margin-top:10px; }
+    #winQuote { margin-top:6px; } #win .btn { margin-top:8px; padding:12px 15px; }
+  }
   #card { align-items:flex-end; justify-content:flex-end; padding:0 5vw 24vh; text-align:right; }
   #card .nm { max-width:56vw; margin-top:5px; font:italic bold clamp(24px,3.5vw,54px)/.99 Georgia,serif; letter-spacing:-.025em; color:#fff1cd; text-shadow:0 2px 8px #101a23; }
   #card .sub { max-width:32ch; font:italic 14px/1.45 Georgia,serif; color:#faf1d6; margin-top:6px; text-shadow:0 1px 4px #111; }
@@ -407,12 +434,20 @@
 
   <div class="screen" id="win">
     <div class="plate">
-      <h2>THE FOUNTAIN OPENS</h2>
-      <div class="rank" id="winAge">30</div>
-      <div class="statline" id="winStats"></div>
-      <p class="lede" id="winText"></p>
-      <button class="btn" id="winBtn">Fly Again</button>
-      <button class="deck-link" type="button">Choose launch sector</button>
+      <h2>The Fountain opens</h2>
+      <div class="win-age"><span id="winAge"></span> years old</div>
+      <p id="winOrigin"></p>
+      <p id="winText" hidden>Twenty-four again. Same face.</p>
+      <div id="winReveal" hidden>
+        <blockquote id="winQuote" aria-live="polite" tabindex="-1">“I was born looking old.<span id="winPunch" hidden> The nurse handed me my birth certificate and asked me to sign for the baby.”</span></blockquote>
+        <p id="winCredit" hidden>AI PARODY VOICE · PARROT AI</p>
+        <div id="winActions" hidden>
+          <details id="winReport"><summary>Flight report</summary><div class="statline" id="winStats"></div></details>
+          <button class="btn" id="winBtn">Fly Again</button>
+          <button class="deck-link" type="button">Choose launch sector</button>
+        </div>
+      </div>
+      <button id="skipEnding" type="button">Skip to reveal</button>
     </div>
   </div>
 

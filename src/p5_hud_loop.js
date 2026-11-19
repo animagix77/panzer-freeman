@@ -543,6 +543,12 @@ function drawHUD(dt) {
 function keyName(e) { return (e.key || '').toLowerCase(); }
 window.addEventListener('keydown', function (e) {
   var k = keyName(e);
+  if (Game.state === 'win') {
+    if (endingTime < PUNCH_AT && !e.repeat && (k === 'enter' || k === ' ' || k === 'escape')) {
+      e.preventDefault(); skipEnding(); return;
+    }
+    if ((k === 'enter' || k === ' ') && e.target.closest && e.target.closest('button,summary')) return;
+  }
   if (e.target && /^(INPUT|SELECT|BUTTON)$/.test(e.target.tagName) && Game.state === 'paused' && k !== 'p' && k !== 'escape' && k !== 'm') return;
   if (Game.state === 'title' && e.target.closest && e.target.closest('select,input,button,summary')) return;
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].indexOf(k) >= 0) e.preventDefault();
@@ -722,6 +728,7 @@ function resetGame() {
   Game.age = 89; Game.startAge = 89; Game.score = 0; Game.kills = 0;
   Game.shots = 0; Game.hits = 0; Game.combo = 0; Game.bestCombo = 0; Game.comboT = 0;
   Game.hurtT = 0; Game.invulnT = 0; Game.shakeT = 0; Game.ending = false; Game.orbsTaken = 0;
+  Game.victoryRevealed = false;
   Game.cinematic = false;
   Player.x = 0; Player.y = 0; Player.zOff = 0;
   Player.vx = Player.vy = Player.vz = 0;
@@ -772,17 +779,76 @@ function rankFor(age) {
   return { r: 'SURVIVED', c: '#ff8a5a' };
 }
 
+var endingTime = 0, ENDING_AGE = 24, REVEAL_AT = 4.4, PUNCH_AT = REVEAL_AT + 2.32;
+var winAge = document.getElementById('winAge'), winText = document.getElementById('winText');
+var winReveal = document.getElementById('winReveal'), skipEndingButton = document.getElementById('skipEnding');
+var winPunch = document.getElementById('winPunch'), winActions = document.getElementById('winActions');
+
+function updateEnding(dt) {
+  endingTime = Math.min(PUNCH_AT, endingTime + dt);
+  var age = Math.round(lerp(Game.startAge, ENDING_AGE, sstep(.2, 1.8, endingTime)));
+  if (winAge.textContent !== String(age)) winAge.textContent = age;
+  winText.hidden = endingTime < 2.55;
+  if (endingTime >= REVEAL_AT && !Game.victoryRevealed) {
+    Game.victoryRevealed = true;
+    winReveal.hidden = false;
+  }
+  if (endingTime >= PUNCH_AT && winPunch.hidden) {
+    var skipping = document.activeElement === skipEndingButton;
+    winPunch.hidden = false;
+    winActions.hidden = false;
+    skipEndingButton.hidden = true;
+    if (skipping) document.getElementById('winQuote').focus({ preventScroll: true });
+  }
+}
+
+function skipEnding() {
+  if (Game.state === 'win' && endingTime < PUNCH_AT) updateEnding(PUNCH_AT);
+}
+skipEndingButton.addEventListener('click', skipEnding);
+
+function frameVictoryPortrait() {
+  // As the counter winds down, push from his shoulders to the same sculpted
+  // face seen at takeoff. Place it beside the words, or above them on a phone.
+  var portrait = HUD.h >= HUD.w, push = sstep(.4, 2.1, endingTime);
+  P.dragon.headR.getWorldPosition(_headW);
+  _headW.y += .13;
+  var yaw = P.dragon.root.rotation.y + lerp(.64, .31, push);
+  var distance = lerp(3.5, 1.48, push);
+  var halfHeight = distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  var side = portrait ? 0 : .47 * halfHeight * camera.aspect;
+  _lookA.copy(_headW);
+  _lookA.x -= Math.cos(yaw) * side;
+  _lookA.z += Math.sin(yaw) * side;
+  _lookA.y -= (portrait ? .43 : .08) * halfHeight;
+  camera.position.set(_lookA.x + Math.sin(yaw) * distance, _lookA.y + .14 * distance,
+    _lookA.z + Math.cos(yaw) * distance);
+  camera.lookAt(_lookA);
+  // The Sphinx is lit from behind. Cross-light the pilot's cheek and brow
+  // with a soft neutral fill so his familiar face reads against the sunset.
+  P.ambLight.color.setHex(0xbfcbd9); P.ambLight.intensity = .65;
+  P.keyLight.color.setHex(0xffefe1); P.keyLight.intensity = .94;
+  P.rimLight.color.setHex(0xc2cde3); P.rimLight.intensity = .45;
+  P.setSunDir(_fwdV.set(Math.sin(yaw - .82), .55, Math.cos(yaw - .82)));
+}
+
 P.onEnd = function (won) {
   P.opening.reset();
   if (P.campaign) P.campaign.finishRun();
   var objectiveResults = P.campaign ? P.campaign.results : [];
   var completed = objectiveResults.filter(function (result) { return result.status === 'success'; }).length;
   var acc = Game.shots ? Math.round(Game.hits / Game.shots * 100) : 0;
-  var finalAge = won ? clamp(Game.age - 4, 24, 100) : Game.age;
-  if (won) { Game.age = finalAge; P.dragon.setAge(finalAge); }
+  // Grade the flight and its four-year victory bonus before the Fountain
+  // grants youth. A direct launch at the boss must still earn its rank.
+  var flightAge = won ? clamp(Game.age - 4, ENDING_AGE, 100) : Game.age;
+  if (won) {
+    Game.age = ENDING_AGE; P.dragon.setAge(ENDING_AGE);
+    // He has his younger posture and the silver hair from his opening close-up.
+    if (P.riderModel) P.riderModel.setHairAge(0);
+  }
   // A loss ends at 100, so "years shed" was always a negative number on the
   // over screen. Time took them; say so.
-  var shed = Game.startAge - finalAge;
+  var shed = Game.startAge - flightAge;
   var ageStat = shed >= 0 ? 'YEARS SHED <b>' + shed.toFixed(1) + '</b>'
                           : 'YEARS TAKEN <b>' + (-shed).toFixed(1) + '</b>';
   var stats = ageStat + ' &nbsp;·&nbsp; KILLS <b>' + Game.kills +
@@ -791,17 +857,17 @@ P.onEnd = function (won) {
   if (Game.reflections) stats += '<br>SHOTS RETURNED <b>' + Game.reflections + '</b>';
   if (objectiveResults.length) stats += '<br>OBJECTIVES <b>' + completed + ' / ' + objectiveResults.length + '</b>';
   if (won) {
-    var rk = rankFor(finalAge);
-    document.getElementById('winAge').textContent = finalAge.toFixed(0);
-    document.getElementById('winAge').style.color = rk.c;
-    document.getElementById('winStats').innerHTML = 'RANK <b style="color:' + rk.c + '">' + rk.r + '</b><br>' + stats;
-    document.getElementById('winText').innerHTML =
-      'The Hour-Sphinx breaks apart and the Fountain finally answers.<br>' +
-      'The old rider swings down off the dragon at <b>' + finalAge.toFixed(0) + '</b> — ' +
-      (finalAge <= 30 ? 'young enough to start the whole argument over again.'
-       : finalAge <= 55 ? 'with a good many years handed back to him.'
-       : 'a little lighter than he arrived, which is more than most manage.');
+    var rk = rankFor(flightAge);
+    document.getElementById('winStats').innerHTML = 'FLIGHT RANK <b style="color:' + rk.c + '">' + rk.r +
+      '</b> &nbsp;·&nbsp; AGE BEFORE FOUNTAIN <b>' + flightAge.toFixed(1) + '</b><br>' + stats;
+    document.getElementById('winOrigin').textContent = 'Age at takeoff · ' + Game.startAge;
+    document.getElementById('winReport').open = false;
+    document.getElementById('winCredit').hidden = !(window.__PF_VOICE_FILES && window.__PF_VOICE_FILES.birthcertificate);
+    endingTime = 0; Game.victoryRevealed = false;
+    winReveal.hidden = winPunch.hidden = winActions.hidden = true; skipEndingButton.hidden = false;
+    updateEnding(0);
     P.el.win.classList.add('on');
+    P.el.win.scrollTop = 0;
   } else {
     document.getElementById('overTitle').textContent = 'TIME WINS';
     document.getElementById('overStats').innerHTML = stats;
@@ -914,9 +980,7 @@ function frame(now) {
     props2.update(Game.railZ);
     stepColors(dt);
   } else if (Game.state === 'win' || Game.state === 'over') {
-    // The result plates are 74% opaque, not opaque. A hard-frozen 3D scene
-    // behind them reads as a crash, so the dragon keeps gliding out — slower,
-    // levelling off, with nobody at the reins.
+    // Keep the glide alive behind the results.
     Game.time += dt;
     Game.railZ += 20 * dt;
     Player.pos.z = Game.railZ;
@@ -930,18 +994,23 @@ function frame(now) {
     P.dragon.update(dt, Game.time, { strafeX: clamp(-driftX / 44, -1, 1),
       flightX: driftX, flightZ: 20, vy: driftY,
       pathPitch: Math.atan2(driftY, Math.hypot(driftX, 20)), aimX: 0, aimY: 0, boost: 0 });
-    var oy = Math.sin(Game.time * 0.16) * 0.5;
-    camera.position.set(
-      Player.pos.x + Math.sin(oy) * -40,
-      Player.pos.y + 8,
-      Player.pos.z + Math.cos(oy) * -40
-    );
-    camera.lookAt(Player.pos.x, Player.pos.y + 1.5, Player.pos.z + 8);
+    stepColors(dt);
+    if (Game.state === 'win') {
+      if (!document.hidden) updateEnding(Math.min(.5, rawDt));
+      frameVictoryPortrait();
+    } else {
+      var oy = Math.sin(Game.time * 0.16) * 0.5;
+      camera.position.set(
+        Player.pos.x + Math.sin(oy) * -40,
+        Player.pos.y + 8,
+        Player.pos.z + Math.cos(oy) * -40
+      );
+      camera.lookAt(Player.pos.x, Player.pos.y + 1.5, Player.pos.z + 8);
+    }
     P.skyMesh.position.copy(camera.position);
     terrain.update(Game.railZ);
     props.update(Game.railZ);
     props2.update(Game.railZ);
-    stepColors(dt);
   } else {
     stepColors(dt);   // paused — deliberately frozen
   }

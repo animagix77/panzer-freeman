@@ -8,6 +8,7 @@ var lines = {
   foundry: 'Three carriers. The trick is getting them to show you the soft side.',
   citadel: 'The castle had stairs, once. I prefer the dragon.',
   victory: 'I came all this way for another year. I think I will spend it flying.',
+  birthcertificate: 'I was born looking old. The nurse handed me my birth certificate and asked me to sign for the baby.',
   counter: 'Return to sender. No forwarding address.',
   chargebreak: 'He had a whole speech prepared. Then I shot the microphone.',
   gates: 'Three gates. Not one of them validated parking.',
@@ -30,21 +31,31 @@ var lines = {
   boost: 'Easy, dragon. My face is still back at the last checkpoint.',
   brake: 'Air brakes. At my age, you appreciate anything that stops on request.',
   momcarrier: "Your mom's so fat, the carrier asked her for docking clearance.",
-  momlock: "Your mom's so fat, I tried to lock on and my radar asked, which hemisphere?"
+  momlock: "Your mom's so fat, I tried to lock on and my radar asked, which hemisphere?",
+  momgates: "Your momma's so fat, she flew through all three gates and was still in the first one.",
+  momorb: "Your momma's so fat, that orb's been circling her since Tuesday.",
+  momreturn: "Your momma's so fat, that shot went around her and came back with jet lag.",
+  mombomber: "Your momma's so fat, the bomber had to refuel halfway across her driver's license photo.",
+  momclock: "Your momma's so fat, she wears a watch on each wrist. Different time zones."
 };
 var sectorCue = { ep1: 'opening', ep2: 'salvage', foundry: 'foundry', ep3: 'citadel' };
 var seen = {}, active = null, pending = null, duck = 0, lastSector = null;
 var reactionPriority = {
-  boost: 1, brake: 1, pickup: 1, nearmiss: 1,
-  wasp: 2, ray: 2, chaser: 2, turret: 2, carrier: 2, mine: 2, sentinel: 2, bomber: 2,
+  boost: 1, brake: 1, pickup: 1, momorb: 1, nearmiss: 1,
+  wasp: 2, ray: 2, chaser: 2, turret: 2, carrier: 2, mine: 2, sentinel: 2, bomber: 2, mombomber: 2,
   wounded: 3, decade: 3, streak: 3, hotstreak: 3,
-  chargebreak: 4, counter: 4, momlock: 4, momcarrier: 4,
-  gates: 5, core: 5, boss: 6
+  chargebreak: 4, counter: 4, momreturn: 4, momlock: 4, momcarrier: 4,
+  gates: 5, momgates: 5, core: 5, momclock: 5, boss: 6
 };
 // Keep take counts between flights on this page. Short runs can discover both
 // delivery variants even if the pilot always performs exactly the same trick.
 var heard = {};
-var variations = { streak: ['streak', 'hotstreak'], foundryKill: ['momcarrier', 'carrier'] };
+var variations = {
+  streak: ['streak', 'hotstreak'], foundryKill: ['momcarrier', 'carrier'],
+  gates: ['momgates', 'gates'], pickup: ['momorb', 'pickup'], counter: ['counter', 'momreturn'],
+  bomber: ['mombomber', 'bomber'], core: ['momclock', 'core']
+};
+var momJokeCooldown = 0;
 var reaction = null, quietTime = 0, lastGap = 0;
 var narrator = null, unlocked = false;
 var document = window.document, caption = null, captionText = null, credit = null, wrap = null;
@@ -84,7 +95,8 @@ function arm() {
 function start(id) {
   stop();
   var text = lines[id], cue = active = { id: id, elapsed: 0, duration: Math.max(5, text.split(/\s+/).length * .37),
-    media: null, playPending: false, failed: false, endAt: null };
+    media: null, playPending: false, failed: false, endAt: null,
+    endingCaption: id === 'birthcertificate' && P.Game.victoryRevealed === true };
   // Missing clips deliberately remain caption-only; no placeholder audio URL.
   if (files[id] && typeof window.Audio === 'function') {
     cue.media = narrator || new window.Audio(); cue.media.preload = 'metadata'; cue.media.src = files[id];
@@ -97,7 +109,7 @@ function start(id) {
   if (caption) {
     captionText.textContent = text;
     credit.textContent = files[id] ? 'AI PARODY VOICE · PARROT AI' : 'THE RIDER';
-    caption.hidden = false; wrap.classList.add('voice-speaking');
+    caption.hidden = cue.endingCaption; wrap.classList.add('voice-speaking');
   }
 }
 function play(cue) {
@@ -121,6 +133,9 @@ function play(cue) {
     else cue.playPending = false;
   } catch (e) { cue.playPending = false; cue.failed = true; }
 }
+function availableTake(id) {
+  return id && !seen[id] && !(momJokeCooldown > 0 && id.startsWith('mom'));
+}
 P.voice = {
   lines: lines,
   arm: arm,
@@ -132,17 +147,19 @@ P.voice = {
     if (choices) {
       id = null;
       choices.forEach(function (take) {
-        if (!seen[take] && (!id || (heard[take] || 0) < (heard[id] || 0))) id = take;
+        if (!availableTake(take)) return;
+        if (!id || (files[take] && !files[id]) ||
+            (!!files[take] === !!files[id] && (heard[take] || 0) < (heard[id] || 0))) id = take;
       });
     }
     var priority = reactionPriority[id];
-    if (!priority || seen[id]) return false;
+    if (!priority || !availableTake(id)) return false;
     if (reaction && reaction.id !== id && (priority < reaction.priority ||
         (priority === reaction.priority && (heard[id] || 0) >= (heard[reaction.id] || 0)))) return false;
     var briefing = pending || (active && !reactionPriority[active.id]);
     // A collected salvage trail can wait until the briefing ends. A flyby or
     // kill only makes sense while the player can still connect it to the shot.
-    var lifetime = id === 'pickup' && briefing ? 16 : id === 'boss' ? 7 : priority >= 4 ? 3.5 : 2;
+    var lifetime = event === 'pickup' && briefing ? 16 : id === 'boss' ? 7 : priority >= 4 ? 3.5 : 2;
     if (reaction && reaction.id === id) reaction.remaining = lifetime;
     else reaction = { id: id, priority: priority, remaining: lifetime,
       // Leave ordinary events a beat for the outcome of this volley to arrive.
@@ -150,7 +167,7 @@ P.voice = {
     return true;
   },
   reset: function () {
-    stop(); pending = reaction = null; seen = {}; duck = quietTime = 0; lastSector = null;
+    stop(); pending = reaction = null; seen = {}; duck = quietTime = momJokeCooldown = 0; lastSector = null;
   },
   update: function (dt) {
     if (!P.Game) return;
@@ -162,16 +179,28 @@ P.voice = {
       if (lastSector !== null) { stop(); pending = reaction = null; }
       lastSector = ep.id;
     }
-    var id = state === 'win' ? 'victory' : state === 'playing' && ep ? sectorCue[ep.id] : null;
-    if (id && !seen[id]) {
-      seen[id] = true; stop(); pending = { id: id, delay: id === 'victory' ? .5 : 4.6 };
+    var finale = state === 'win' || (state === 'playing' && P.Game.ending);
+    var reveal = state === 'win' && P.Game.victoryRevealed !== false;
+    if (finale && !reveal) {
+      if (active) stop();
+      pending = reaction = null;
     }
-    if (state === 'win' || (P.Game.ending && state === 'playing')) reaction = null;
-    if (running) quietTime = Math.max(0, quietTime - dt);
+    // Older optional audio packs have the original victory recording. The
+    // current win screen supplies its own visible birth-certificate caption.
+    var winLine = files.victory && !files.birthcertificate ? 'victory' : 'birthcertificate';
+    var id = reveal ? winLine : !finale && state === 'playing' && ep ? sectorCue[ep.id] : null;
+    if (id && !seen[id]) {
+      seen[id] = true; stop(); pending = { id: id, delay: reveal ? 0 : 4.6 };
+    }
+    if (finale) reaction = null;
+    if (running) {
+      quietTime = Math.max(0, quietTime - dt);
+      momJokeCooldown = Math.max(0, momJokeCooldown - dt);
+    }
     var cardVisible = P.el && P.el.card && P.el.card.classList.contains('on');
     if (running && pending) {
       pending.delay -= dt;
-      if (pending.delay <= 0 && (pending.id === 'victory' || !cardVisible)) {
+      if (pending.delay <= 0 && (reveal || !cardVisible)) {
         var next = pending.id; pending = null; start(next);
       }
     }
@@ -184,12 +213,13 @@ P.voice = {
           quietTime <= (reaction.priority >= 4 ? Math.max(0, lastGap - 1.25) : 0)) {
         seen[reaction.id] = true;
         heard[reaction.id] = (heard[reaction.id] || 0) + 1;
+        if (reaction.id.startsWith('mom')) momJokeCooldown = 24;
         start(reaction.id); reaction = null;
       }
     }
     if (active) {
       var cue = active, media = cue.media;
-      if (caption) caption.hidden = !running;
+      if (caption) caption.hidden = !running || cue.endingCaption;
       if (media) {
         var voiceLevel = P.sound && Number.isFinite(P.sound.settings.voice) ? Math.max(0, Math.min(1, P.sound.settings.voice)) : 1;
         // iOS can ignore programmatic volume changes. Explicit mute guarantees

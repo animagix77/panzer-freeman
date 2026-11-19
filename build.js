@@ -27,7 +27,8 @@ const parts = [
 const voiceIds = ['opening', 'salvage', 'foundry', 'citadel', 'victory',
   'counter', 'chargebreak', 'gates', 'pickup', 'streak',
   'wasp', 'ray', 'turret', 'chaser', 'carrier', 'mine', 'sentinel', 'bomber',
-  'nearmiss', 'wounded', 'hotstreak', 'decade', 'boss', 'core', 'boost', 'brake', 'momcarrier', 'momlock'];
+  'nearmiss', 'wounded', 'hotstreak', 'decade', 'boss', 'core', 'boost', 'brake', 'momcarrier', 'momlock',
+  'momgates', 'momorb', 'momreturn', 'mombomber', 'momclock', 'birthcertificate'];
 const voiceFiles = {};
 for (const id of voiceIds) {
   const name = 'voice-' + id + '.mp3';

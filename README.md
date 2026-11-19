@@ -210,13 +210,19 @@ to audition the laser, explosion and wings. The existing recorded score is retai
 A 28-voice cap and per-effect rate limits control busy volleys.
 These are original procedural effects, with no external sample licenses required.
 
-**Rider dialogue.** The rider has 28 captioned AI parody recordings. He introduces
+**Rider dialogue.** The game includes 34 captioned AI parody recordings. The rider introduces
 each sector and heckles eight enemy types, comments on close calls and hard braking,
-and has a few words for the keeper of time. Two rarer roasts reward taking down a
-marked Foundry carrier and stacking three locks on one heavy target.
+and has a few words for the keeper of time. Seven momma jokes rotate through the
+flight. Catch a time orb in the Drowned Choir, run all three canyon gates, reflect
+a shot or drop a bomber to hear some of them. The rider leaves at least 24 seconds
+between these roasts.
 Sector narration gets priority. Combat remarks leave room for the score and each
 line plays at most once per run. The pause menu has a Rider voice level. Music
 dips during speech, and pausing holds the line in place.
+
+**At the Fountain.** Defeating the Hour-Sphinx grants the rider his youth back.
+The closing scene plays with captions and can be skipped straight to the reveal.
+The flight report preserves the rank and years earned on the way there.
 
 ## Building
 
